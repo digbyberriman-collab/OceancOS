@@ -1,0 +1,564 @@
+// OceancOS schema. Portable types only — works on SQLite (dev) and Postgres (prod).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Identity & access ----------
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  archivedAt   DateTime?
+
+  roles        UserRole[]
+  sessions     Session[]
+  notifications Notification[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  key         String           @unique // e.g. "CAPTAIN"
+  name        String
+  description String?
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id    String           @id @default(cuid())
+  key   String           @unique // e.g. "change_order.approve.finance"
+  label String
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  id           String   @id @default(cuid())
+  userId       String
+  roleId       String
+  vesselId     String?
+  projectId    String?
+  departmentId String?
+  user         User     @relation(fields: [userId], references: [id])
+  role         Role     @relation(fields: [roleId], references: [id])
+  vessel       Vessel?  @relation(fields: [vesselId], references: [id])
+  project      Project? @relation(fields: [projectId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+}
+
+// ---------- Org / project ----------
+
+model Vessel {
+  id         String     @id @default(cuid())
+  name       String
+  imo        String?
+  flag       String?
+  loa        Float?
+  builtYear  Int?
+  notes      String?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  archivedAt DateTime?
+  projects   Project[]
+  areas      VesselArea[]
+  userRoles  UserRole[]
+}
+
+model Project {
+  id            String         @id @default(cuid())
+  vesselId      String
+  name          String
+  type          String         // REFIT | NEW_BUILD | CONVERSION
+  status        String         @default("ACTIVE")
+  startDate     DateTime?
+  targetEndDate DateTime?
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  archivedAt    DateTime?
+  vessel        Vessel         @relation(fields: [vesselId], references: [id])
+  changeOrders  ChangeOrder[]
+  crewRequests  CrewRequest[]
+  budgets       Budget[]
+  tasks         ScheduleTask[]
+  milestones    Milestone[]
+  logistics     LogisticsItem[]
+  drawings      Drawing[]
+  documents     Document[]
+  meetings      Meeting[]
+  risks         Risk[]
+  inventory     InventoryItem[]
+  userRoles     UserRole[]
+  approvals     Approval[]
+}
+
+model Department {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  code      String?
+  userRoles UserRole[]
+}
+
+model VesselArea {
+  id       String   @id @default(cuid())
+  vesselId String
+  name     String   // e.g. "Engine Room", "Owner's Suite"
+  code     String?
+  vessel   Vessel   @relation(fields: [vesselId], references: [id])
+}
+
+// ---------- Change orders ----------
+
+model ChangeOrder {
+  id              String   @id @default(cuid())
+  projectId       String
+  number          String   @unique // CO-0001
+  title           String
+  description     String
+  reason          String
+  departmentCode  String?
+  vesselAreaId    String?
+  status          String   @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|MORE_INFO|APPROVED|REJECTED|IN_PROGRESS|COMPLETED|CLOSED|CANCELLED
+  priority        String   @default("MEDIUM")
+  estimatedCost   Float    @default(0)
+  approvedCost    Float?
+  scheduleImpactDays Int   @default(0)
+  riskImpact      String?
+  technicalImpact String?
+  needsClassReview  Boolean @default(false)
+  needsFlagReview   Boolean @default(false)
+  createdAt       DateTime @default(now())
+  createdById     String
+  updatedAt       DateTime @updatedAt
+  updatedById     String?
+  archivedAt      DateTime?
+
+  project       Project @relation(fields: [projectId], references: [id])
+  approvals     ChangeOrderApproval[]
+  history       ChangeOrderHistory[]
+  comments      Comment[]
+  attachments   Attachment[]
+  crewRequests  CrewRequest[]
+}
+
+model ChangeOrderApproval {
+  id            String   @id @default(cuid())
+  changeOrderId String
+  stage         String   // CAPTAIN|OWNERS_REP|YARD|FINANCE|TECH_MANAGER|CLASS|FLAG
+  decision      String   @default("PENDING") // PENDING|APPROVED|REJECTED|MORE_INFO|DELEGATED
+  decidedById   String?
+  decidedAt     DateTime?
+  comment       String?
+  required      Boolean  @default(true)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+}
+
+model ChangeOrderHistory {
+  id            String   @id @default(cuid())
+  changeOrderId String
+  actorId       String
+  event         String
+  fromStatus    String?
+  toStatus      String?
+  details       String?
+  createdAt     DateTime @default(now())
+  changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Crew requests ----------
+
+model CrewRequest {
+  id              String   @id @default(cuid())
+  projectId       String
+  number          String   @unique // REQ-0001
+  title           String
+  description     String
+  category        String   // DEFECT|OPERATIONAL|SAFETY|INTERIOR|ENGINEERING|DECK|IT|PROCUREMENT|ACCOMMODATION|ACCESS|CLEANING
+  departmentCode  String?
+  vesselAreaId    String?
+  priority        String   @default("MEDIUM")
+  status          String   @default("NEW") // NEW|TRIAGED|ASSIGNED|IN_PROGRESS|BLOCKED|AWAITING_APPROVAL|COMPLETED|REJECTED|CLOSED
+  requestedById   String
+  assignedToId    String?
+  dueDate         DateTime?
+  costImpact      Float    @default(0)
+  scheduleImpactDays Int   @default(0)
+  safetyImpact    String?
+  linkedChangeOrderId String?
+  createdAt       DateTime @default(now())
+  createdById     String
+  updatedAt       DateTime @updatedAt
+  updatedById     String?
+  archivedAt      DateTime?
+
+  project          Project       @relation(fields: [projectId], references: [id])
+  linkedChangeOrder ChangeOrder? @relation(fields: [linkedChangeOrderId], references: [id])
+  comments         Comment[]
+  attachments      Attachment[]
+}
+
+// ---------- Generic approvals queue ----------
+
+model Approval {
+  id          String   @id @default(cuid())
+  projectId   String?
+  resource    String   // CHANGE_ORDER|CREW_REQUEST|PURCHASE_ORDER|DRAWING|BUDGET_CHANGE|SCHEDULE_CHANGE|ACCESS|SUBSTITUTION|VARIATION|FINAL_ACCEPTANCE
+  resourceId  String
+  stage       String
+  status      String   @default("PENDING")
+  requesterId String
+  approverId  String?
+  costImpact  Float    @default(0)
+  scheduleImpactDays Int @default(0)
+  dueDate     DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  decidedAt   DateTime?
+  project     Project? @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Financials ----------
+
+model BudgetCategory {
+  id      String  @id @default(cuid())
+  name    String  @unique
+  parentId String?
+  parent   BudgetCategory? @relation("BC", fields: [parentId], references: [id])
+  children BudgetCategory[] @relation("BC")
+  budgets  Budget[]
+}
+
+model CostCode {
+  id      String @id @default(cuid())
+  code    String @unique
+  name    String
+}
+
+model Budget {
+  id            String   @id @default(cuid())
+  projectId     String
+  categoryId    String
+  departmentCode String?
+  originalAmount Float    @default(0)
+  approvedChanges Float   @default(0)
+  pendingChanges  Float   @default(0)
+  committed       Float   @default(0)
+  actual          Float   @default(0)
+  forecastFinal   Float   @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  project       Project  @relation(fields: [projectId], references: [id])
+  category      BudgetCategory @relation(fields: [categoryId], references: [id])
+}
+
+model Supplier {
+  id        String  @id @default(cuid())
+  name      String  @unique
+  contact   String?
+  email     String?
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  archivedAt DateTime?
+  invoices  Invoice[]
+  pos       PurchaseOrder[]
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  supplierId  String
+  projectId   String?
+  amount      Float
+  status      String   @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECEIVED|CLOSED
+  description String?
+  costCodeId  String?
+  createdAt   DateTime @default(now())
+  createdById String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+}
+
+model Invoice {
+  id         String   @id @default(cuid())
+  number     String
+  supplierId String
+  poId       String?
+  amount     Float
+  status     String   @default("RECEIVED") // RECEIVED|APPROVED|REJECTED|PAID
+  dueDate    DateTime?
+  createdAt  DateTime @default(now())
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+}
+
+// ---------- Schedule ----------
+
+model ScheduleTask {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  ownerId     String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      String   @default("PLANNED") // PLANNED|IN_PROGRESS|BLOCKED|DONE|CANCELLED
+  dependsOnId String?
+  riskLevel   String   @default("LOW")
+  blockers    String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+  dependsOn   ScheduleTask? @relation("Dep", fields: [dependsOnId], references: [id])
+  blocked     ScheduleTask[] @relation("Dep")
+}
+
+model Milestone {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  date      DateTime
+  type      String   // YARD_PERIOD|SEA_TRIAL|HAT|SAT|CLASS_INSPECTION|FLAG_INSPECTION|DELIVERY|CUSTOM
+  status    String   @default("PENDING")
+  project   Project  @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Logistics ----------
+
+model LogisticsItem {
+  id          String   @id @default(cuid())
+  projectId   String
+  type        String   // CREW_TRAVEL|CONTRACTOR_TRAVEL|YARD_ACCESS|DELIVERY|SHIPMENT|CUSTOMS|COURIER|ACCOMMODATION|TRANSPORT|CRANE|DOCK|TUG|PILOT|LINESMEN|BUNKERING|WASTE|PROVISIONING|GUEST
+  whenAt      DateTime?
+  responsibleId String?
+  status      String   @default("PLANNED")
+  supplierId  String?
+  cost        Float    @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Inventory ----------
+
+model InventoryItem {
+  id           String  @id @default(cuid())
+  projectId    String?
+  name         String
+  category     String  // EQUIPMENT|SPARE|CRITICAL_SPARE|TOOL|CONSUMABLE|LSA|FFE|AV_IT|ENGINEERING|DECK|INTERIOR|GALLEY|MEDICAL|DIVE|SAFETY
+  departmentCode String?
+  location     String?
+  qty          Int     @default(0)
+  manufacturer String?
+  model        String?
+  serial       String?
+  supplierId   String?
+  warranty     String?
+  certificate  String?
+  maintenance  String?
+  replacementCost Float @default(0)
+  status       String  @default("OK") // OK|LOW|REORDER|MISSING|FAULTY|RETIRED
+  minStock     Int     @default(0)
+  reorderTrigger Int   @default(0)
+  createdAt    DateTime @default(now())
+  archivedAt   DateTime?
+  project      Project? @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Drawings & docs ----------
+
+model Drawing {
+  id        String   @id @default(cuid())
+  projectId String
+  number    String   @unique
+  title     String
+  status    String   @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|COMMENTS|REVISED|APPROVED|APPROVED_W_COMMENTS|REJECTED|SUPERSEDED|ARCHIVED
+  vesselAreaId String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+  revisions DrawingRevision[]
+}
+
+model DrawingRevision {
+  id        String   @id @default(cuid())
+  drawingId String
+  rev       String
+  fileUrl   String?
+  notes     String?
+  current   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  drawing   Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id         String   @id @default(cuid())
+  projectId  String?
+  name       String
+  type       String   // CONTRACT|SPEC|DRAWING|CERT|CLASS|FLAG|MANUAL|WARRANTY|QUOTE|INVOICE|PO|RA|MS|MINUTES|REPORT|OTHER
+  folder     String?
+  tags       String?
+  fileUrl    String?
+  ownerId    String?
+  expiresAt  DateTime?
+  reviewAt   DateTime?
+  approvalStatus String @default("DRAFT")
+  createdAt  DateTime @default(now())
+  archivedAt DateTime?
+  project    Project? @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Contractors ----------
+
+model Contractor {
+  id        String  @id @default(cuid())
+  name      String  @unique
+  trade     String?
+  contact   String?
+  email     String?
+  phone     String?
+  contractValue Float @default(0)
+  insuranceExpiresAt DateTime?
+  notes     String?
+  createdAt DateTime @default(now())
+  archivedAt DateTime?
+}
+
+// ---------- Meetings ----------
+
+model Meeting {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String
+  type      String   // OWNERS|YARD|TECH|INTERIOR|CLASS_FLAG|FINANCE|HOD|CONTRACTOR
+  meetsAt   DateTime
+  location  String?
+  agenda    String?
+  minutes   String?
+  attendees String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+  actions   MeetingAction[]
+}
+
+model MeetingAction {
+  id        String   @id @default(cuid())
+  meetingId String
+  text      String
+  ownerId   String?
+  dueDate   DateTime?
+  status    String   @default("OPEN")
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Risks ----------
+
+model Risk {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  category    String   @default("GENERAL")
+  likelihood  Int      @default(1) // 1-5
+  impact      Int      @default(1) // 1-5
+  rating      Int      @default(1) // computed = L*I
+  mitigation  String?
+  ownerId     String?
+  dueDate     DateTime?
+  status      String   @default("OPEN") // OPEN|MITIGATED|ACCEPTED|CLOSED|ESCALATED
+  costImpact  Float    @default(0)
+  scheduleImpactDays Int @default(0)
+  safetyImpact String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+// ---------- Notifications ----------
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  kind        String
+  priority    String   @default("MEDIUM")
+  title       String
+  body        String?
+  resource    String?
+  resourceId  String?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+// ---------- Comments / attachments ----------
+
+model Comment {
+  id            String   @id @default(cuid())
+  authorId      String
+  body          String
+  resource      String
+  resourceId    String
+  changeOrderId String?
+  crewRequestId String?
+  createdAt     DateTime @default(now())
+  changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
+}
+
+model Attachment {
+  id            String   @id @default(cuid())
+  uploaderId    String
+  filename      String
+  mimetype      String?
+  size          Int      @default(0)
+  url           String
+  resource      String
+  resourceId    String
+  changeOrderId String?
+  crewRequestId String?
+  createdAt     DateTime @default(now())
+  changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Audit ----------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String   // CREATE|UPDATE|DELETE|APPROVE|REJECT|STATUS|COMMENT|UPLOAD|LOGIN|LOGOUT
+  resource   String
+  resourceId String?
+  details    String?  // JSON
+  createdAt  DateTime @default(now())
+}
+
+// ---------- Settings ----------
+
+model Setting {
+  key   String @id
+  value String
+}

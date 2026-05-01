@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body { background: #070b12; color: #e7ecf5; }
+
+@layer components {
+  .surface { @apply bg-ink-900 border border-line rounded-lg; }
+  .surface-hover { @apply hover:bg-ink-800 transition-colors; }
+  .table-base { @apply w-full text-sm; }
+  .table-base th { @apply text-left text-xs uppercase tracking-wider text-muted font-medium px-3 py-2 border-b border-line; }
+  .table-base td { @apply px-3 py-2 border-b border-line/60 align-top; }
+  .table-base tr.row-hover:hover { @apply bg-ink-800/60 cursor-pointer; }
+  .input-base { @apply w-full bg-ink-950 border border-line rounded px-3 py-2 text-sm text-white placeholder:text-muted focus:outline-none focus:border-accent; }
+  .label-base { @apply block text-xs uppercase tracking-wider text-muted mb-1; }
+  .btn { @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded text-sm font-medium border border-line bg-ink-800 hover:bg-ink-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-accent border-accent text-white hover:bg-blue-500; }
+  .btn-danger { @apply btn bg-bad border-bad text-white hover:bg-red-500; }
+  .btn-ghost { @apply btn bg-transparent; }
+  .nav-link { @apply flex items-center gap-2 px-3 py-2 rounded text-sm text-muted hover:text-white hover:bg-ink-800 transition-colors; }
+  .nav-link-active { @apply text-white bg-ink-800; }
+  .stat-card { @apply surface p-4; }
+  .stat-card .stat-label { @apply text-xs uppercase tracking-wider text-muted; }
+  .stat-card .stat-value { @apply text-2xl font-semibold mt-1; }
+  .badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border; }
+  .badge-ok { @apply bg-ok/10 text-ok border-ok/30; }
+  .badge-warn { @apply bg-warn/10 text-warn border-warn/30; }
+  .badge-bad { @apply bg-bad/10 text-bad border-bad/30; }
+  .badge-info { @apply bg-accent/10 text-accent border-accent/30; }
+  .badge-muted { @apply bg-ink-800 text-muted border-line; }
+}
