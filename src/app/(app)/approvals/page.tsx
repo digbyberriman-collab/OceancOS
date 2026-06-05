@@ -6,6 +6,8 @@ import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
+import { SectionCard } from "@/components/workflow/SectionCard";
+import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -58,103 +60,223 @@ export default async function ApprovalsPage() {
     take: 50,
   });
 
+  const totalPending = myCoApprovals.length + otherCoApprovals.length + otherApprovals.length;
+
   return (
-    <>
+    <div className="animate-fade-up">
       <PageHeader
-        title="Approvals centre"
+        title="Approvals Centre"
+        eyebrow="Workflow"
         subtitle="Every item waiting on a decision, in one queue."
+        actions={
+          totalPending > 0 ? (
+            <span className="badge badge-warn tnum text-sm px-3 py-1">
+              {totalPending} pending
+            </span>
+          ) : (
+            <span className="badge badge-ok text-sm px-3 py-1">All clear</span>
+          )
+        }
       />
 
-      <section className="mb-6">
-        <h2 className="text-sm font-medium mb-2">Waiting on you</h2>
-        {myCoApprovals.length === 0 ? (
-          <EmptyState title="Nothing to action" hint="You have no pending approvals at this time." />
-        ) : (
-          <div className="surface overflow-hidden">
+      {/* ── Waiting on you ── */}
+      <section className="mb-6 animate-fade-in">
+        <SectionCard
+          title="Waiting on You"
+          headerRight={
+            myCoApprovals.length > 0 ? (
+              <span className="badge badge-warn tnum">{myCoApprovals.length}</span>
+            ) : undefined
+          }
+          noPad={myCoApprovals.length > 0}
+        >
+          {myCoApprovals.length === 0 ? (
+            <div className="flex items-center gap-3 py-2">
+              <div className="h-8 w-8 rounded-lg bg-ok/10 border border-ok/30 grid place-items-center shrink-0">
+                <CheckCircle2 size={16} className="text-ok" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">All caught up</p>
+                <p className="text-xs text-muted">You have no pending approvals at this time.</p>
+              </div>
+            </div>
+          ) : (
             <table className="table-base">
               <thead>
-                <tr><th>Stage</th><th>Change order</th><th>Status</th><th>Cost</th><th>Schedule Δ</th><th>Action</th></tr>
+                <tr>
+                  <th>Stage</th>
+                  <th>Change Order</th>
+                  <th>Status</th>
+                  <th className="text-right">Cost</th>
+                  <th className="text-right">Schedule&nbsp;Δ</th>
+                  <th>Action</th>
+                </tr>
               </thead>
               <tbody>
                 {myCoApprovals.map((a) => (
                   <tr key={a.id}>
-                    <td><Badge tone="info">{a.stage}</Badge></td>
                     <td>
-                      <Link href={`/change-orders/${a.changeOrderId}`} className="text-accent">
-                        {a.changeOrder.number} {a.changeOrder.title}
-                      </Link>
+                      <Badge tone="info">{a.stage.replace(/_/g, " ")}</Badge>
                     </td>
-                    <td><StatusBadge value={a.changeOrder.status} /></td>
-                    <td>{fmtMoney(a.changeOrder.estimatedCost)}</td>
-                    <td>{a.changeOrder.scheduleImpactDays}d</td>
+                    <td className="max-w-xs">
+                      <Link
+                        href={`/change-orders/${a.changeOrderId}`}
+                        className="text-accent hover:text-accent-bright transition-colors font-mono text-xs"
+                      >
+                        {a.changeOrder.number}
+                      </Link>
+                      <span className="ml-2 text-sm text-white line-clamp-1">{a.changeOrder.title}</span>
+                    </td>
                     <td>
-                      <form action={decideChangeOrderApproval} className="flex gap-1">
+                      <StatusBadge value={a.changeOrder.status} />
+                    </td>
+                    <td className="text-right tnum">
+                      {fmtMoney(a.changeOrder.estimatedCost)}
+                    </td>
+                    <td className="text-right tnum">
+                      {a.changeOrder.scheduleImpactDays ? (
+                        <span className="text-warn">+{a.changeOrder.scheduleImpactDays}d</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <form action={decideChangeOrderApproval} className="flex gap-1.5 flex-wrap">
                         <input type="hidden" name="approvalId" value={a.id} />
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs">Approve</button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs">Info</button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs">Reject</button>
+                        <button name="decision" value="APPROVED" className="btn-primary text-xs py-1 px-2.5">
+                          Approve
+                        </button>
+                        <button name="decision" value="MORE_INFO" className="btn text-xs py-1 px-2.5">
+                          Request Info
+                        </button>
+                        <button name="decision" value="REJECTED" className="btn-danger text-xs py-1 px-2.5">
+                          Reject
+                        </button>
                       </form>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </SectionCard>
       </section>
 
+      {/* ── Pending with other approvers ── */}
       <section className="mb-6">
-        <h2 className="text-sm font-medium mb-2">Pending with other approvers</h2>
-        {otherCoApprovals.length === 0 ? (
-          <p className="text-sm text-muted">Nothing pending elsewhere.</p>
-        ) : (
-          <div className="surface overflow-hidden">
+        <SectionCard
+          title="Pending with Other Approvers"
+          headerRight={
+            otherCoApprovals.length > 0 ? (
+              <span className="badge badge-muted tnum">{otherCoApprovals.length}</span>
+            ) : undefined
+          }
+          noPad={otherCoApprovals.length > 0}
+        >
+          {otherCoApprovals.length === 0 ? (
+            <p className="text-sm text-muted py-1">Nothing pending with other approvers.</p>
+          ) : (
             <table className="table-base">
               <thead>
-                <tr><th>Stage</th><th>Change order</th><th>Status</th><th>Cost</th><th>Created</th></tr>
+                <tr>
+                  <th>Stage</th>
+                  <th>Change Order</th>
+                  <th>Status</th>
+                  <th className="text-right">Cost</th>
+                  <th className="text-right">Raised</th>
+                </tr>
               </thead>
               <tbody>
                 {otherCoApprovals.map((a) => (
                   <tr key={a.id}>
-                    <td><Badge tone="muted">{a.stage}</Badge></td>
-                    <td><Link href={`/change-orders/${a.changeOrderId}`} className="text-accent">{a.changeOrder.number} {a.changeOrder.title}</Link></td>
-                    <td><StatusBadge value={a.changeOrder.status} /></td>
-                    <td>{fmtMoney(a.changeOrder.estimatedCost)}</td>
-                    <td>{fmtDate(a.createdAt)}</td>
+                    <td>
+                      <Badge tone="muted">{a.stage.replace(/_/g, " ")}</Badge>
+                    </td>
+                    <td className="max-w-xs">
+                      <Link
+                        href={`/change-orders/${a.changeOrderId}`}
+                        className="text-accent hover:text-accent-bright transition-colors font-mono text-xs"
+                      >
+                        {a.changeOrder.number}
+                      </Link>
+                      <span className="ml-2 text-sm text-white line-clamp-1">{a.changeOrder.title}</span>
+                    </td>
+                    <td>
+                      <StatusBadge value={a.changeOrder.status} />
+                    </td>
+                    <td className="text-right tnum">
+                      {fmtMoney(a.changeOrder.estimatedCost)}
+                    </td>
+                    <td className="text-right tnum text-muted text-xs">
+                      {fmtDate(a.createdAt)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </SectionCard>
       </section>
 
+      {/* ── Other approvals ── */}
       <section>
-        <h2 className="text-sm font-medium mb-2">Other approvals (POs, drawings, schedule, access…)</h2>
-        {otherApprovals.length === 0 ? (
-          <p className="text-sm text-muted">No other approvals pending.</p>
-        ) : (
-          <div className="surface overflow-hidden">
+        <SectionCard
+          title="Other Approvals (POs, Drawings, Schedule, Access…)"
+          headerRight={
+            otherApprovals.length > 0 ? (
+              <span className="badge badge-muted tnum">{otherApprovals.length}</span>
+            ) : undefined
+          }
+          noPad={otherApprovals.length > 0}
+        >
+          {otherApprovals.length === 0 ? (
+            <div className="flex items-center gap-3 py-2">
+              <div className="h-8 w-8 rounded-lg bg-ok/10 border border-ok/30 grid place-items-center shrink-0">
+                <ClipboardCheck size={16} className="text-ok" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">No other approvals pending</p>
+                <p className="text-xs text-muted">Purchase orders, drawings, and other items will appear here.</p>
+              </div>
+            </div>
+          ) : (
             <table className="table-base">
               <thead>
-                <tr><th>Resource</th><th>Stage</th><th>Cost Δ</th><th>Schedule Δ</th><th>Due</th><th>Notes</th></tr>
+                <tr>
+                  <th>Resource</th>
+                  <th>Stage</th>
+                  <th className="text-right">Cost&nbsp;Δ</th>
+                  <th className="text-right">Schedule&nbsp;Δ</th>
+                  <th className="text-right">Due</th>
+                  <th>Notes</th>
+                </tr>
               </thead>
               <tbody>
                 {otherApprovals.map((a) => (
                   <tr key={a.id}>
-                    <td>{a.resource}</td>
-                    <td><Badge tone="muted">{a.stage}</Badge></td>
-                    <td>{fmtMoney(a.costImpact)}</td>
-                    <td>{a.scheduleImpactDays}d</td>
-                    <td>{fmtDate(a.dueDate)}</td>
-                    <td className="text-muted">{a.notes ?? "—"}</td>
+                    <td className="font-medium">{a.resource}</td>
+                    <td>
+                      <Badge tone="muted">{a.stage}</Badge>
+                    </td>
+                    <td className="text-right tnum">{fmtMoney(a.costImpact)}</td>
+                    <td className="text-right tnum">
+                      {a.scheduleImpactDays ? (
+                        <span className="text-warn">+{a.scheduleImpactDays}d</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td className="text-right tnum text-xs text-muted">{fmtDate(a.dueDate)}</td>
+                    <td className="text-muted text-xs max-w-xs">
+                      <span className="line-clamp-1">{a.notes ?? "—"}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </SectionCard>
       </section>
-    </>
+    </div>
   );
 }
