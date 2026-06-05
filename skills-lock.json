@@ -13,6 +13,12 @@
       "skillPath": "skills/fixing-motion-performance/SKILL.md",
       "computedHash": "426dcf33f23419643f2aab71e2253e1a5b5684a808fabb8a4ad135e489ed7a0f"
     },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "16180e7175cb29ef050926233b8514d7323294156890e1f1b17024ba8d9dab71"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",
