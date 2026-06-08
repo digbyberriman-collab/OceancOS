@@ -7,12 +7,24 @@ import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
 import { fmtMoney, fmtDateTime } from "@/lib/utils";
+import { SectionCard } from "@/components/workflow/SectionCard";
+import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import {
   transitionChangeOrder,
   decideChangeOrderApproval,
   addChangeOrderComment,
 } from "../actions";
 import type { CoApprovalStage } from "@/lib/enums";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  XCircle,
+  Info,
+  Clock,
+  MessageSquare,
+  History,
+  GitMerge,
+} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -54,14 +66,14 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
 
   const transitionsForStatus: Record<string, { to: string; label: string; perm?: string }[]> = {
     DRAFT: [
-      { to: "SUBMITTED", label: "Submit for review", perm: PERMISSIONS.CO_SUBMIT },
+      { to: "SUBMITTED", label: "Submit for Review", perm: PERMISSIONS.CO_SUBMIT },
       { to: "CANCELLED", label: "Cancel", perm: PERMISSIONS.CO_CANCEL },
     ],
-    SUBMITTED: [{ to: "UNDER_REVIEW", label: "Move to review" }],
+    SUBMITTED: [{ to: "UNDER_REVIEW", label: "Move to Review" }],
     UNDER_REVIEW: [],
-    MORE_INFO: [{ to: "UNDER_REVIEW", label: "Resume review" }],
-    APPROVED: [{ to: "IN_PROGRESS", label: "Start work" }, { to: "CANCELLED", label: "Cancel" }],
-    IN_PROGRESS: [{ to: "COMPLETED", label: "Mark completed" }],
+    MORE_INFO: [{ to: "UNDER_REVIEW", label: "Resume Review" }],
+    APPROVED: [{ to: "IN_PROGRESS", label: "Start Work" }, { to: "CANCELLED", label: "Cancel" }],
+    IN_PROGRESS: [{ to: "COMPLETED", label: "Mark Completed" }],
     COMPLETED: [{ to: "CLOSED", label: "Close" }],
     REJECTED: [{ to: "DRAFT", label: "Revise" }],
     CLOSED: [],
@@ -73,143 +85,294 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
   );
 
   return (
-    <>
-      <PageHeader
-        title={`${co.number} — ${co.title}`}
-        subtitle={`${co.project.vessel.name} · ${co.project.name}`}
-        actions={
-          <>
-            <StatusBadge value={co.status} />
-            <PriorityBadge value={co.priority} />
-          </>
-        }
-      />
+    <div className="animate-fade-up">
+      {/* ── Page header ── */}
+      <div className="mb-6">
+        <Link
+          href="/change-orders"
+          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-white transition-colors mb-4"
+        >
+          <ArrowLeft size={13} />
+          Change Orders
+        </Link>
+        <PageHeader
+          title={`${co.number} — ${co.title}`}
+          subtitle={`${co.project.vessel.name} · ${co.project.name}`}
+          actions={
+            <>
+              <StatusBadge value={co.status} />
+              <PriorityBadge value={co.priority} />
+            </>
+          }
+        />
+      </div>
 
+      {/* ── Main grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <div className="surface p-4 lg:col-span-2">
-          <h2 className="text-sm font-medium mb-3">Detail</h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <Row label="Description"><span className="whitespace-pre-wrap">{co.description}</span></Row>
-            <Row label="Reason"><span className="whitespace-pre-wrap">{co.reason}</span></Row>
-            <Row label="Department">{co.departmentCode ?? "—"}</Row>
-            <Row label="Estimated cost">{fmtMoney(co.estimatedCost)}</Row>
-            <Row label="Approved cost">{fmtMoney(co.approvedCost)}</Row>
-            <Row label="Schedule impact">{co.scheduleImpactDays || 0} days</Row>
-            <Row label="Risk impact"><span className="whitespace-pre-wrap">{co.riskImpact ?? "—"}</span></Row>
-            <Row label="Technical impact"><span className="whitespace-pre-wrap">{co.technicalImpact ?? "—"}</span></Row>
-            <Row label="Class review">{co.needsClassReview ? "Required" : "Not required"}</Row>
-            <Row label="Flag review">{co.needsFlagReview ? "Required" : "Not required"}</Row>
-            <Row label="Created">{fmtDateTime(co.createdAt)} by {usersMap.get(co.createdById) ?? "—"}</Row>
-          </dl>
+        {/* Detail card */}
+        <div className="lg:col-span-2 space-y-4">
+          <SectionCard title="Change Details">
+            <DefGrid>
+              <DefRow label="Description" span2>
+                <span className="whitespace-pre-wrap">{co.description}</span>
+              </DefRow>
+              <DefRow label="Reason for Change" span2>
+                <span className="whitespace-pre-wrap">{co.reason}</span>
+              </DefRow>
+              <DefRow label="Department">{co.departmentCode ?? "—"}</DefRow>
+              <DefRow label="Estimated Cost">
+                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost)}</span>
+              </DefRow>
+              <DefRow label="Approved Cost">
+                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost)}</span>
+              </DefRow>
+              <DefRow label="Schedule Impact">
+                {co.scheduleImpactDays ? (
+                  <span className={cn("tnum font-medium", co.scheduleImpactDays > 0 ? "text-warn" : "text-ok")}>
+                    {co.scheduleImpactDays > 0 ? "+" : ""}{co.scheduleImpactDays} days
+                  </span>
+                ) : (
+                  <span className="text-muted">No impact</span>
+                )}
+              </DefRow>
+            </DefGrid>
+          </SectionCard>
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            {allowedTransitions.map((t) => (
-              <form key={t.to} action={async () => { "use server"; await transitionChangeOrder(co.id, t.to); }}>
-                <button className={t.to === "CANCELLED" || t.to === "REJECTED" ? "btn-danger" : "btn-primary"}>
-                  {t.label}
-                </button>
-              </form>
-            ))}
-            {allowedTransitions.length === 0 && (
-              <p className="text-sm text-muted">No status changes available to you in the current state.</p>
-            )}
-          </div>
+          <SectionCard title="Impact Assessment">
+            <DefGrid>
+              <DefRow label="Risk Impact" span2>
+                <span className="whitespace-pre-wrap">{co.riskImpact ?? "—"}</span>
+              </DefRow>
+              <DefRow label="Technical Impact" span2>
+                <span className="whitespace-pre-wrap">{co.technicalImpact ?? "—"}</span>
+              </DefRow>
+              <DefRow label="Class Review">
+                {co.needsClassReview ? (
+                  <span className="badge badge-warn">Required</span>
+                ) : (
+                  <span className="text-muted">Not required</span>
+                )}
+              </DefRow>
+              <DefRow label="Flag Review">
+                {co.needsFlagReview ? (
+                  <span className="badge badge-warn">Required</span>
+                ) : (
+                  <span className="text-muted">Not required</span>
+                )}
+              </DefRow>
+            </DefGrid>
+          </SectionCard>
+
+          <SectionCard title="Metadata">
+            <DefGrid>
+              <DefRow label="Created">
+                <span className="tnum">{fmtDateTime(co.createdAt)}</span>
+                <span className="text-muted"> by {usersMap.get(co.createdById) ?? "—"}</span>
+              </DefRow>
+            </DefGrid>
+          </SectionCard>
+
+          {/* Workflow actions */}
+          {allowedTransitions.length > 0 && (
+            <SectionCard title="Workflow Actions">
+              <div className="flex flex-wrap gap-2">
+                {allowedTransitions.map((t) => (
+                  <form key={t.to} action={async () => { "use server"; await transitionChangeOrder(co.id, t.to); }}>
+                    <button className={t.to === "CANCELLED" || t.to === "REJECTED" ? "btn-danger" : "btn-primary"}>
+                      {t.label}
+                    </button>
+                  </form>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+          {allowedTransitions.length === 0 && (
+            <p className="text-sm text-muted px-1">No status changes available to you in the current state.</p>
+          )}
         </div>
 
-        <div className="surface p-4">
-          <h2 className="text-sm font-medium mb-3">Approval chain</h2>
-          <ol className="space-y-3">
+        {/* Approval chain */}
+        <SectionCard title="Approval Chain">
+          <ol className="space-y-4">
             {co.approvals.map((a, i) => {
               const canDecide =
                 a.decision === "PENDING" &&
                 hasPermission(user, STAGE_PERMISSION[a.stage] as any) &&
                 ["UNDER_REVIEW", "SUBMITTED", "MORE_INFO"].includes(co.status);
+
+              const decisionIcon =
+                a.decision === "APPROVED" ? (
+                  <CheckCircle2 size={14} className="text-ok shrink-0 mt-0.5" />
+                ) : a.decision === "REJECTED" ? (
+                  <XCircle size={14} className="text-bad shrink-0 mt-0.5" />
+                ) : a.decision === "MORE_INFO" ? (
+                  <Info size={14} className="text-warn shrink-0 mt-0.5" />
+                ) : (
+                  <Clock size={14} className="text-muted shrink-0 mt-0.5" />
+                );
+
               return (
-                <li key={a.id} className="border-l-2 border-line pl-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-medium">{i + 1}. {a.stage}</div>
-                    <Badge tone={a.decision === "APPROVED" ? "ok" : a.decision === "REJECTED" ? "bad" : a.decision === "MORE_INFO" ? "warn" : "muted"}>
+                <li key={a.id} className="relative pl-4 border-l-2 border-line">
+                  {/* Step connector dot */}
+                  <span
+                    className={cn(
+                      "absolute -left-[5px] top-1 w-2 h-2 rounded-full border",
+                      a.decision === "APPROVED"
+                        ? "bg-ok border-ok/50"
+                        : a.decision === "REJECTED"
+                        ? "bg-bad border-bad/50"
+                        : a.decision === "MORE_INFO"
+                        ? "bg-warn border-warn/50"
+                        : "bg-ink-700 border-line-strong"
+                    )}
+                  />
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-1.5 min-w-0">
+                      {decisionIcon}
+                      <span className="text-sm font-medium text-white leading-tight">
+                        {i + 1}. {a.stage.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    <Badge
+                      tone={
+                        a.decision === "APPROVED"
+                          ? "ok"
+                          : a.decision === "REJECTED"
+                          ? "bad"
+                          : a.decision === "MORE_INFO"
+                          ? "warn"
+                          : "muted"
+                      }
+                    >
                       {a.decision}
                     </Badge>
                   </div>
                   {a.decidedAt && (
-                    <div className="text-xs text-muted mt-0.5">
+                    <div className="text-xs text-muted mt-1">
                       {usersMap.get(a.decidedById ?? "") ?? "—"} · {fmtDateTime(a.decidedAt)}
                     </div>
                   )}
-                  {a.comment && <div className="text-xs mt-1 whitespace-pre-wrap">{a.comment}</div>}
+                  {a.comment && (
+                    <div className="text-xs mt-1.5 text-muted whitespace-pre-wrap bg-ink-850/50 rounded-lg px-2.5 py-2 border border-line-soft">
+                      {a.comment}
+                    </div>
+                  )}
                   {canDecide && (
-                    <form action={decideChangeOrderApproval} className="mt-2 space-y-2">
+                    <form action={decideChangeOrderApproval} className="mt-3 space-y-2">
                       <input type="hidden" name="approvalId" value={a.id} />
-                      <textarea name="comment" placeholder="Comment (optional)" className="input-base text-xs" />
+                      <textarea
+                        name="comment"
+                        placeholder="Comment (optional)…"
+                        className="input-base text-xs min-h-[64px]"
+                      />
                       <div className="flex gap-2">
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs">Approve</button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs">Request info</button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs">Reject</button>
+                        <button name="decision" value="APPROVED" className="btn-primary text-xs">
+                          Approve
+                        </button>
+                        <button name="decision" value="MORE_INFO" className="btn text-xs">
+                          Request Info
+                        </button>
+                        <button name="decision" value="REJECTED" className="btn-danger text-xs">
+                          Reject
+                        </button>
                       </div>
                     </form>
                   )}
                 </li>
               );
             })}
+            {co.approvals.length === 0 && (
+              <li className="text-sm text-muted">No approval stages configured.</li>
+            )}
           </ol>
-        </div>
+        </SectionCard>
       </div>
 
+      {/* ── Comments + History ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="surface p-4">
-          <h2 className="text-sm font-medium mb-3">Comments</h2>
-          <div className="space-y-3 mb-4 max-h-72 overflow-y-auto">
-            {co.comments.length === 0 && <p className="text-sm text-muted">No comments yet.</p>}
+        <SectionCard
+          title="Comments"
+          headerRight={
+            co.comments.length > 0 ? (
+              <span className="badge badge-muted tnum">{co.comments.length}</span>
+            ) : undefined
+          }
+        >
+          <div className="space-y-3 mb-5 max-h-72 overflow-y-auto">
+            {co.comments.length === 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted py-2">
+                <MessageSquare size={14} />
+                No comments yet.
+              </div>
+            )}
             {co.comments.map((c) => (
-              <div key={c.id} className="text-sm">
-                <div className="text-xs text-muted">
-                  {usersMap.get(c.authorId) ?? "—"} · {fmtDateTime(c.createdAt)}
+              <div key={c.id} className="text-sm bg-ink-850/40 rounded-lg px-3 py-2.5 border border-line-soft">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-medium text-white text-xs">
+                    {usersMap.get(c.authorId) ?? "—"}
+                  </span>
+                  <span className="text-xs text-muted tnum">{fmtDateTime(c.createdAt)}</span>
                 </div>
-                <div className="whitespace-pre-wrap">{c.body}</div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed">{c.body}</div>
               </div>
             ))}
           </div>
           <form action={addChangeOrderComment} className="space-y-2">
             <input type="hidden" name="id" value={co.id} />
             <Field label="Add a comment">
-              <Textarea name="body" required />
+              <Textarea name="body" required placeholder="Write a comment…" />
             </Field>
-            <button className="btn-primary">Post comment</button>
+            <button className="btn-primary">Post Comment</button>
           </form>
-        </div>
+        </SectionCard>
 
-        <div className="surface p-4">
-          <h2 className="text-sm font-medium mb-3">History</h2>
-          <ul className="space-y-2 text-sm max-h-96 overflow-y-auto">
+        <SectionCard title="History">
+          <ul className="space-y-3 max-h-96 overflow-y-auto">
+            {co.history.length === 0 && (
+              <li className="flex items-center gap-2 text-sm text-muted py-2">
+                <History size={14} />
+                No history yet.
+              </li>
+            )}
             {co.history.map((h) => (
-              <li key={h.id} className="flex flex-col gap-0.5">
-                <div className="text-xs text-muted">
-                  {fmtDateTime(h.createdAt)} · {usersMap.get(h.actorId) ?? "—"}
+              <li key={h.id} className="flex gap-3 text-sm">
+                <div className="shrink-0 mt-1">
+                  <div className="h-1.5 w-1.5 rounded-full bg-accent/60 mt-1" />
                 </div>
-                <div>
-                  <span className="font-medium">{h.event}</span>
-                  {h.fromStatus && h.toStatus && <> {h.fromStatus} → {h.toStatus}</>}
-                  {h.details && <span className="text-muted"> — {h.details}</span>}
+                <div className="min-w-0">
+                  <div className="text-xs text-muted tnum">
+                    {fmtDateTime(h.createdAt)} · {usersMap.get(h.actorId) ?? "—"}
+                  </div>
+                  <div className="mt-0.5">
+                    <span className="font-medium">{h.event}</span>
+                    {h.fromStatus && h.toStatus && (
+                      <span className="text-muted">
+                        {" "}
+                        <span className="text-faint">{h.fromStatus}</span>
+                        {" → "}
+                        <span className="text-white">{h.toStatus}</span>
+                      </span>
+                    )}
+                    {h.details && <span className="text-muted"> — {h.details}</span>}
+                  </div>
                 </div>
               </li>
             ))}
           </ul>
-        </div>
+        </SectionCard>
       </div>
 
-      <div className="mt-4 flex justify-end">
-        <Link href="/change-orders" className="btn-ghost">← Back</Link>
+      {/* ── Footer nav ── */}
+      <div className="mt-6 flex justify-between items-center">
+        <Link href="/change-orders" className="btn-ghost">
+          <ArrowLeft size={14} />
+          Back to Change Orders
+        </Link>
       </div>
-    </>
+    </div>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wider text-muted">{label}</dt>
-      <dd className="mt-0.5 text-white">{children}</dd>
-    </div>
-  );
+function cn(...classes: (string | boolean | undefined | null)[]) {
+  return classes.filter(Boolean).join(" ");
 }
