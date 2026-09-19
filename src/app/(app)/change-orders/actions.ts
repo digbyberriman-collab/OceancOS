@@ -8,17 +8,12 @@ import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
-import type { CoApprovalStage } from "@/lib/enums";
-
-const STAGE_PERMISSION: Record<CoApprovalStage, string> = {
-  CAPTAIN: PERMISSIONS.CO_APPROVE_CAPTAIN,
-  OWNERS_REP: PERMISSIONS.CO_APPROVE_OWNERS_REP,
-  YARD: PERMISSIONS.CO_APPROVE_YARD,
-  FINANCE: PERMISSIONS.CO_APPROVE_FINANCE,
-  TECH_MANAGER: PERMISSIONS.CO_APPROVE_TECH,
-  CLASS: PERMISSIONS.CO_APPROVE_CLASS,
-  FLAG: PERMISSIONS.CO_APPROVE_FLAG,
-};
+import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import {
+  CO_STAGE_PERMISSION as STAGE_PERMISSION,
+  assertTransitionChangeOrder,
+  permissionForTransition,
+} from "@/lib/workflow/changeOrder";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -70,27 +65,9 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   if (!co) throw new Error("Change order not found");
 
   const target = ChangeOrderStatusSchema.parse(toStatus);
-  // Permission: who can move it where
-  if (target === "SUBMITTED") assertPermission(user, PERMISSIONS.CO_SUBMIT);
-  else if (target === "CANCELLED") assertPermission(user, PERMISSIONS.CO_CANCEL);
-  else assertPermission(user, PERMISSIONS.CO_EDIT);
-
-  // Legal transitions
-  const legal: Record<string, string[]> = {
-    DRAFT: ["SUBMITTED", "CANCELLED"],
-    SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "CANCELLED"],
-    UNDER_REVIEW: ["MORE_INFO", "APPROVED", "REJECTED"],
-    MORE_INFO: ["UNDER_REVIEW", "CANCELLED"],
-    APPROVED: ["IN_PROGRESS", "CANCELLED"],
-    IN_PROGRESS: ["COMPLETED", "CANCELLED"],
-    COMPLETED: ["CLOSED"],
-    CLOSED: [],
-    REJECTED: ["DRAFT"],
-    CANCELLED: [],
-  };
-  if (!legal[co.status]?.includes(target)) {
-    throw new Error(`Illegal transition ${co.status} → ${target}`);
-  }
+  // Who can move it where — see lib/workflow/changeOrder.ts
+  assertPermission(user, permissionForTransition(target));
+  assertTransitionChangeOrder(co.status as ChangeOrderStatus, target);
 
   await prisma.$transaction([
     prisma.changeOrder.update({

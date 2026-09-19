@@ -10,3 +10,9 @@ uploads
 
 # build artifacts
 tsconfig.tsbuildinfo
+
+# test artifacts
+test-results
+playwright-report
+.playwright
+prisma/ci.db

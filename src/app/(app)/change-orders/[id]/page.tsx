@@ -14,7 +14,11 @@ import {
   decideChangeOrderApproval,
   addChangeOrderComment,
 } from "../actions";
-import type { CoApprovalStage } from "@/lib/enums";
+import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import {
+  CO_STAGE_PERMISSION as STAGE_PERMISSION,
+  changeOrderActions,
+} from "@/lib/workflow/changeOrder";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -27,16 +31,6 @@ import {
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-
-const STAGE_PERMISSION: Record<string, string> = {
-  CAPTAIN: PERMISSIONS.CO_APPROVE_CAPTAIN,
-  OWNERS_REP: PERMISSIONS.CO_APPROVE_OWNERS_REP,
-  YARD: PERMISSIONS.CO_APPROVE_YARD,
-  FINANCE: PERMISSIONS.CO_APPROVE_FINANCE,
-  TECH_MANAGER: PERMISSIONS.CO_APPROVE_TECH,
-  CLASS: PERMISSIONS.CO_APPROVE_CLASS,
-  FLAG: PERMISSIONS.CO_APPROVE_FLAG,
-};
 
 export default async function ChangeOrderDetail({ params }: { params: { id: string } }) {
   const user = await requireUser();
@@ -64,24 +58,8 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
     (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
   );
 
-  const transitionsForStatus: Record<string, { to: string; label: string; perm?: string }[]> = {
-    DRAFT: [
-      { to: "SUBMITTED", label: "Submit for Review", perm: PERMISSIONS.CO_SUBMIT },
-      { to: "CANCELLED", label: "Cancel", perm: PERMISSIONS.CO_CANCEL },
-    ],
-    SUBMITTED: [{ to: "UNDER_REVIEW", label: "Move to Review" }],
-    UNDER_REVIEW: [],
-    MORE_INFO: [{ to: "UNDER_REVIEW", label: "Resume Review" }],
-    APPROVED: [{ to: "IN_PROGRESS", label: "Start Work" }, { to: "CANCELLED", label: "Cancel" }],
-    IN_PROGRESS: [{ to: "COMPLETED", label: "Mark Completed" }],
-    COMPLETED: [{ to: "CLOSED", label: "Close" }],
-    REJECTED: [{ to: "DRAFT", label: "Revise" }],
-    CLOSED: [],
-    CANCELLED: [],
-  };
-
-  const allowedTransitions = (transitionsForStatus[co.status] ?? []).filter((t) =>
-    t.perm ? hasPermission(user, t.perm as any) : hasPermission(user, PERMISSIONS.CO_EDIT)
+  const allowedTransitions = changeOrderActions(co.status as ChangeOrderStatus).filter((t) =>
+    hasPermission(user, t.permission)
   );
 
   return (
@@ -178,7 +156,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
               <div className="flex flex-wrap gap-2">
                 {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionChangeOrder(co.id, t.to); }}>
-                    <button className={t.to === "CANCELLED" || t.to === "REJECTED" ? "btn-danger" : "btn-primary"}>
+                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}
                     </button>
                   </form>
@@ -197,7 +175,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             {co.approvals.map((a, i) => {
               const canDecide =
                 a.decision === "PENDING" &&
-                hasPermission(user, STAGE_PERMISSION[a.stage] as any) &&
+                hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
                 ["UNDER_REVIEW", "SUBMITTED", "MORE_INFO"].includes(co.status);
 
               const decisionIcon =

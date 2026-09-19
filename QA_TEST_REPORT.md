@@ -1,10 +1,15 @@
 # OceancOS — QA Test Report
 
-This QA pass was performed in a build-from-scratch context (the repository was
-empty when work started, see `PROJECT_REVIEW_AND_BUILD_PLAN.md`). I authored the
-codebase in this single session and could not run `npm install` / `npx prisma
-generate` / `next build` in the sandbox, so the toolchain has not been executed.
-Operator should expect to run:
+> **Update, 2026-09-19.** The caveat below is closed. The toolchain has since been
+> run end to end and an automated test suite exists: 49 Vitest unit tests and 6
+> Playwright end-to-end tests, both wired into CI. See "Automated tests" below and
+> §9 of `BRIDGE_ALIGNMENT_PLAN.md`. The manual checklist is kept as a regression
+> reference for the areas the automated tests do not yet reach.
+
+This QA pass was originally performed in a build-from-scratch context (the
+repository was empty when work started, see `PROJECT_REVIEW_AND_BUILD_PLAN.md`).
+The codebase was authored in a single session without running `npm install` /
+`npx prisma generate` / `next build`. Operator should expect to run:
 
 ```bash
 cp .env.example .env
@@ -83,11 +88,43 @@ npm run dev    # manual UI QA per the checklist below
 - [ ] Lists users with their assigned role keys.
 - [ ] Audit log table renders newest 50.
 
+## Automated tests
+
+| Command | What it covers | Count |
+|---|---|---|
+| `npm test` | Vitest unit tests: change-order state machine, project metrics formulas, RBAC matrix | 49 |
+| `npm run test:e2e` | Playwright in a real browser: auth, project switcher, permission gating | 6 |
+| `npm run qa` | Read-only database integrity checks against the seeded data | 17 |
+
+All three run in `.github/workflows/ci.yml` alongside `tsc --noEmit` and `next build`.
+
+**Unit tests** (`tests/`):
+- `changeOrderWorkflow.test.ts` — every status is mapped, no status transitions to
+  itself, terminal statuses are sealed, the documented happy path is legal, a closed
+  order cannot reopen, review cannot be skipped, and the UI never offers a button for
+  a transition the server would reject.
+- `projectMetrics.test.ts` — the two Bridge Home formulas, including clamping past
+  100% after an overrun, nulls rather than zeroes for missing dates, and value
+  weighting that a zero-value job cannot distort.
+- `rbac.test.ts` — no unknown or duplicated grants, crew cannot reach financials, the
+  auditor holds nothing that writes, confidential documents reach exactly three roles,
+  every approval stage has at least one holder, and no single role holds the whole chain.
+
+**End-to-end tests** (`e2e/shell.spec.ts`): anonymous visitors are redirected, a wrong
+password grants nothing, a project manager can sign in and out, the project switcher
+lists both seeded projects and remembers the choice across navigation, and financials
+are hidden from crew but visible to a project manager.
+
+**Not yet covered by automated tests:** the change-order and crew-request creation and
+approval flows, notifications, search, and admin. These remain on the manual checklist
+above and are the next targets as Phase 1 lands.
+
 ## Scripted QA
 
 `npm run qa` runs `scripts/qa.ts`, which executes read-only DB integrity checks:
 seed counts, role-permission link presence, change-order approval chain length,
-crew request assignment, milestone presence, risk rating computation. It exits
+crew request assignment, milestone presence, risk rating computation, and (added
+2026-09-19) project code uniqueness plus yard-period date ordering. It exits
 non-zero on any failure so it can be wired into CI.
 
 ## Bugs found and fixed during build
@@ -110,8 +147,9 @@ non-zero on any failure so it can be wired into CI.
   forms — drawings and documents currently expect an external URL.
 - Bulk approve, drawing markup, and Gantt rendering are not built.
 - Email notifications: stub present, real SMTP transport not wired.
-- No automated unit/integration test framework (no Vitest/Jest/Playwright). The
-  scripted `qa.ts` covers DB invariants but not UI flows.
+- ~~No automated unit/integration test framework.~~ Resolved 2026-09-19: Vitest and
+  Playwright are in place and run in CI. Coverage is still partial — see "Not yet
+  covered by automated tests" above.
 
 ## Recommended next steps
 

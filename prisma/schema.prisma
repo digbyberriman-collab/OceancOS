@@ -31,7 +31,10 @@ model Session {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+  // Project the user is currently working in — drives the header switcher.
+  activeProjectId String?
   user      User     @relation(fields: [userId], references: [id])
+  activeProject Project? @relation("ActiveSessions", fields: [activeProjectId], references: [id])
 }
 
 model Role {
@@ -94,10 +97,19 @@ model Project {
   id            String         @id @default(cuid())
   vesselId      String
   name          String
+  // Short project code shown in the header, e.g. "R-00721".
+  code          String?        @unique
   type          String         // REFIT | NEW_BUILD | CONVERSION
   status        String         @default("ACTIVE")
   startDate     DateTime?
   targetEndDate DateTime?
+  // Yard period — drives the Home timing cards and the time-progress ring.
+  yardName      String?
+  arrivalDate   DateTime?
+  haulOutDate   DateTime?
+  seaTrialsDate DateTime?
+  departureDate DateTime?
+  currency      String         @default("EUR")
   notes         String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -116,6 +128,7 @@ model Project {
   inventory     InventoryItem[]
   userRoles     UserRole[]
   approvals     Approval[]
+  activeSessions Session[]     @relation("ActiveSessions")
 }
 
 model Department {

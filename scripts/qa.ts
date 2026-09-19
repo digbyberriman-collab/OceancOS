@@ -51,6 +51,29 @@ async function main() {
   const risk = await prisma.risk.findFirst();
   assert(risk == null || risk.rating === risk.likelihood * risk.impact, "risk rating == L*I");
 
+  // 8. project context: codes, yard period, and more than one project to switch between
+  const projects = await prisma.project.findMany({ where: { archivedAt: null } });
+  assert(projects.length >= 2, `projects available to switch between (${projects.length})`);
+  assert(
+    projects.every((p) => !!p.code),
+    `every project has a code (${projects.filter((p) => !p.code).map((p) => p.name).join(", ") || "all set"})`
+  );
+  const codes = projects.map((p) => p.code);
+  assert(new Set(codes).size === codes.length, "project codes are unique");
+
+  const primary = await prisma.project.findUnique({ where: { id: "p1" } });
+  assert(!!primary?.arrivalDate && !!primary?.departureDate, "primary project has a yard period");
+  assert(
+    !primary?.arrivalDate || !primary?.departureDate || primary.arrivalDate < primary.departureDate,
+    "yard period arrival precedes departure"
+  );
+  assert(
+    !primary?.haulOutDate ||
+      !primary?.arrivalDate ||
+      primary.haulOutDate >= primary.arrivalDate,
+    "haul out falls on or after arrival"
+  );
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }

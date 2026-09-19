@@ -48,16 +48,59 @@ async function main() {
     create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, builtYear: 2018 },
   });
 
+  // Yard period for the primary project. These dates drive the Home timing
+  // cards and the time-progress ring, so they are set on update too.
+  const projectYardPeriod = {
+    code: "R-00721",
+    yardName: "MB92 La Ciotat",
+    currency: "EUR",
+    startDate: new Date("2026-03-01"),
+    targetEndDate: new Date("2026-09-30"),
+    arrivalDate: new Date("2026-03-01"),
+    haulOutDate: new Date("2026-03-08"),
+    seaTrialsDate: new Date("2026-09-12"),
+    departureDate: new Date("2026-09-30"),
+  };
+
   const project = await prisma.project.upsert({
     where: { id: "p1" },
-    update: {},
+    update: projectYardPeriod,
     create: {
       id: "p1",
       vesselId: vessel.id,
       name: "2026 Refit",
       type: "REFIT",
-      startDate: new Date("2026-03-01"),
-      targetEndDate: new Date("2026-09-30"),
+      ...projectYardPeriod,
+    },
+  });
+
+  // A second vessel and project so the header project switcher is exercised.
+  const vessel2 = await prisma.vessel.upsert({
+    where: { id: "v2" },
+    update: {},
+    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, builtYear: 2012 },
+  });
+
+  const project2YardPeriod = {
+    code: "R-00806",
+    yardName: "Amico & Co",
+    currency: "EUR",
+    startDate: new Date("2026-10-05"),
+    targetEndDate: new Date("2027-02-20"),
+    arrivalDate: new Date("2026-10-05"),
+    haulOutDate: new Date("2026-10-12"),
+    departureDate: new Date("2027-02-20"),
+  };
+
+  await prisma.project.upsert({
+    where: { id: "p2" },
+    update: project2YardPeriod,
+    create: {
+      id: "p2",
+      vesselId: vessel2.id,
+      name: "Winter Maintenance Period",
+      type: "REFIT",
+      ...project2YardPeriod,
     },
   });
 
