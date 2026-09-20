@@ -5,17 +5,17 @@ node_modules
 *.log
 prisma/dev.db
 prisma/dev.db-journal
-uploads
+/uploads
 .DS_Store
 
 # build artifacts
 tsconfig.tsbuildinfo
 
 # test artifacts
-test-results
-playwright-report
-.playwright
+/test-results
+/playwright-report
+/.playwright
 prisma/ci.db
 
 # mail outbox (development transport)
-.mail
+/.mail
