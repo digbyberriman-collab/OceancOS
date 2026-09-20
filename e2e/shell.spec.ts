@@ -77,3 +77,117 @@ test.describe("permissions", () => {
     await expect(page.getByText(/forbidden/i)).toHaveCount(0);
   });
 });
+
+test.describe("uploads", () => {
+  test("refuses to sign an upload for an anonymous visitor", async ({ request }) => {
+    const res = await request.post("/api/uploads/sign", {
+      data: {
+        projectId: "p1",
+        resource: "Job",
+        resourceId: "j1",
+        filename: "x.pdf",
+        contentType: "application/pdf",
+        size: 10,
+      },
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test("signs, stores and serves a file back", async ({ page }) => {
+    await signIn(page, PM);
+
+    // The whole round trip runs in the browser so the session cookie is used
+    // exactly as a real upload would use it.
+    const result = await page.evaluate(async () => {
+      const body = "hello from the yard";
+      const signRes = await fetch("/api/uploads/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "p1",
+          resource: "Job",
+          resourceId: "j1",
+          filename: "Survey report.pdf",
+          contentType: "application/pdf",
+          size: body.length,
+        }),
+      });
+      if (!signRes.ok) return { step: "sign", status: signRes.status };
+
+      const signed = await signRes.json();
+      const putRes = await fetch(signed.url, {
+        method: "PUT",
+        headers: signed.headers,
+        body,
+      });
+      if (!putRes.ok) return { step: "put", status: putRes.status, key: signed.key };
+
+      const getRes = await fetch(`/api/uploads/local?key=${encodeURIComponent(signed.key)}`);
+      return {
+        step: "done",
+        status: getRes.status,
+        key: signed.key,
+        text: await getRes.text(),
+      };
+    });
+
+    expect(result.step).toBe("done");
+    expect(result.status).toBe(200);
+    expect(result.text).toBe("hello from the yard");
+    // Keys are namespaced by project and resource, with the filename sanitised.
+    expect(result.key).toMatch(/^projects\/p1\/Job\/j1\/[a-f0-9]{16}-survey-report\.pdf$/);
+  });
+
+  test("rejects a disallowed file type", async ({ page }) => {
+    await signIn(page, PM);
+    const status = await page.evaluate(async () => {
+      const res = await fetch("/api/uploads/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "p1",
+          resource: "Job",
+          resourceId: "j1",
+          filename: "payload.sh",
+          contentType: "application/x-sh",
+          size: 10,
+        }),
+      });
+      return res.status;
+    });
+    expect(status).toBe(415);
+  });
+
+  test("rejects an upload to a project the user cannot reach", async ({ page }) => {
+    await signIn(page, PM);
+    const status = await page.evaluate(async () => {
+      const res = await fetch("/api/uploads/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: "does-not-exist",
+          resource: "Job",
+          resourceId: "j1",
+          filename: "x.pdf",
+          contentType: "application/pdf",
+          size: 10,
+        }),
+      });
+      return res.status;
+    });
+    expect(status).toBe(403);
+  });
+
+  test("rejects a local upload with a forged token", async ({ page }) => {
+    await signIn(page, PM);
+    const status = await page.evaluate(async () => {
+      const expires = Math.floor(Date.now() / 1000) + 600;
+      const url = `/api/uploads/local?key=${encodeURIComponent(
+        "projects/p1/Job/j1/aaaaaaaaaaaaaaaa-x.pdf"
+      )}&expires=${expires}&token=${"0".repeat(32)}`;
+      const res = await fetch(url, { method: "PUT", body: "nope" });
+      return res.status;
+    });
+    expect(status).toBe(403);
+  });
+});

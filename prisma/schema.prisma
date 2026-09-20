@@ -547,7 +547,10 @@ model Attachment {
   filename      String
   mimetype      String?
   size          Int      @default(0)
-  url           String
+  // Object key in the storage bucket. `url` stays for externally hosted files
+  // recorded before object storage existed.
+  storageKey    String?
+  url           String?
   resource      String
   resourceId    String
   changeOrderId String?

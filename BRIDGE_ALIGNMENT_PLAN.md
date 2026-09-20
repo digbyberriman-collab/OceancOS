@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** the plan is being worked. Phase 0.1–0.3 are built and verified and 0.4 is
-partial; everything from 0.5 onwards is still design. See §9 for the progress log.
+**Status of this document:** the plan is being worked. Phase 0.1–0.3 and 0.5 are built and verified, 0.4 is
+partial, and 0.6–0.8 are still design. See §9 for the progress log.
 
 ---
 
@@ -616,7 +616,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: 0.1–0.4 built and verified; 0.5–0.8 outstanding.** See §9 for what landed.
+**Status: 0.1–0.3 and 0.5 built and verified; 0.4 partial; 0.6–0.8 outstanding.** See §9 for what landed.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
@@ -624,7 +624,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 | 0.2 ✅ | Add Vitest for server actions + Playwright for the two golden flows (login, accept a quote). | `vitest.config.ts`, `tests/` | `npm test` exists and runs in CI |
 | 0.3 ✅ | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
 | 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
-| 0.5 ◻ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
+| 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
 | 0.6 ◻ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
 | 0.7 ◻ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
 | 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
@@ -749,15 +749,17 @@ Only after Phases 0–11. Ranked by value to the owner's team:
 
 ---
 
-## 7. Decisions needed from you before Phase 1
+## 7. Decisions
+
+**Still open — these gate Phase 1 design.**
 
 1. **Positioning** — confirm §3.1: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
 2. **Code system** — adopt the MB92-style `X.NNNN.NN` codes as the default, configurable per project? Or a simpler `SECTION-###` scheme?
 3. **Second factor for Accept** — email code (no new vendor) or SMS from day one (needs Twilio or similar)?
-4. **Storage provider** — Cloudflare R2, AWS S3, or a self-hosted MinIO on your VPS?
-5. **PDF strategy** — React-PDF (pure Node, simpler hosting) or Playwright print-to-PDF (pixel-faithful to the on-screen quote)?
+4. **Storage provider** — ✅ **Cloudflare R2**, decided 2026-09-20. S3-compatible, no egress fees. The driver is provider-agnostic, so AWS S3 or MinIO need only different env values.
+5. **PDF strategy** — ✅ **Playwright print-to-PDF**, decided 2026-09-20. The PDF renders the real quote page, so there is no second layout to drift. Playwright is already a dependency. The production image needs Chromium.
 6. **Database** — move to Postgres in Phase 0 rather than later? Multi-tenant is out of scope here, but the JSON-in-string columns (`invoicingTerms`, `projectIds`) would be proper `Json` columns on Postgres.
-7. **Design tokens** — keep OceancOS's `ink/line/accent/marine` system, or align to the STORM `Abyss/Deep/Slate/Drift/Signal` tokens now so the two products share a design system?
+7. **Design tokens** — ✅ **Keep the OceancOS `ink/line/accent/marine` system**, decided 2026-09-20. No restyling of what is already built; charts inherit today's palette. Aligning to STORM stays open as a later, separate piece of work.
 
 ---
 
@@ -840,3 +842,37 @@ period, and ordering of arrival, haul out and departure.
 
 **Still blocking Phase 1**: the seven decisions in §7. Storage provider (4) and PDF strategy (5)
 block Phase 0.5 and 0.8 specifically; the rest block Phase 1 design choices.
+
+### 2026-09-20 — Decisions taken, Phase 0.5 complete
+
+**Decisions.** Storage is Cloudflare R2, PDFs are Playwright print-to-PDF, and the design system stays on
+the existing OceancOS tokens. Recorded against §7 items 4, 5 and 7. Items 1, 2, 3 and 6 remain open and
+gate Phase 1.
+
+**0.5 File storage**
+- `src/lib/storage/` with two drivers behind one interface: `s3` for any S3-compatible service (R2 is the
+  configured provider; AWS S3 and MinIO differ only in env values) and `local`, which writes under
+  `./uploads` so development and CI run with no cloud credentials.
+- Uploads are presigned, so the browser sends files straight to storage and large drawings never pass
+  through the Next.js server.
+- `POST /api/uploads/sign` is where every authorisation decision lives: signed-in session, access to the
+  named project, content-type allowlist and size ceiling. It refuses anonymous callers with 401, a
+  disallowed type with 415, an oversized file with 413 and an unreachable project with 403.
+- `src/lib/storage/keys.ts` holds the key rules as pure functions. Keys are namespaced
+  `projects/<id>/<resource>/<id>/<random>-<safe-filename>` so a project's media can be listed or expired as
+  a unit, and a random segment stops one upload overwriting another of the same name. Hostile filenames and
+  identifiers cannot escape the prefix.
+- `Attachment.storageKey` added; `url` becomes optional so externally hosted records still validate.
+- `<FileDrop>` client component: drag-and-drop, per-file progress and errors, a size cap, and hidden inputs
+  so a surrounding server-action form receives the uploaded keys without a client state library. It is
+  wired into forms as Phase 1 builds them.
+- `.env.example` documents every storage variable, including the R2 endpoint shape.
+
+**Tests.** 18 new unit tests on the key rules (traversal, hostile filenames, long names, the type
+allowlist) and 5 new end-to-end tests that round-trip a real file through sign, PUT and GET, plus the
+401/415/403 refusals and a forged local-upload token. Totals are now **67 unit** and **11 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 67 unit tests pass, build succeeds with both new routes, 11 end-to-end
+tests pass.
+
+**Next**: 0.6 email and password reset, 0.7 charts, 0.8 PDF and XLSX export.
