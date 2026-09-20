@@ -17,6 +17,13 @@ import { fmtDate, fmtMoney } from "@/lib/utils";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { BudgetSummary } from "@/components/dashboard/BudgetSummary";
 import { Panel } from "@/components/dashboard/Panel";
+import { Donut } from "@/components/charts/Donut";
+import { ProgressRings } from "@/components/charts/ProgressRings";
+import { StepArea } from "@/components/charts/StepArea";
+import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
+import { cumulativeByDate } from "@/lib/charts/geometry";
+import { projectTiming } from "@/lib/metrics/project";
+import { getActiveProject } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +69,77 @@ export default async function DashboardPage() {
   });
 
   const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
+
+  // ---- Charts -------------------------------------------------------------
+  const activeProject = await getActiveProject(user.id);
+
+  const changeOrders = await prisma.changeOrder.findMany({
+    where: activeProject ? { projectId: activeProject.id } : undefined,
+    select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Statuses are states, so they wear the status colours rather than arbitrary
+  // series hues, and cancelled work is deliberately recessive.
+  const STATUS_GROUPS: { label: string; colour: string; statuses: string[] }[] = [
+    { label: "Draft and submitted", colour: SERIES.new, statuses: ["DRAFT", "SUBMITTED"] },
+    { label: "Awaiting decision", colour: SERIES.pending, statuses: ["UNDER_REVIEW", "MORE_INFO"] },
+    { label: "Approved and in progress", colour: SERIES.accepted, statuses: ["APPROVED", "IN_PROGRESS", "COMPLETED", "CLOSED"] },
+    { label: "Rejected or cancelled", colour: DE_EMPHASIS, statuses: ["REJECTED", "CANCELLED"] },
+  ];
+
+  const statusSlices = STATUS_GROUPS.map((group) => ({
+    label: group.label,
+    color: group.colour,
+    value: changeOrders.filter((co) => group.statuses.includes(co.status)).length,
+  })).filter((slice) => slice.value > 0);
+
+  // Work done is value-weighted: a large job barely started must not be
+  // outranked by a small finished one. Until the yard reports a percentage per
+  // job (Phase 1), completion is inferred from the change-order status.
+  const COMPLETION_BY_STATUS: Record<string, number> = {
+    COMPLETED: 100, CLOSED: 100, IN_PROGRESS: 50, APPROVED: 10,
+  };
+  const committed = changeOrders.filter((co) => co.approvedCost != null);
+  const workPct = committed.length
+    ? Math.round(
+        committed.reduce((sum, co) => sum + (COMPLETION_BY_STATUS[co.status] ?? 0) * (co.approvedCost ?? 0), 0) /
+          Math.max(1, committed.reduce((sum, co) => sum + (co.approvedCost ?? 0), 0))
+      )
+    : null;
+
+  const timing = projectTiming({
+    arrivalDate: activeProject?.arrivalDate,
+    departureDate: activeProject?.departureDate,
+  });
+
+  // Cumulative value over time, split by whether the money is still a proposal
+  // or has been approved. This is the shape the yard quote history takes in
+  // Phase 4, on the data that exists today.
+  const PENDING_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "MORE_INFO"];
+  const APPROVED_STATUSES = ["APPROVED", "IN_PROGRESS", "COMPLETED", "CLOSED"];
+  const valueSeries = [
+    {
+      key: "pending",
+      label: "Awaiting approval",
+      color: SERIES.pending,
+      points: cumulativeByDate(
+        changeOrders
+          .filter((co) => PENDING_STATUSES.includes(co.status))
+          .map((co) => ({ at: co.createdAt, amount: co.estimatedCost }))
+      ),
+    },
+    {
+      key: "approved",
+      label: "Approved",
+      color: SERIES.accepted,
+      points: cumulativeByDate(
+        changeOrders
+          .filter((co) => APPROVED_STATUSES.includes(co.status))
+          .map((co) => ({ at: co.createdAt, amount: co.approvedCost ?? co.estimatedCost }))
+      ),
+    },
+  ];
 
   return (
     <>
@@ -137,6 +215,38 @@ export default async function DashboardPage() {
           )}
         </Panel>
       </div>
+
+      {/* Charts */}
+      <div
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2 mb-6 animate-fade-up"
+        style={{ animationDelay: "90ms" }}
+      >
+        <Panel title="Change orders by status" link={{ href: "/change-orders", label: "All change orders" }}>
+          <Donut slices={statusSlices} centreLabel="change orders" format="count" />
+        </Panel>
+
+        <Panel title="Progress against the yard period">
+          {activeProject?.arrivalDate && activeProject?.departureDate ? (
+            <ProgressRings workPct={workPct} timePct={timing.timePct} />
+          ) : (
+            <p className="text-sm text-muted">
+              Set arrival and departure dates on the project to track progress against the clock.
+            </p>
+          )}
+        </Panel>
+      </div>
+
+      {canViewFinancials && (
+        <div className="mb-6 animate-fade-up" style={{ animationDelay: "150ms" }}>
+          <Panel title="Cumulative change-order value">
+            <StepArea
+              series={valueSeries}
+              format="compactMoney"
+              currency={activeProject?.currency ?? "EUR"}
+            />
+          </Panel>
+        </div>
+      )}
 
       {/* Approvals + risks */}
       <div

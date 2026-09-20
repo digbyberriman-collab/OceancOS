@@ -191,3 +191,31 @@ test.describe("uploads", () => {
     expect(status).toBe(403);
   });
 });
+
+test.describe("dashboard charts", () => {
+  test("renders the status donut, the progress rings and the value chart", async ({ page }) => {
+    await signIn(page, PM);
+
+    // Donut: seeded change orders, with the count in the centre and a legend
+    // so identity never rests on colour alone.
+    const donut = page.getByRole("img", { name: /draft and submitted/i });
+    await expect(donut).toBeVisible();
+    await expect(page.getByText("change orders", { exact: true })).toBeVisible();
+    // exact, because the SVG's accessible title repeats every label.
+    await expect(page.getByText("Approved and in progress", { exact: true })).toBeVisible();
+
+    // Progress rings: work against the yard period.
+    await expect(page.getByRole("img", { name: /work .* per cent complete/i })).toBeVisible();
+    await expect(page.getByText("Time elapsed")).toBeVisible();
+
+    // Step area with its table view, so every value is reachable without a mouse.
+    await expect(page.getByText("Cumulative change-order value")).toBeVisible();
+    await page.getByText("View as table").click();
+    await expect(page.getByRole("columnheader", { name: "Approved" })).toBeVisible();
+  });
+
+  test("hides the value chart from a user without financial access", async ({ page }) => {
+    await signIn(page, CREW);
+    await expect(page.getByText("Cumulative change-order value")).toHaveCount(0);
+  });
+});

@@ -203,6 +203,74 @@ async function main() {
     });
   }
 
+  // A spread of change orders across the yard period, so the dashboard charts,
+  // the approvals queue and the list filters all have realistic data to show.
+  const captain = await prisma.user.findUnique({ where: { email: "captain@oceancos.dev" } });
+  if (pm) {
+    const stages = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"] as const;
+    const extraChangeOrders: {
+      number: string;
+      title: string;
+      description: string;
+      reason: string;
+      departmentCode: string;
+      priority: string;
+      estimatedCost: number;
+      scheduleImpactDays: number;
+      status: string;
+      daysAfterArrival: number;
+      approvedStages: number;
+    }[] = [
+      { number: "CO-0002", title: "Tender garage door seal renewal", description: "Renew perished seals on the tender garage door and re-test for watertightness.", reason: "Water ingress found during arrival survey.", departmentCode: "DECK", priority: "HIGH", estimatedCost: 24_500, scheduleImpactDays: 2, status: "APPROVED", daysAfterArrival: 6, approvedStages: 5 },
+      { number: "CO-0003", title: "Main engine exhaust lagging", description: "Strip and replace exhaust lagging on both main engines.", reason: "Class observation raised at arrival inspection.", departmentCode: "ENGINEERING", priority: "CRITICAL", estimatedCost: 61_000, scheduleImpactDays: 6, status: "IN_PROGRESS", daysAfterArrival: 12, approvedStages: 5 },
+      { number: "CO-0004", title: "Sundeck teak caulking", description: "Rake out and re-caulk sundeck teak, approximately 180 square metres.", reason: "Caulking failure across the aft sundeck.", departmentCode: "DECK", priority: "MEDIUM", estimatedCost: 87_500, scheduleImpactDays: 9, status: "IN_PROGRESS", daysAfterArrival: 21, approvedStages: 5 },
+      { number: "CO-0005", title: "Bridge AV head unit replacement", description: "Replace the failed bridge AV head unit and re-commission the distribution.", reason: "Unit failed and is beyond economic repair.", departmentCode: "IT_AV", priority: "HIGH", estimatedCost: 18_900, scheduleImpactDays: 1, status: "COMPLETED", daysAfterArrival: 28, approvedStages: 5 },
+      { number: "CO-0006", title: "Guest bathroom marble repolish", description: "Repolish marble in four guest bathrooms and reseal.", reason: "Etching from cleaning products during charter.", departmentCode: "INTERIOR", priority: "LOW", estimatedCost: 12_400, scheduleImpactDays: 3, status: "UNDER_REVIEW", daysAfterArrival: 40, approvedStages: 2 },
+      { number: "CO-0007", title: "Stabiliser fin bearing overhaul", description: "Withdraw both stabiliser fins and overhaul the bearings.", reason: "Play detected beyond maker tolerance.", departmentCode: "ENGINEERING", priority: "CRITICAL", estimatedCost: 132_000, scheduleImpactDays: 14, status: "UNDER_REVIEW", daysAfterArrival: 47, approvedStages: 3 },
+      { number: "CO-0008", title: "Crew mess seating refresh", description: "Reupholster crew mess banquette seating.", reason: "Wear beyond acceptable condition.", departmentCode: "INTERIOR", priority: "LOW", estimatedCost: 7_800, scheduleImpactDays: 2, status: "REJECTED", daysAfterArrival: 55, approvedStages: 1 },
+      { number: "CO-0009", title: "Anchor chain re-galvanising", description: "Land both anchor chains, re-galvanise and re-mark.", reason: "Coating loss through the working length.", departmentCode: "DECK", priority: "MEDIUM", estimatedCost: 34_600, scheduleImpactDays: 5, status: "SUBMITTED", daysAfterArrival: 62, approvedStages: 0 },
+      { number: "CO-0010", title: "Fire damper servicing", description: "Service and certify all fire dampers throughout the machinery spaces.", reason: "Due under the planned maintenance schedule.", departmentCode: "ENGINEERING", priority: "HIGH", estimatedCost: 15_200, scheduleImpactDays: 2, status: "DRAFT", daysAfterArrival: 70, approvedStages: 0 },
+      { number: "CO-0011", title: "Passerelle motor replacement", description: "Replace the passerelle drive motor and controller.", reason: "Intermittent failure under load.", departmentCode: "DECK", priority: "MEDIUM", estimatedCost: 28_300, scheduleImpactDays: 3, status: "CANCELLED", daysAfterArrival: 76, approvedStages: 0 },
+    ];
+
+    const arrival = projectYardPeriod.arrivalDate;
+    for (const co of extraChangeOrders) {
+      const exists = await prisma.changeOrder.findUnique({ where: { number: co.number } });
+      if (exists) continue;
+
+      const createdAt = new Date(arrival.getTime() + co.daysAfterArrival * 24 * 60 * 60 * 1000);
+      const { daysAfterArrival, approvedStages, ...fields } = co;
+
+      await prisma.changeOrder.create({
+        data: {
+          ...fields,
+          projectId: project.id,
+          createdAt,
+          createdById: pm.id,
+          updatedById: pm.id,
+          approvedCost: co.status === "APPROVED" || co.status === "IN_PROGRESS" || co.status === "COMPLETED" ? co.estimatedCost : null,
+          approvals: {
+            create: stages.map((stage, idx) => ({
+              stage,
+              order: idx,
+              decision:
+                idx < approvedStages
+                  ? co.status === "REJECTED" && idx === approvedStages - 1
+                    ? "REJECTED"
+                    : "APPROVED"
+                  : "PENDING",
+              decidedById: idx < approvedStages ? (captain?.id ?? pm.id) : null,
+              decidedAt: idx < approvedStages ? createdAt : null,
+            })),
+          },
+          history: {
+            create: { actorId: pm.id, event: "CREATED", toStatus: co.status, createdAt },
+          },
+        },
+      });
+    }
+  }
+
   // Sample crew request
   const crew = await prisma.user.findUnique({ where: { email: "crew@oceancos.dev" } });
   const eng = await prisma.user.findUnique({ where: { email: "eng@oceancos.dev" } });

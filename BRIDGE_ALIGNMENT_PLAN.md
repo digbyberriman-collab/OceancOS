@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** the plan is being worked. Phase 0.1–0.3, 0.5 and 0.6 are built and verified,
-0.4 is partial, and 0.7–0.8 are still design. See §9 for the progress log.
+**Status of this document:** the plan is being worked. Phase 0.1–0.3 and 0.5–0.7 are built and verified,
+0.4 is partial, and only 0.8 is still design. See §9 for the progress log.
 
 ---
 
@@ -616,7 +616,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: 0.1–0.3, 0.5 and 0.6 built and verified; 0.4 partial; 0.7–0.8 outstanding.** See §9 for what landed.
+**Status: 0.1–0.3 and 0.5–0.7 built and verified; 0.4 partial; only 0.8 outstanding.** See §9 for what landed.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
@@ -626,7 +626,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 | 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
 | 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
 | 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
-| 0.7 ◻ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
+| 0.7 ✅ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
 | 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
 
 ### Phase 1 — Jobs & Quotes core  · size L
@@ -915,3 +915,60 @@ each other's email. Each test now requests its own reset and polls for the messa
 tests pass.
 
 **Next**: 0.7 charts on the existing tokens, 0.8 Playwright print-to-PDF and XLSX export.
+
+### 2026-09-20 — Phase 0.7 complete: charts
+
+Built as inline SVG rather than Recharts. These three forms are arcs and step paths, so a charting
+library would add bundle weight and fight the mark specs (2px surface gaps, surface-ringed markers,
+a crosshair that reports the *held* value) rather than help. The geometry lives in
+`src/lib/charts/geometry.ts` as pure functions and is unit-tested on its own.
+
+**The palette was computed, not chosen.** Running the colour validator against the OceancOS tokens
+changed the design twice:
+
+1. The obvious pairing of `warn` amber with `ok` green **fails** colour-vision separation at ΔE 5.7
+   under protanopia. A red-green colourblind reader could not reliably tell pending from accepted.
+   Stepping green down to a deep emerald clears it at ΔE 11.0.
+2. Cyan `marine` against blue `accent` **fails** even the normal-vision floor, at ΔE 7.9. Work and
+   time progress therefore use emphasis — work in the accent hue, time in a recessive neutral —
+   which is also the more honest form, since time is the benchmark work is measured against rather
+   than a peer series.
+
+The UI tokens are also too light for chart fills on the dark surface (`warn` sits at OKLCH L 0.769,
+`ok` at 0.723, both outside the 0.48–0.67 band), so each hue is held and stepped down for chart use.
+Every verdict is recorded in `src/components/charts/palette.ts` with the command to re-run.
+
+**Components** (`src/components/charts/`)
+- `Donut` — part-to-whole with a centre figure. Slices past a cap fold into "Other" rather than
+  taking new hues. Separation is a gap in the surface colour, never a stroke.
+- `ProgressRings` — work against time as two concentric meters, plus a plain-language reading of
+  whether the project is ahead of or behind the clock.
+- `StepArea` — cumulative value over time. Steps rather than a smooth line, because cumulative money
+  changes on the day it changes and holds flat between; a smooth line would invent movement. One
+  shared y-axis, a crosshair reporting the held value, and a table view so nothing is gated behind
+  hovering.
+
+**Wired to real data** on the dashboard: change orders by status, progress against the yard period,
+and cumulative change-order value split by whether the money is still a proposal. The value chart is
+gated on the financial permission. The seed grew from one change order to eleven spread across the
+yard period, which also gives the list filters and the approvals queue something realistic.
+
+**Four defects were found by rendering it and looking**, which no type check would have caught:
+- A function passed from a server component to a client component crashed the page at runtime.
+  Formatting now travels as a serialisable descriptor.
+- The approved series stopped mid-chart instead of holding flat to the right edge, reading as missing
+  data rather than a plateau.
+- The top gridline rendered off-canvas above the plot. The axis now ends on a labelled tick.
+- A fixed pixel height with a viewBox made the plot scale to fit both axes and sit centred, leaving
+  wide gutters. It now scales uniformly to the container width.
+
+Two unit tests also caught real bugs in the tick algorithm: it skipped the natural 25-step, and the
+axis could stop below the data.
+
+**Tests**: 33 new unit tests on the chart geometry and 2 new end-to-end tests. Totals are now
+**119 unit** and **19 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 119 unit tests pass, build succeeds, 19 end-to-end tests pass,
+and the rendered dashboard was inspected as a screenshot.
+
+**Next**: 0.8, Playwright print-to-PDF and XLSX export — the last Phase 0 item.
