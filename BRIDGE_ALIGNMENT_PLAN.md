@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** the plan is being worked. Phase 0.1–0.3 and 0.5–0.7 are built and verified,
-0.4 is partial, and only 0.8 is still design. See §9 for the progress log.
+**Status of this document:** Phase 0 is complete apart from one admin form; Phase 1 onwards is still
+design. See §9 for the progress log.
 
 ---
 
@@ -616,7 +616,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: 0.1–0.3 and 0.5–0.7 built and verified; 0.4 partial; only 0.8 outstanding.** See §9 for what landed.
+**Status: complete apart from 0.4's admin form.** Every other step is built and verified. See §9.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
@@ -627,7 +627,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 | 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
 | 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
 | 0.7 ✅ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
-| 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
+| 0.8 ✅ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
 
 ### Phase 1 — Jobs & Quotes core  · size L
 
@@ -972,3 +972,63 @@ axis could stop below the data.
 and the rendered dashboard was inspected as a screenshot.
 
 **Next**: 0.8, Playwright print-to-PDF and XLSX export — the last Phase 0 item.
+
+### 2026-09-20 — Phase 0.8 complete: exports. Phase 0 closed.
+
+**PDF** (`src/lib/export/pdf.ts`). Per §7 item 5, the PDF is the real page printed rather than a second
+layout, so a change order cannot drift between what the client reads on screen and what they file, and
+there is one template to maintain. `/print/change-orders/[id]` is that page, deliberately ink-on-paper
+rather than the app's dark theme: a dark page wastes toner and reads badly once filed.
+
+- The renderer carries the caller's own session cookie, so it can never see more than the caller would.
+- One browser per process, reused across requests, since launching Chromium costs about a second.
+- A host with no browser gets a plain 503 naming the two environment variables that fix it, not a stack
+  trace from inside Playwright.
+- `playwright-core` and `exceljs` are marked as server-external in `next.config.js`. Webpack otherwise
+  tries to bundle Playwright's optional native modules and the build fails.
+
+**Spreadsheet** (`src/lib/export/xlsx.ts`, `src/lib/export/table.ts`). The Bridge offers a spreadsheet
+beside every list because the client's finance team works in Excel. Values are written **typed**, with
+number formats applied, so the recipient can sum and pivot them rather than receiving pre-formatted
+strings Excel cannot add up. Header row frozen, auto-filter on, totals where they make sense.
+
+The rows and columns of an export are decided in `table.ts` as pure data, so what a spreadsheet contains
+is testable without building a workbook. CSV comes free from the same shape.
+
+**Permissions hold through the export.** Cost columns are dropped for a user without financial access,
+and a user who cannot view change orders is refused outright, so an export can never become a way around
+the permission model. A test asserts both.
+
+**Reachable from the UI**: a Spreadsheet button on the change-order list and a PDF button on the detail
+page.
+
+**Tests**: 20 new unit tests on the export shapes, escaping and filenames, and 5 new end-to-end tests
+that download a real workbook (checked for the zip signature), verify the print view, and confirm the
+PDF route returns a genuine `%PDF-` document — 40KB in practice — or says clearly that the host has no
+browser. CI now resolves Chromium's path so the PDF branch is exercised there too.
+
+Totals are now **139 unit** and **24 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 139 unit tests pass, build succeeds with all three new routes, 24
+end-to-end tests pass, and a real PDF was produced and inspected.
+
+---
+
+## Phase 0 is closed
+
+| Step | State |
+|---|---|
+| 0.1 CI and the Next.js security bump | Done |
+| 0.2 Vitest and Playwright | Done |
+| 0.3 Project context and switcher | Done |
+| 0.4 Project yard-period fields | Schema, seed and metrics done; **admin form outstanding** |
+| 0.5 File storage on R2 | Done |
+| 0.6 Email and password reset | Done |
+| 0.7 Charts | Done |
+| 0.8 PDF and spreadsheet export | Done |
+
+The project began this work with no tests, no CI, an unpatched security advisory and a toolchain that had
+never been run. It now has 139 unit tests, 24 end-to-end tests and a green pipeline.
+
+**Phase 1 is blocked on §7 items 1, 2, 3 and 6**: positioning, the job code scheme, the second factor on
+Accept, and whether to move to Postgres now.

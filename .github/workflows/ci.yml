@@ -61,6 +61,13 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      # The PDF export launches Chromium from the Next.js server, so the server
+      # needs to know where that binary is. Without this the export route
+      # correctly reports 503 and the test takes its fallback branch.
+      - name: Locate Chromium for the PDF renderer
+        run: |
+          echo "PLAYWRIGHT_CHROMIUM_PATH=$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" >> "$GITHUB_ENV"
+
       - name: Build and seed
         run: |
           npx prisma generate

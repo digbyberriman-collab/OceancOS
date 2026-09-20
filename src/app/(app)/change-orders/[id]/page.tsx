@@ -28,6 +28,7 @@ import {
   MessageSquare,
   History,
   GitMerge,
+  Printer,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -80,6 +81,15 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             <>
               <StatusBadge value={co.status} />
               <PriorityBadge value={co.priority} />
+              <a
+                href={`/api/export/change-orders/${co.id}`}
+                className="btn"
+                target="_blank"
+                rel="noopener"
+              >
+                <Printer size={14} />
+                PDF
+              </a>
             </>
           }
         />
