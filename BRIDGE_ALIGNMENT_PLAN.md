@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** Phase 0 is complete apart from one admin form; Phase 1 onwards is still
-design. See §9 for the progress log.
+**Status of this document:** Phase 0 is complete. Phase 1 onwards is still design, and blocked on the
+four open decisions in §7. See §9 for the progress log.
 
 ---
 
@@ -616,14 +616,14 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: complete apart from 0.4's admin form.** Every other step is built and verified. See §9.
+**Status: complete.** Every step is built and verified. See §9.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
 | 0.1 ✅ | Toolchain is verified (see §8). Add a CI workflow running `npm ci`, `prisma generate`, `tsc`, `next build`, `qa`; bump `next` to a patched 14.2.x. | `.github/workflows/ci.yml`, `package.json` | CI green on the branch |
 | 0.2 ✅ | Add Vitest for server actions + Playwright for the two golden flows (login, accept a quote). | `vitest.config.ts`, `tests/` | `npm test` exists and runs in CI |
 | 0.3 ✅ | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
-| 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
+| 0.4 ✅ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
 | 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
 | 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
 | 0.7 ✅ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
@@ -1021,14 +1021,47 @@ end-to-end tests pass, and a real PDF was produced and inspected.
 | 0.1 CI and the Next.js security bump | Done |
 | 0.2 Vitest and Playwright | Done |
 | 0.3 Project context and switcher | Done |
-| 0.4 Project yard-period fields | Schema, seed and metrics done; **admin form outstanding** |
+| 0.4 Project yard-period fields | Done |
 | 0.5 File storage on R2 | Done |
 | 0.6 Email and password reset | Done |
 | 0.7 Charts | Done |
 | 0.8 PDF and spreadsheet export | Done |
 
 The project began this work with no tests, no CI, an unpatched security advisory and a toolchain that had
-never been run. It now has 139 unit tests, 24 end-to-end tests and a green pipeline.
+never been run. It now has 160 unit tests, 29 end-to-end tests and a green pipeline.
 
 **Phase 1 is blocked on §7 items 1, 2, 3 and 6**: positioning, the job code scheme, the second factor on
 Accept, and whether to move to Postgres now.
+
+### 2026-09-20 — Phase 0.4 finished: project administration
+
+The last outstanding Phase 0 item. The yard-period dates existed in the schema and the seed but could
+only be changed in the database.
+
+- `/admin/projects` lists every project and edits its code, yard, currency and the four yard-period
+  dates. The form shows **what those dates currently produce** — onsite days, started, finishes, time
+  elapsed — so a mistake is obvious on the form rather than later on the dashboard.
+- `src/lib/projectDates.ts` holds the rules as pure functions. An out-of-order period is rejected rather
+  than stored, because these dates drive the timing cards and the progress ring: a nonsensical period
+  does not look odd, it makes the project's headline figures wrong. Every date stays optional, since a
+  project may be booked before the detail is known.
+- A duplicate project code is reported rather than thrown, and codes are normalised to upper case so
+  casing drift cannot create near-duplicates of the same project.
+
+**A gap found on the way.** `admin.users`, `admin.roles` and `admin.settings` are defined in the
+permission matrix but granted to **no role**, so the existing admin page is reachable only through
+`audit.view`. Rather than widen those, editing a yard period is project-management work, so it takes a
+new `project.edit` permission granted to the project manager and the owner's representative. The unused
+admin permissions remain a loose end worth closing when Phase 11 builds the profile and settings pages.
+
+The sidebar's active-link rule also needed fixing: it matched by prefix, so `/admin` stayed lit while
+`/admin/projects` was open. An entry that is a prefix of another now matches exactly.
+
+**Tests**: 21 new unit tests on the date rules, parsing and code normalisation, and 5 new end-to-end
+tests covering the permission gate, the rejected out-of-order period with nothing stored, the duplicate
+code, and a save that the header switcher then reads. Totals are now **160 unit** and **29 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 160 unit tests pass, build succeeds, 17 QA checks pass, 29
+end-to-end tests pass.
+
+**Phase 0 is now complete.** Phase 1 is blocked on §7 items 1, 2, 3 and 6.
