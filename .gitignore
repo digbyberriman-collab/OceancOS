@@ -16,3 +16,6 @@ test-results
 playwright-report
 .playwright
 prisma/ci.db
+
+# mail outbox (development transport)
+.mail

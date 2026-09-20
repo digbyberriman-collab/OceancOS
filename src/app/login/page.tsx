@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { getCurrentUser, createSession, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { LoginSchema } from "@/lib/validators";
@@ -25,9 +26,14 @@ async function login(formData: FormData) {
   redirect("/dashboard");
 }
 
-export default async function LoginPage({ searchParams }: { searchParams: { err?: string } }) {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: { err?: string; reset?: string };
+}) {
   if (await getCurrentUser()) redirect("/dashboard");
   const hasError = Boolean(searchParams.err);
+  const justReset = Boolean(searchParams.reset);
 
   return (
     <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
@@ -54,6 +60,16 @@ export default async function LoginPage({ searchParams }: { searchParams: { err?
           </div>
 
           <div className="surface p-6 shadow-raised sm:p-7">
+            {justReset && !hasError && (
+              <div
+                role="status"
+                className="mb-5 flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok/10 px-3.5 py-3 text-sm text-ok animate-fade-in"
+              >
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Password updated. Sign in with your new password.</span>
+              </div>
+            )}
+
             {hasError && (
               <div
                 role="alert"
@@ -88,6 +104,14 @@ export default async function LoginPage({ searchParams }: { searchParams: { err?
                   placeholder="Enter your password..."
                 />
               </Field>
+              <div className="-mt-2 text-right">
+                <Link
+                  href="/forgot"
+                  className="text-xs text-muted underline-offset-2 transition-colors hover:text-white hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <button type="submit" className="btn-primary btn-lg w-full">
                 Sign in
               </button>

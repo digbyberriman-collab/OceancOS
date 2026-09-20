@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** the plan is being worked. Phase 0.1–0.3 and 0.5 are built and verified, 0.4 is
-partial, and 0.6–0.8 are still design. See §9 for the progress log.
+**Status of this document:** the plan is being worked. Phase 0.1–0.3, 0.5 and 0.6 are built and verified,
+0.4 is partial, and 0.7–0.8 are still design. See §9 for the progress log.
 
 ---
 
@@ -616,7 +616,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: 0.1–0.3 and 0.5 built and verified; 0.4 partial; 0.6–0.8 outstanding.** See §9 for what landed.
+**Status: 0.1–0.3, 0.5 and 0.6 built and verified; 0.4 partial; 0.7–0.8 outstanding.** See §9 for what landed.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
@@ -625,7 +625,7 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 | 0.3 ✅ | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
 | 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
 | 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
-| 0.6 ◻ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
+| 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
 | 0.7 ◻ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
 | 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
 
@@ -876,3 +876,42 @@ allowlist) and 5 new end-to-end tests that round-trip a real file through sign, 
 tests pass.
 
 **Next**: 0.6 email and password reset, 0.7 charts, 0.8 PDF and XLSX export.
+
+### 2026-09-20 — Phase 0.6 complete: email and password reset
+
+The Bridge onboards every user through "Forgot password?", so this is a primary path rather than plumbing.
+
+**Email transport** (`src/lib/email.ts`, replacing the stub)
+- `smtp` via nodemailer when `SMTP_HOST` is set; otherwise `outbox`, which writes each message as JSON
+  under `./.mail` and logs a line. Development, CI and the end-to-end tests therefore exercise the same
+  code path as production without a mail server, and the tests can read what was actually sent.
+- Every send is best-effort and returns `{ delivered, transport, error }`. A mail failure never rolls back
+  the action that triggered it, which matters because `notify()` sends inside server actions.
+
+**Password reset**
+- `PasswordReset` model storing only a SHA-256 hash of the token, so a database leak yields no usable links.
+  Single use, expires in an hour.
+- `/forgot` returns the same confirmation whether or not the address is registered, so an anonymous visitor
+  cannot enumerate the crew list. Requesting a new link supersedes any outstanding one.
+- `/reset/[token]` validates the token, then on success updates the password, marks the token spent and
+  **deletes every session for that user** in one transaction: if the password was reset because it leaked,
+  the leaked session goes too.
+- Password rule is length-based (10 characters minimum) rather than character classes. Crew set these on
+  phones, and a passphrase beats a short complex string.
+- Login gains the "Forgot password?" link where The Bridge puts it, and a confirmation banner after a reset.
+
+**Tests.** 19 new unit tests covering token generation, hashing, expiry boundaries, single use, and the
+password rules including the ordering of mismatch before length. 6 new end-to-end tests drive the real
+journey: the identical answer for an unknown address with nothing sent, reachability from the sign-in
+screen, a made-up token, a mismatch, a superseded link, and the full reset ending with the new password
+working, the old one failing, and the link refusing a second use. Totals are now **86 unit** and
+**17 end-to-end**.
+
+Two failures were found while writing these and both were faults in the tests, not the app: an
+over-broad `getByRole("alert")` that also matched the Next.js route announcer, and tests that depended on
+each other's email. Each test now requests its own reset and polls for the message.
+
+**Verified**: `tsc --noEmit` clean, 86 unit tests pass, build succeeds with both new routes, 17 end-to-end
+tests pass.
+
+**Next**: 0.7 charts on the existing tokens, 0.8 Playwright print-to-PDF and XLSX export.

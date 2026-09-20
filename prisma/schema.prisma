@@ -23,6 +23,7 @@ model User {
   roles        UserRole[]
   sessions     Session[]
   notifications Notification[]
+  passwordResets PasswordReset[]
 }
 
 model Session {
@@ -570,6 +571,19 @@ model AuditLog {
   resourceId String?
   details    String?  // JSON
   createdAt  DateTime @default(now())
+}
+
+// ---------- Password reset ----------
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  // Only the hash is stored, so a database leak yields no usable links.
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ---------- Settings ----------
