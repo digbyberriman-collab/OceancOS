@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { Search, Bell } from "lucide-react";
 import { logoutAction } from "@/app/(app)/_actions";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import type { ProjectSummary } from "@/lib/project";
 
 export function TopBar({
   user,
+  projects,
+  activeProjectId,
 }: {
   user: { name: string; email: string; roleKeys: string[] };
+  projects: ProjectSummary[];
+  activeProjectId: string | null;
 }) {
   const initials = user.name
     .split(" ")
@@ -30,6 +36,7 @@ export function TopBar({
         />
       </form>
       <div className="ml-auto flex items-center gap-2">
+        <ProjectSwitcher projects={projects} activeId={activeProjectId} />
         <Link
           href="/notifications"
           aria-label="Notifications"

@@ -3,7 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** planning only. Nothing in this plan has been built yet.
+**Status of this document:** the plan is being worked. Phase 0.1–0.3, 0.5 and 0.6 are built and verified,
+0.4 is partial, and 0.7–0.8 are still design. See §9 for the progress log.
 
 ---
 
@@ -615,16 +616,18 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
+**Status: 0.1–0.3, 0.5 and 0.6 built and verified; 0.4 partial; 0.7–0.8 outstanding.** See §9 for what landed.
+
 | # | Step | Files | Done when |
 |---|---|---|---|
-| 0.1 | Toolchain is verified (see §8). Add a CI workflow running `npm ci`, `prisma generate`, `tsc`, `next build`, `qa`; bump `next` to a patched 14.2.x. | `.github/workflows/ci.yml`, `package.json` | CI green on the branch |
-| 0.2 | Add Vitest for server actions + Playwright for the two golden flows (login, accept a quote). | `vitest.config.ts`, `tests/` | `npm test` exists and runs in CI |
-| 0.3 | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
-| 0.4 | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
-| 0.5 | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
-| 0.6 | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
-| 0.7 | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
-| 0.8 | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
+| 0.1 ✅ | Toolchain is verified (see §8). Add a CI workflow running `npm ci`, `prisma generate`, `tsc`, `next build`, `qa`; bump `next` to a patched 14.2.x. | `.github/workflows/ci.yml`, `package.json` | CI green on the branch |
+| 0.2 ✅ | Add Vitest for server actions + Playwright for the two golden flows (login, accept a quote). | `vitest.config.ts`, `tests/` | `npm test` exists and runs in CI |
+| 0.3 ✅ | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
+| 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
+| 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
+| 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
+| 0.7 ◻ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
+| 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
 
 ### Phase 1 — Jobs & Quotes core  · size L
 
@@ -746,15 +749,17 @@ Only after Phases 0–11. Ranked by value to the owner's team:
 
 ---
 
-## 7. Decisions needed from you before Phase 1
+## 7. Decisions
+
+**Still open — these gate Phase 1 design.**
 
 1. **Positioning** — confirm §3.1: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
 2. **Code system** — adopt the MB92-style `X.NNNN.NN` codes as the default, configurable per project? Or a simpler `SECTION-###` scheme?
 3. **Second factor for Accept** — email code (no new vendor) or SMS from day one (needs Twilio or similar)?
-4. **Storage provider** — Cloudflare R2, AWS S3, or a self-hosted MinIO on your VPS?
-5. **PDF strategy** — React-PDF (pure Node, simpler hosting) or Playwright print-to-PDF (pixel-faithful to the on-screen quote)?
+4. **Storage provider** — ✅ **Cloudflare R2**, decided 2026-09-20. S3-compatible, no egress fees. The driver is provider-agnostic, so AWS S3 or MinIO need only different env values.
+5. **PDF strategy** — ✅ **Playwright print-to-PDF**, decided 2026-09-20. The PDF renders the real quote page, so there is no second layout to drift. Playwright is already a dependency. The production image needs Chromium.
 6. **Database** — move to Postgres in Phase 0 rather than later? Multi-tenant is out of scope here, but the JSON-in-string columns (`invoicingTerms`, `projectIds`) would be proper `Json` columns on Postgres.
-7. **Design tokens** — keep OceancOS's `ink/line/accent/marine` system, or align to the STORM `Abyss/Deep/Slate/Drift/Signal` tokens now so the two products share a design system?
+7. **Design tokens** — ✅ **Keep the OceancOS `ink/line/accent/marine` system**, decided 2026-09-20. No restyling of what is already built; charts inherit today's palette. Aligning to STORM stays open as a later, separate piece of work.
 
 ---
 
@@ -773,3 +778,140 @@ Run on 2026-09-18 from a clean clone of `claude/charming-bell-36iht1` (identical
 
 So the "toolchain never executed" caveat in `QA_TEST_REPORT.md` is now closed: the codebase compiles, builds, seeds and passes its scripted QA.
 Phase 0.1 becomes "wire these four commands into CI and bump Next.js", not "find out whether it builds".
+
+---
+
+## 9. Progress log
+
+### 2026-09-19 — Phase 0.1 to 0.3 complete, 0.4 partial
+
+Built on branch `claude/charming-bell-36iht1`, after PR #2 (the plan itself) merged.
+
+**0.1 Toolchain and CI**
+- `next` upgraded 14.2.15 → 14.2.35, closing the published security advisory npm flagged.
+- `.github/workflows/ci.yml` added: a `verify` job (install, Prisma generate, typecheck, unit
+  tests, build, db push, seed, scripted QA) and an `e2e` job (Playwright against a built app,
+  report uploaded on failure).
+
+**0.2 Test harness**
+- Vitest added with a `@` path alias. `npm test` runs it; `npm run test:watch` for development.
+- Playwright added with `npm run test:e2e`. The config falls back to a provisioned Chromium via
+  `PLAYWRIGHT_CHROMIUM_PATH` so sandboxes without a matching browser download still run.
+- **49 unit tests** across three files, all passing:
+  - `tests/changeOrderWorkflow.test.ts` — the state machine: every status mapped, no self-edges,
+    terminal statuses sealed, the happy path legal, closed orders cannot reopen, review cannot be
+    skipped, and the UI never offers a button for a transition the server would reject.
+  - `tests/projectMetrics.test.ts` — the two Bridge formulas, including clamping after an overrun,
+    nulls for missing dates, and value-weighting that a €0 job cannot distort.
+  - `tests/rbac.test.ts` — the role matrix: no unknown or duplicate grants, crew cannot see money,
+    the auditor is read-only, confidential documents reach only three roles, every approval stage
+    has a holder, and no single role can rubber-stamp the whole chain.
+- **6 end-to-end tests** in `e2e/shell.spec.ts`, all passing in a real browser: anonymous redirect,
+  wrong password rejected, sign in and out, the project switcher, and financials hidden from crew
+  but shown to a project manager.
+
+**Refactor that came with the tests.** The change-order transition rules existed twice — in the
+server action and again in the detail page — and the two copies disagreed: the server accepted
+`SUBMITTED → CANCELLED` and `IN_PROGRESS → CANCELLED`, but the page offered no button for either.
+Both now read `src/lib/workflow/changeOrder.ts`, which owns the legal-transition map, the
+stage→permission map (previously duplicated a third time) and the buttons the UI offers. The
+practical change for users: Cancel now appears wherever the server already allowed it. This module
+is the template the Job state machine follows in Phase 1.
+
+**0.3 Project context**
+- `Session.activeProjectId` added, so the selection survives navigation and reloads without client
+  state, and is scoped to the session rather than shared across a user's devices.
+- `src/lib/project.ts`: `listProjectsForUser` (respects per-project and per-vessel role scoping, and
+  returns nothing rather than everything for a scoped user with no assignment), `getActiveProject`
+  (falls back when the stored project is no longer reachable) and `storeActiveProject` (refuses a
+  project the user cannot reach).
+- `<ProjectSwitcher>` in the top bar: a form posting to a server action, submitting on change, with
+  a static label when the user has only one project.
+
+**0.4 Project fields (partial)**
+- `Project` gained `code`, `yardName`, `arrivalDate`, `haulOutDate`, `seaTrialsDate`,
+  `departureDate` and `currency`. Seed sets a full yard period for `R-00721` and adds a second
+  vessel and project, `R-00806`, so the switcher has something to switch between.
+- **Outstanding:** the admin form to edit these. They are currently seed- or database-only.
+
+**QA**: `npm run qa` grew from 11 to 17 checks, adding project-code uniqueness, presence of a yard
+period, and ordering of arrival, haul out and departure.
+
+**Verified before commit**: `tsc --noEmit` clean, 49 unit tests pass, `next build` succeeds across
+24 routes, seed runs, 17 QA checks pass, 6 end-to-end tests pass.
+
+**Still blocking Phase 1**: the seven decisions in §7. Storage provider (4) and PDF strategy (5)
+block Phase 0.5 and 0.8 specifically; the rest block Phase 1 design choices.
+
+### 2026-09-20 — Decisions taken, Phase 0.5 complete
+
+**Decisions.** Storage is Cloudflare R2, PDFs are Playwright print-to-PDF, and the design system stays on
+the existing OceancOS tokens. Recorded against §7 items 4, 5 and 7. Items 1, 2, 3 and 6 remain open and
+gate Phase 1.
+
+**0.5 File storage**
+- `src/lib/storage/` with two drivers behind one interface: `s3` for any S3-compatible service (R2 is the
+  configured provider; AWS S3 and MinIO differ only in env values) and `local`, which writes under
+  `./uploads` so development and CI run with no cloud credentials.
+- Uploads are presigned, so the browser sends files straight to storage and large drawings never pass
+  through the Next.js server.
+- `POST /api/uploads/sign` is where every authorisation decision lives: signed-in session, access to the
+  named project, content-type allowlist and size ceiling. It refuses anonymous callers with 401, a
+  disallowed type with 415, an oversized file with 413 and an unreachable project with 403.
+- `src/lib/storage/keys.ts` holds the key rules as pure functions. Keys are namespaced
+  `projects/<id>/<resource>/<id>/<random>-<safe-filename>` so a project's media can be listed or expired as
+  a unit, and a random segment stops one upload overwriting another of the same name. Hostile filenames and
+  identifiers cannot escape the prefix.
+- `Attachment.storageKey` added; `url` becomes optional so externally hosted records still validate.
+- `<FileDrop>` client component: drag-and-drop, per-file progress and errors, a size cap, and hidden inputs
+  so a surrounding server-action form receives the uploaded keys without a client state library. It is
+  wired into forms as Phase 1 builds them.
+- `.env.example` documents every storage variable, including the R2 endpoint shape.
+
+**Tests.** 18 new unit tests on the key rules (traversal, hostile filenames, long names, the type
+allowlist) and 5 new end-to-end tests that round-trip a real file through sign, PUT and GET, plus the
+401/415/403 refusals and a forged local-upload token. Totals are now **67 unit** and **11 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 67 unit tests pass, build succeeds with both new routes, 11 end-to-end
+tests pass.
+
+**Next**: 0.6 email and password reset, 0.7 charts, 0.8 PDF and XLSX export.
+
+### 2026-09-20 — Phase 0.6 complete: email and password reset
+
+The Bridge onboards every user through "Forgot password?", so this is a primary path rather than plumbing.
+
+**Email transport** (`src/lib/email.ts`, replacing the stub)
+- `smtp` via nodemailer when `SMTP_HOST` is set; otherwise `outbox`, which writes each message as JSON
+  under `./.mail` and logs a line. Development, CI and the end-to-end tests therefore exercise the same
+  code path as production without a mail server, and the tests can read what was actually sent.
+- Every send is best-effort and returns `{ delivered, transport, error }`. A mail failure never rolls back
+  the action that triggered it, which matters because `notify()` sends inside server actions.
+
+**Password reset**
+- `PasswordReset` model storing only a SHA-256 hash of the token, so a database leak yields no usable links.
+  Single use, expires in an hour.
+- `/forgot` returns the same confirmation whether or not the address is registered, so an anonymous visitor
+  cannot enumerate the crew list. Requesting a new link supersedes any outstanding one.
+- `/reset/[token]` validates the token, then on success updates the password, marks the token spent and
+  **deletes every session for that user** in one transaction: if the password was reset because it leaked,
+  the leaked session goes too.
+- Password rule is length-based (10 characters minimum) rather than character classes. Crew set these on
+  phones, and a passphrase beats a short complex string.
+- Login gains the "Forgot password?" link where The Bridge puts it, and a confirmation banner after a reset.
+
+**Tests.** 19 new unit tests covering token generation, hashing, expiry boundaries, single use, and the
+password rules including the ordering of mismatch before length. 6 new end-to-end tests drive the real
+journey: the identical answer for an unknown address with nothing sent, reachability from the sign-in
+screen, a made-up token, a mismatch, a superseded link, and the full reset ending with the new password
+working, the old one failing, and the link refusing a second use. Totals are now **86 unit** and
+**17 end-to-end**.
+
+Two failures were found while writing these and both were faults in the tests, not the app: an
+over-broad `getByRole("alert")` that also matched the Next.js route announcer, and tests that depended on
+each other's email. Each test now requests its own reset and polls for the message.
+
+**Verified**: `tsc --noEmit` clean, 86 unit tests pass, build succeeds with both new routes, 17 end-to-end
+tests pass.
+
+**Next**: 0.7 charts on the existing tokens, 0.8 Playwright print-to-PDF and XLSX export.
