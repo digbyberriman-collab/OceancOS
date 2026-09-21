@@ -220,11 +220,30 @@ Not a fix gate. After Gate 6:
 
 ---
 
-## Scope note
+## Decisions taken
 
-`SITE_MAP.md` records that ten modules are list-only scaffolds. **Building them out is not in this
-plan** — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are not audit findings. What *is* in scope
-is that they are presented in the sidebar as peers of working modules and that their empty states
-instruct users to perform actions the UI does not offer (G3.7's sibling, ui-ux `[EMPTY STATES]`,
-`[SCAFFOLDS]`). Either label them as unbuilt or hide them. That decision is the user's, and is the
-one open question in this plan.
+Recorded here because both change the shape of the plan.
+
+**Next.js stays on 14 for this pass.** The two remaining Critical advisories are both Next and both
+need 14.2.35 → 16.3.5, a React 19 migration touching every async request API in the application.
+Taking it mid-remediation would stall the plan and destabilise a suite that currently passes. Real
+exposure is low: one advisory is a self-hosted Image Optimizer DoS and the app has no images at
+all; the other is request smuggling in rewrites and the app has no rewrites. **The migration
+becomes Gate 8**, after regression, with every fix and test in place behind it.
+
+**The ten scaffold modules are labelled, not hidden and not built.** They keep their sidebar
+entries and gain an explicit "not yet built" state; the empty-state copy that instructs users to
+perform actions the UI does not offer is rewritten. This is **G3.11**, added below. Building them
+out remains out of scope — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are not audit findings.
+
+| | Item | Closes |
+|---|---|---|
+| **G3.11** | **Label the ten scaffold modules as unbuilt.** A shared `ComingSoon` state replacing the misleading empty states on schedule, financials, logistics, inventory, drawings, documents, meetings, risks, contractors and suppliers. Keep the sidebar entries; make the state honest. | ui-ux `[SCAFFOLDS]`, `[EMPTY STATES]` |
+
+---
+
+## Gate 8 — Next.js 16 migration (after regression)
+
+Deferred from G0.2. Closes the last two Critical advisories and the two High `postcss` advisories
+that ship inside Next. Taken as one dedicated piece of work against a green suite: React 19, the
+async `cookies()` / `headers()` / `params` APIs, and a full re-run of the e2e suite.
