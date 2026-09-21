@@ -65,10 +65,10 @@ export default async function InventoryPage({
   const where: any = { archivedAt: null };
   if (searchParams.q) {
     where.OR = [
-      { name: { contains: searchParams.q } },
-      { manufacturer: { contains: searchParams.q } },
-      { model: { contains: searchParams.q } },
-      { serial: { contains: searchParams.q } },
+      { name: { contains: searchParams.q, mode: "insensitive" } },
+      { manufacturer: { contains: searchParams.q, mode: "insensitive" } },
+      { model: { contains: searchParams.q, mode: "insensitive" } },
+      { serial: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
   if (searchParams.category) where.category = searchParams.category;

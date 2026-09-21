@@ -18,6 +18,18 @@ test.describe("authentication", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
+  test("publishes no credentials to an anonymous visitor", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+
+    // The sign-in page once carried a "Demo access" panel printing a working
+    // OWNER login. Nothing on this page may name an account or a password.
+    const body = (await page.locator("body").innerText()).toLowerCase();
+    expect(body).not.toContain("@oceancos.dev");
+    expect(body).not.toContain("demo access");
+    expect(body).not.toMatch(/password\s+password/);
+  });
+
   test("rejects a wrong password without signing in", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill(PM.email);
@@ -75,6 +87,27 @@ test.describe("permissions", () => {
     await page.goto("/financials");
     await expect(page.getByRole("heading", { name: /financials/i })).toBeVisible();
     await expect(page.getByText(/forbidden/i)).toHaveCount(0);
+  });
+
+  test("a refused page renders inside the shell, not as a blank crash", async ({ page }) => {
+    // /change-orders/new calls assertPermission, which throws. Crew does not
+    // hold change_order.create. Before the error boundary existed this threw
+    // into nothing and the user got a blank page with no way back.
+    await signIn(page, CREW);
+    await page.goto("/change-orders/new");
+
+    await expect(page.getByRole("heading", { name: /not permitted/i })).toBeVisible();
+    await expect(page.getByText(/do not have permission/i)).toBeVisible();
+
+    // The shell survives: the user is not stranded.
+    await expect(page.getByRole("navigation")).toBeVisible();
+    await expect(page.getByRole("link", { name: /back to dashboard/i })).toBeVisible();
+
+    // And the permission key is not disclosed to the browser.
+    expect(await page.locator("body").innerText()).not.toContain("change_order.create");
+
+    await page.getByRole("link", { name: /back to dashboard/i }).click();
+    await page.waitForURL("**/dashboard");
   });
 });
 
@@ -189,5 +222,56 @@ test.describe("uploads", () => {
       return res.status;
     });
     expect(status).toBe(403);
+  });
+});
+
+test.describe("dashboard charts", () => {
+  test("renders the status donut, the progress rings and the value chart", async ({ page }) => {
+    await signIn(page, PM);
+
+    // Donut: seeded change orders, with the count in the centre and a legend
+    // so identity never rests on colour alone.
+    const donut = page.getByRole("img", { name: /draft and submitted/i });
+    await expect(donut).toBeVisible();
+    await expect(page.getByText("change orders", { exact: true })).toBeVisible();
+    // exact, because the SVG's accessible title repeats every label.
+    await expect(page.getByText("Approved and in progress", { exact: true })).toBeVisible();
+
+    // Progress rings: work against the yard period.
+    await expect(page.getByRole("img", { name: /work .* per cent complete/i })).toBeVisible();
+    await expect(page.getByText("Time elapsed")).toBeVisible();
+
+    // Step area with its table view, so every value is reachable without a mouse.
+    await expect(page.getByText("Cumulative change-order value")).toBeVisible();
+    await page.getByText("View as table").click();
+    await expect(page.getByRole("columnheader", { name: "Approved" })).toBeVisible();
+  });
+
+  test("hides the value chart from a user without financial access", async ({ page }) => {
+    await signIn(page, CREW);
+    await expect(page.getByText("Cumulative change-order value")).toHaveCount(0);
+  });
+});
+
+test.describe("text search", () => {
+  // SQLite matched case-insensitively for free; PostgreSQL does not. Every
+  // `contains` filter carries mode: "insensitive" so the move did not quietly
+  // break search, and these assertions keep it that way.
+  test("matches regardless of the case typed", async ({ page }) => {
+    await signIn(page, PM);
+
+    for (const query of ["teak", "TEAK", "TeAk"]) {
+      await page.goto(`/change-orders?q=${query}`);
+      await expect(
+        page.getByRole("link", { name: /Sundeck teak caulking/i }),
+        `searching for ${query}`
+      ).toBeVisible();
+    }
+  });
+
+  test("matches case-insensitively from the global search too", async ({ page }) => {
+    await signIn(page, PM);
+    await page.goto("/search?q=STABILISER");
+    await expect(page.getByText(/Stabiliser fin bearing overhaul/i).first()).toBeVisible();
   });
 });

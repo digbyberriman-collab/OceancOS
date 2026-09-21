@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { STATUS_TONE } from "@/lib/enums";
+import { STATUS_LABELS, STATUS_TONE } from "@/lib/enums";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "badge-ok",
@@ -23,7 +23,9 @@ export function Badge({
 
 export function StatusBadge({ value }: { value: string }) {
   const tone = STATUS_TONE[value] ?? "muted";
-  return <Badge tone={tone}>{value.replace(/_/g, " ")}</Badge>;
+  // Job statuses carry proper labels; everything else is de-underscored.
+  const label = STATUS_LABELS[value] ?? value.replace(/_/g, " ");
+  return <Badge tone={tone}>{label}</Badge>;
 }
 
 export function PriorityBadge({ value }: { value: string }) {

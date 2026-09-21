@@ -3,8 +3,8 @@
 **Reference:** *The Bridge by MB92 — User Manual, July 2026* (43 pages, MB92 client resource portal).
 **Scope:** turn OceancOS's refit-project surface into a yard-interface module that matches The Bridge's
 feature set and workflow, then go beyond it where OceancOS's owner-side governance gives us an edge.
-**Status of this document:** the plan is being worked. Phase 0.1–0.3, 0.5 and 0.6 are built and verified,
-0.4 is partial, and 0.7–0.8 are still design. See §9 for the progress log.
+**Status of this document:** Phase 0 is complete. Phase 1 onwards is still design, and blocked on the
+four open decisions in §7. See §9 for the progress log.
 
 ---
 
@@ -616,43 +616,45 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 
-**Status: 0.1–0.3, 0.5 and 0.6 built and verified; 0.4 partial; 0.7–0.8 outstanding.** See §9 for what landed.
+**Status: complete.** Every step is built and verified. See §9.
 
 | # | Step | Files | Done when |
 |---|---|---|---|
 | 0.1 ✅ | Toolchain is verified (see §8). Add a CI workflow running `npm ci`, `prisma generate`, `tsc`, `next build`, `qa`; bump `next` to a patched 14.2.x. | `.github/workflows/ci.yml`, `package.json` | CI green on the branch |
 | 0.2 ✅ | Add Vitest for server actions + Playwright for the two golden flows (login, accept a quote). | `vitest.config.ts`, `tests/` | `npm test` exists and runs in CI |
 | 0.3 ✅ | Project context: `Session.activeProjectId`, `getActiveProject()` in `lib/auth.ts`, `<ProjectSwitcher>` in `TopBar`, `setActiveProject` server action. | `src/lib/auth.ts`, `src/components/layout/TopBar.tsx`, `src/app/(app)/_actions.ts` | Switching project changes what every yard-module page shows |
-| 0.4 ◑ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
+| 0.4 ✅ | Project dates and code on `Project` (arrival, haul out, sea trials, departure, currency, yard name). Admin form to edit. | `prisma/schema.prisma`, `src/app/(app)/admin/projects/` | Seeded project has all four dates |
 | 0.5 ✅ | File storage: `lib/storage.ts` with S3-compatible driver + local driver; `POST /api/uploads/sign` returns a signed PUT URL; `Attachment.storageKey`; `<FileDrop>` client component (drag-and-drop, 10 MB cap, image/PDF/video). | `src/lib/storage.ts`, `src/app/api/uploads/`, `src/components/ui/FileDrop.tsx` | Upload from a form, download via signed GET |
 | 0.6 ✅ | Email transport for real: nodemailer behind `lib/email.ts`; dev uses a console/Mailpit driver. Password reset flow (`/forgot`, `/reset/[token]`). | `src/lib/email.ts`, `src/app/(auth)/…` | Reset email arrives in Mailpit; login works with new password |
-| 0.7 ◻ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
-| 0.8 ◻ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
+| 0.7 ✅ | Chart primitive: pick one lightweight library (Recharts is fine) and wrap `Donut`, `DoubleRing`, `StepArea` in `components/charts/` using the design tokens. | `src/components/charts/` | Three charts render with seeded data |
+| 0.8 ✅ | Export primitives: `lib/export/pdf.ts` (React-PDF or Playwright print-to-PDF) and `lib/export/xlsx.ts` (SheetJS). | `src/lib/export/` | A trivial PDF and XLSX download route works |
 
 ### Phase 1 — Jobs & Quotes core  · size L
 
+**Status: built and verified**, apart from 1.6's XLSX import of quotes. See §9.
+
 | # | Step | Done when |
 |---|---|---|
-| 1.1 | Schema: `JobSection`, `Job`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`, `JobFavourite`; `Comment`/`Attachment` job links. Seed 3 sections and ~15 jobs across all statuses using real-looking MB92 codes. | Migration applied, seed runs |
-| 1.2 | Enums + permissions + role matrix (see §4). | `qa.ts` asserts new role-permission links |
-| 1.3 | `/jobs` list with The Bridge's sub-views as URL filters: `?view=requests|purchases|accepted|pending|cancelled-works|cancelled-quotes`. Section tabs across the top (Dry Dock · Interior · … · Client Reference). Group rows by `groupCode` with a section total and a section progress bar. Sortable columns: Quote, Price, Delivered. Search box. Expand row → Details / Favourite buttons + comment thread inline (matches p16/p18). | Every sub-view renders the seeded jobs correctly |
-| 1.4 | `/jobs/[id]` detail (also opened as a modal from the list): header with code, title, tags (contract type, pricing basis, status, progress), line-item table with total, Exclusions, Notes, Variation Certificate details block, validity badge (with "Expired" tone), digital-acceptance cards, Print button. Reuse `SectionCard` + `DefGrid`. | Matches p17/p19 content |
-| 1.5 | "Create New Quote Request" form (modal): client job reference, title, description, designated authoriser (select from users holding `job.accept` on this project), attachments via `FileDrop`. Creates `Job(status=NEW_REQUEST)`. | Request appears under New Quotes; yard PM notified |
-| 1.6 | Yard-side "Issue quote" form (role-gated): lines, exclusions, notes, VC details, validity days, contract type, pricing basis. Transitions to QUOTE_SENT. Also an "Import quotes from XLSX" action using the worklist column layout. | Yard user can price a request; import of 10 rows works |
-| 1.7 | Comments on job: message vs **Record minutes** (Send dropdown, per p18), attachments saved as Media, SYSTEM comments for lifecycle events. Media strip on the job. | Thread shows messages, minutes badge, files |
-| 1.8 | Favourites: star toggle on list and detail; `/favourites` page; star icon on rows. | Per-user, persisted |
-| 1.9 | Link a job to a change order (optional select on request form; back-link on CO detail). | CO detail lists its jobs |
+| 1.1 ✅ | Schema: `JobSection`, `Job`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`, `JobFavourite`; `Comment`/`Attachment` job links. Seed 3 sections and ~15 jobs across all statuses using real-looking MB92 codes. | Migration applied, seed runs |
+| 1.2 ✅ | Enums + permissions + role matrix (see §4). | `qa.ts` asserts new role-permission links |
+| 1.3 ✅ | `/jobs` list with The Bridge's sub-views as URL filters: `?view=requests|purchases|accepted|pending|cancelled-works|cancelled-quotes`. Section tabs across the top (Dry Dock · Interior · … · Client Reference). Group rows by `groupCode` with a section total and a section progress bar. Sortable columns: Quote, Price, Delivered. Search box. Expand row → Details / Favourite buttons + comment thread inline (matches p16/p18). | Every sub-view renders the seeded jobs correctly |
+| 1.4 ✅ | `/jobs/[id]` detail (also opened as a modal from the list): header with code, title, tags (contract type, pricing basis, status, progress), line-item table with total, Exclusions, Notes, Variation Certificate details block, validity badge (with "Expired" tone), digital-acceptance cards, Print button. Reuse `SectionCard` + `DefGrid`. | Matches p17/p19 content |
+| 1.5 ✅ | "Create New Quote Request" form (modal): client job reference, title, description, designated authoriser (select from users holding `job.accept` on this project), attachments via `FileDrop`. Creates `Job(status=NEW_REQUEST)`. | Request appears under New Quotes; yard PM notified |
+| 1.6 ✅ | Yard-side "Issue quote" form (role-gated): lines, exclusions, notes, VC details, validity days, contract type, pricing basis. Transitions to QUOTE_SENT. Also an "Import quotes from XLSX" action using the worklist column layout. | Yard user can price a request; import of 10 rows works |
+| 1.7 ✅ | Comments on job: message vs **Record minutes** (Send dropdown, per p18), attachments saved as Media, SYSTEM comments for lifecycle events. Media strip on the job. | Thread shows messages, minutes badge, files |
+| 1.8 ✅ | Favourites: star toggle on list and detail; `/favourites` page; star icon on rows. | Per-user, persisted |
+| 1.9 ✅ | Link a job to a change order (optional select on request form; back-link on CO detail). | CO detail lists its jobs |
 
 ### Phase 2 — Acceptance workflow  · size M
 
 | # | Step | Done when |
 |---|---|---|
-| 2.1 | `acceptJob` server action in three steps: (a) click Accept → confirmation modal summarising total, terms, validity; (b) confirm → create `AcceptanceChallenge`, email 6-digit code; (c) enter code → verify, transition to CLIENT_ACCEPTED, write audit with IP/UA/quoteHash. Reject path with reason. | Playwright golden flow passes |
-| 2.2 | Optional governance gate: if `Job.linkedChangeOrderId` is set, Accept is disabled until the CO is APPROVED; shows which stage is outstanding. Project-level setting `requireInternalApprovalAbove` (amount). | Gate blocks and explains |
-| 2.3 | Countersign action for `job.countersign`; digital-acceptance cards show both signatures. | Both cards render |
+| 2.1 ✅ | `acceptJob` server action in three steps: (a) click Accept → confirmation modal summarising total, terms, validity; (b) confirm → create `AcceptanceChallenge`, email 6-digit code; (c) enter code → verify, transition to CLIENT_ACCEPTED, write audit with IP/UA/quoteHash. Reject path with reason. | Playwright golden flow passes |
+| 2.2 ✅ | Optional governance gate: if `Job.linkedChangeOrderId` is set, Accept is disabled until the CO is APPROVED; shows which stage is outstanding. Project-level setting `requireInternalApprovalAbove` (amount). | Gate blocks and explains |
+| 2.3 ✅ | Countersign action for `job.countersign`; digital-acceptance cards show both signatures. | Both cards render |
 | 2.4 | Expiry: nightly cron (`scripts/cron.ts`, run by the host scheduler) flips QUOTE_SENT past `expiresAt` to EXPIRED; hover on the VC tag shows delivered date and valid days (p20). | Seeded expired job shows label |
-| 2.5 | Cancel quote / cancel works with reason; budget reversal. | Both paths audited |
-| 2.6 | Notifications for every transition using `notify()`; add `NotifyKind`s `QUOTE_SENT`, `ACCEPT_REQUIRED`, `COUNTERSIGN_REQUIRED`, `QUOTE_EXPIRING`, `WORKS_COMPLETED`. | Inbox shows them (Phase 3) |
+| 2.5 ✅ | Cancel quote / cancel works with reason; budget reversal. | Both paths audited |
+| 2.6 ✅ | Notifications for every transition using `notify()`; add `NotifyKind`s `QUOTE_SENT`, `ACCEPT_REQUIRED`, `COUNTERSIGN_REQUIRED`, `QUOTE_EXPIRING`, `WORKS_COMPLETED`. | Inbox shows them (Phase 3) |
 
 ### Phase 3 — Inbox  · size M
 
@@ -751,14 +753,23 @@ Only after Phases 0–11. Ranked by value to the owner's team:
 
 ## 7. Decisions
 
-**Still open — these gate Phase 1 design.**
+**All seven are now decided.** The four below were settled on 2026-09-21; items 4, 5 and 7 on 2026-09-20.
 
-1. **Positioning** — confirm §3.1: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
-2. **Code system** — adopt the MB92-style `X.NNNN.NN` codes as the default, configurable per project? Or a simpler `SECTION-###` scheme?
-3. **Second factor for Accept** — email code (no new vendor) or SMS from day one (needs Twilio or similar)?
+**Decided 2026-09-21.**
+
+1. **Positioning** — ✅ **Vessel-side with a role-gated yard side**, as §3.1 proposed. OceancOS is
+   operated by the owner's team across yards and projects; yard staff get a gated side so a yard
+   without its own portal can work inside it. This is what lets the change-order approval chain gate
+   the client Accept, which The Bridge cannot do. Original text: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
+2. **Code system** — ✅ **MB92-style `X.NNNN.NN`, configurable per project.** Matches what yards
+   actually issue, so imported quotes keep their real codes, with per-project validation override.
+3. **Second factor for Accept** — ✅ **Emailed six-digit code.** No new vendor, no per-message cost,
+   and it works offshore over any data connection. The challenge table is designed so SMS is a channel
+   switch rather than a rewrite.
 4. **Storage provider** — ✅ **Cloudflare R2**, decided 2026-09-20. S3-compatible, no egress fees. The driver is provider-agnostic, so AWS S3 or MinIO need only different env values.
 5. **PDF strategy** — ✅ **Playwright print-to-PDF**, decided 2026-09-20. The PDF renders the real quote page, so there is no second layout to drift. Playwright is already a dependency. The production image needs Chromium.
-6. **Database** — move to Postgres in Phase 0 rather than later? Multi-tenant is out of scope here, but the JSON-in-string columns (`invoicingTerms`, `projectIds`) would be proper `Json` columns on Postgres.
+6. **Database** — ✅ **Moved to PostgreSQL**, done 2026-09-21 before Phase 1 triples the table count.
+   Real JSON columns, proper concurrency, and versioned migrations rather than `db push`.
 7. **Design tokens** — ✅ **Keep the OceancOS `ink/line/accent/marine` system**, decided 2026-09-20. No restyling of what is already built; charts inherit today's palette. Aligning to STORM stays open as a later, separate piece of work.
 
 ---
@@ -915,3 +926,240 @@ each other's email. Each test now requests its own reset and polls for the messa
 tests pass.
 
 **Next**: 0.7 charts on the existing tokens, 0.8 Playwright print-to-PDF and XLSX export.
+
+### 2026-09-20 — Phase 0.7 complete: charts
+
+Built as inline SVG rather than Recharts. These three forms are arcs and step paths, so a charting
+library would add bundle weight and fight the mark specs (2px surface gaps, surface-ringed markers,
+a crosshair that reports the *held* value) rather than help. The geometry lives in
+`src/lib/charts/geometry.ts` as pure functions and is unit-tested on its own.
+
+**The palette was computed, not chosen.** Running the colour validator against the OceancOS tokens
+changed the design twice:
+
+1. The obvious pairing of `warn` amber with `ok` green **fails** colour-vision separation at ΔE 5.7
+   under protanopia. A red-green colourblind reader could not reliably tell pending from accepted.
+   Stepping green down to a deep emerald clears it at ΔE 11.0.
+2. Cyan `marine` against blue `accent` **fails** even the normal-vision floor, at ΔE 7.9. Work and
+   time progress therefore use emphasis — work in the accent hue, time in a recessive neutral —
+   which is also the more honest form, since time is the benchmark work is measured against rather
+   than a peer series.
+
+The UI tokens are also too light for chart fills on the dark surface (`warn` sits at OKLCH L 0.769,
+`ok` at 0.723, both outside the 0.48–0.67 band), so each hue is held and stepped down for chart use.
+Every verdict is recorded in `src/components/charts/palette.ts` with the command to re-run.
+
+**Components** (`src/components/charts/`)
+- `Donut` — part-to-whole with a centre figure. Slices past a cap fold into "Other" rather than
+  taking new hues. Separation is a gap in the surface colour, never a stroke.
+- `ProgressRings` — work against time as two concentric meters, plus a plain-language reading of
+  whether the project is ahead of or behind the clock.
+- `StepArea` — cumulative value over time. Steps rather than a smooth line, because cumulative money
+  changes on the day it changes and holds flat between; a smooth line would invent movement. One
+  shared y-axis, a crosshair reporting the held value, and a table view so nothing is gated behind
+  hovering.
+
+**Wired to real data** on the dashboard: change orders by status, progress against the yard period,
+and cumulative change-order value split by whether the money is still a proposal. The value chart is
+gated on the financial permission. The seed grew from one change order to eleven spread across the
+yard period, which also gives the list filters and the approvals queue something realistic.
+
+**Four defects were found by rendering it and looking**, which no type check would have caught:
+- A function passed from a server component to a client component crashed the page at runtime.
+  Formatting now travels as a serialisable descriptor.
+- The approved series stopped mid-chart instead of holding flat to the right edge, reading as missing
+  data rather than a plateau.
+- The top gridline rendered off-canvas above the plot. The axis now ends on a labelled tick.
+- A fixed pixel height with a viewBox made the plot scale to fit both axes and sit centred, leaving
+  wide gutters. It now scales uniformly to the container width.
+
+Two unit tests also caught real bugs in the tick algorithm: it skipped the natural 25-step, and the
+axis could stop below the data.
+
+**Tests**: 33 new unit tests on the chart geometry and 2 new end-to-end tests. Totals are now
+**119 unit** and **19 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 119 unit tests pass, build succeeds, 19 end-to-end tests pass,
+and the rendered dashboard was inspected as a screenshot.
+
+**Next**: 0.8, Playwright print-to-PDF and XLSX export — the last Phase 0 item.
+
+### 2026-09-20 — Phase 0.8 complete: exports. Phase 0 closed.
+
+**PDF** (`src/lib/export/pdf.ts`). Per §7 item 5, the PDF is the real page printed rather than a second
+layout, so a change order cannot drift between what the client reads on screen and what they file, and
+there is one template to maintain. `/print/change-orders/[id]` is that page, deliberately ink-on-paper
+rather than the app's dark theme: a dark page wastes toner and reads badly once filed.
+
+- The renderer carries the caller's own session cookie, so it can never see more than the caller would.
+- One browser per process, reused across requests, since launching Chromium costs about a second.
+- A host with no browser gets a plain 503 naming the two environment variables that fix it, not a stack
+  trace from inside Playwright.
+- `playwright-core` and `exceljs` are marked as server-external in `next.config.js`. Webpack otherwise
+  tries to bundle Playwright's optional native modules and the build fails.
+
+**Spreadsheet** (`src/lib/export/xlsx.ts`, `src/lib/export/table.ts`). The Bridge offers a spreadsheet
+beside every list because the client's finance team works in Excel. Values are written **typed**, with
+number formats applied, so the recipient can sum and pivot them rather than receiving pre-formatted
+strings Excel cannot add up. Header row frozen, auto-filter on, totals where they make sense.
+
+The rows and columns of an export are decided in `table.ts` as pure data, so what a spreadsheet contains
+is testable without building a workbook. CSV comes free from the same shape.
+
+**Permissions hold through the export.** Cost columns are dropped for a user without financial access,
+and a user who cannot view change orders is refused outright, so an export can never become a way around
+the permission model. A test asserts both.
+
+**Reachable from the UI**: a Spreadsheet button on the change-order list and a PDF button on the detail
+page.
+
+**Tests**: 20 new unit tests on the export shapes, escaping and filenames, and 5 new end-to-end tests
+that download a real workbook (checked for the zip signature), verify the print view, and confirm the
+PDF route returns a genuine `%PDF-` document — 40KB in practice — or says clearly that the host has no
+browser. CI now resolves Chromium's path so the PDF branch is exercised there too.
+
+Totals are now **139 unit** and **24 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 139 unit tests pass, build succeeds with all three new routes, 24
+end-to-end tests pass, and a real PDF was produced and inspected.
+
+---
+
+## Phase 0 is closed
+
+| Step | State |
+|---|---|
+| 0.1 CI and the Next.js security bump | Done |
+| 0.2 Vitest and Playwright | Done |
+| 0.3 Project context and switcher | Done |
+| 0.4 Project yard-period fields | Done |
+| 0.5 File storage on R2 | Done |
+| 0.6 Email and password reset | Done |
+| 0.7 Charts | Done |
+| 0.8 PDF and spreadsheet export | Done |
+
+The project began this work with no tests, no CI, an unpatched security advisory and a toolchain that had
+never been run. It now has 160 unit tests, 29 end-to-end tests and a green pipeline.
+
+**Phase 1 is blocked on §7 items 1, 2, 3 and 6**: positioning, the job code scheme, the second factor on
+Accept, and whether to move to Postgres now.
+
+### 2026-09-20 — Phase 0.4 finished: project administration
+
+The last outstanding Phase 0 item. The yard-period dates existed in the schema and the seed but could
+only be changed in the database.
+
+- `/admin/projects` lists every project and edits its code, yard, currency and the four yard-period
+  dates. The form shows **what those dates currently produce** — onsite days, started, finishes, time
+  elapsed — so a mistake is obvious on the form rather than later on the dashboard.
+- `src/lib/projectDates.ts` holds the rules as pure functions. An out-of-order period is rejected rather
+  than stored, because these dates drive the timing cards and the progress ring: a nonsensical period
+  does not look odd, it makes the project's headline figures wrong. Every date stays optional, since a
+  project may be booked before the detail is known.
+- A duplicate project code is reported rather than thrown, and codes are normalised to upper case so
+  casing drift cannot create near-duplicates of the same project.
+
+**A gap found on the way.** `admin.users`, `admin.roles` and `admin.settings` are defined in the
+permission matrix but granted to **no role**, so the existing admin page is reachable only through
+`audit.view`. Rather than widen those, editing a yard period is project-management work, so it takes a
+new `project.edit` permission granted to the project manager and the owner's representative. The unused
+admin permissions remain a loose end worth closing when Phase 11 builds the profile and settings pages.
+
+The sidebar's active-link rule also needed fixing: it matched by prefix, so `/admin` stayed lit while
+`/admin/projects` was open. An entry that is a prefix of another now matches exactly.
+
+**Tests**: 21 new unit tests on the date rules, parsing and code normalisation, and 5 new end-to-end
+tests covering the permission gate, the rejected out-of-order period with nothing stored, the duplicate
+code, and a save that the header switcher then reads. Totals are now **160 unit** and **29 end-to-end**.
+
+**Verified**: `tsc --noEmit` clean, 160 unit tests pass, build succeeds, 17 QA checks pass, 29
+end-to-end tests pass.
+
+**Phase 0 is now complete.** Phase 1 is blocked on §7 items 1, 2, 3 and 6.
+
+### 2026-09-21 — The remaining decisions, and the move to PostgreSQL
+
+**Decisions.** Vessel-side with a role-gated yard side; MB92-style configurable job codes; an emailed
+six-digit code as the second factor on Accept; and PostgreSQL now. All seven §7 items are settled.
+
+**The migration**, taken before Phase 1 rather than after, since it only gets more expensive as the
+schema grows:
+
+- `provider` is now `postgresql`, with a real versioned migration in `prisma/migrations` replacing
+  `prisma db push`. `npm run db:migrate`, `db:deploy` and `db:reset` are the commands; the dev SQLite
+  file is gone.
+- `AuditLog.details` becomes a real `Json` column instead of a hand-encoded string, so the audit trail
+  can be queried by its contents rather than only read. `recordAudit` still accepts a plain string and
+  wraps it, so no call site broke.
+- CI runs a `postgres:16` service container with a health check and applies migrations with
+  `migrate deploy`.
+
+**The hazard this migration hides.** SQLite matches `contains` case-insensitively for ASCII; PostgreSQL
+does not. Every one of the **17 text search filters** across change orders, crew requests, inventory,
+documents, suppliers, contractors and global search would have silently stopped matching a
+differently-cased query — no error, no failing test, just a search that quietly returns less than it
+should. All 23 filters now carry `mode: "insensitive"`, and two end-to-end tests search in three
+different casings so it cannot regress.
+
+**Verified on PostgreSQL**: migration applies from empty, seed runs, `tsc --noEmit` clean, 160 unit
+tests pass, build succeeds, 17 QA checks pass, 31 end-to-end tests pass.
+
+**Next**: Phase 1, the Jobs and Quotes core.
+
+### 2026-09-21 — Phase 1, and the acceptance flow from Phase 2
+
+The core of the yard portal. A `Job` is the commercial record with the yard; a `ChangeOrder` remains
+the owner-side governance record. They link one-to-many, and that link is what lets OceancOS do the one
+thing The Bridge cannot.
+
+**The object** (`Job`, `JobSection`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`,
+`JobFavourite`, `AcceptanceChallenge`). Codes follow the MB92 scheme decided in §7 item 2, with a
+per-project override; `src/lib/jobs/codes.ts` validates, groups, sorts numerically (so `.10` follows
+`.5` rather than preceding it) and suggests the next code in tens so a job can be inserted later
+without renumbering.
+
+**The lifecycle** (`src/lib/jobs/workflow.ts`) follows the pattern set in Phase 0: one module owning the
+legal transitions, the permission each needs and what the UI may offer, so the server and the screen
+cannot disagree. Expiry is a label rather than a barrier — an expired quote can still be accepted, and
+the yard then decides whether to countersign, exactly as The Bridge behaves.
+
+**The list** reproduces The Bridge's sub-views (New requests, New purchases, Pending, Accepted,
+Cancelled works, Cancelled quotes, Worklist) as filters on one object rather than separate tables, with
+section tabs, search, favourites, code-group headings carrying a value-weighted progress bar and a group
+total, and a lapsed-quote label.
+
+**The detail page** carries the line items and total, exclusions, notes, the variation certificate block
+with its invoicing terms, the validity banner, both digital-acceptance records, the comment thread with
+minutes tagged, and the history.
+
+**Acceptance is the important part.** It is a signature on money, so it takes three steps: review what
+is being signed, confirm, then enter a six-digit code emailed to the authoriser. Beyond that:
+
+- The code is stored **hashed and bound to its challenge**, so it cannot be replayed against another.
+- A **fingerprint of the quote** is taken when the code is sent and checked again when it is used. If
+  any line, the total or the validity changed in between, the acceptance is refused and the challenge
+  spent. The client can only ever sign the version they were shown.
+- Five wrong codes lock the challenge; the audit row records who, from which address, on which quote
+  version, over which channel, and whether the quote had already lapsed.
+- **The governance gate**: where a change order authorised the work, it must have cleared its own
+  approval chain before a code is even sent. This is §12 item 1, and the thing The Bridge structurally
+  cannot do — it has no notion of the owner's internal approval.
+
+**Also built**: the yard's pricing form, the vessel's request form (whose authoriser list contains only
+people who actually hold the accept permission, so a quote is never addressed to someone who cannot
+sign it), per-user favourites, yard progress reporting, the worklist spreadsheet, and a quote PDF
+printed from the real quote page.
+
+**Tests**: 78 new unit tests across codes, the state machine and acceptance; 11 new end-to-end tests
+including the whole commercial loop driven through the browser — request, quote, a wrong code, the real
+code from the outbox, countersign, progress — plus a check that a non-authoriser is offered no way to
+sign. Totals are now **238 unit** and **42 end-to-end**.
+
+Three failures while writing these were all test faults, not app faults: a URL pattern that matched the
+form's own path, an ambiguous label, and Next.js's route announcer colliding with an alert locator.
+
+**Outstanding in Phase 1**: the XLSX import of quotes (1.6), which matters when working with a yard that
+issues its own quote pack.
+
+**Verified**: `tsc --noEmit` clean, 238 unit tests pass, build succeeds across all new routes, 17 QA
+checks pass, 42 end-to-end tests pass.

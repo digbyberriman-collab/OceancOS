@@ -37,9 +37,9 @@ export default async function CrewRequestsPage({
   }
   if (searchParams.q) {
     where.OR = [
-      { number: { contains: searchParams.q } },
-      { title: { contains: searchParams.q } },
-      { description: { contains: searchParams.q } },
+      { number: { contains: searchParams.q, mode: "insensitive" } },
+      { title: { contains: searchParams.q, mode: "insensitive" } },
+      { description: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
 

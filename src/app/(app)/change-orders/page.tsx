@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { FileSpreadsheet } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
@@ -32,9 +33,9 @@ export default async function ChangeOrdersPage({
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.q) {
     where.OR = [
-      { title: { contains: searchParams.q } },
-      { number: { contains: searchParams.q } },
-      { description: { contains: searchParams.q } },
+      { title: { contains: searchParams.q, mode: "insensitive" } },
+      { number: { contains: searchParams.q, mode: "insensitive" } },
+      { description: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
 
@@ -53,11 +54,22 @@ export default async function ChangeOrdersPage({
         eyebrow="Workflow"
         subtitle="Track scope changes, costs and approvals across the project."
         actions={
-          hasPermission(user, PERMISSIONS.CO_CREATE) ? (
-            <Link href="/change-orders/new" className="btn-primary btn-lg">
-              New Change Order
-            </Link>
-          ) : null
+          <>
+            <a
+              href="/api/export/change-orders"
+              className="btn"
+              // A plain link, so the browser handles the download.
+              download
+            >
+              <FileSpreadsheet size={14} />
+              Spreadsheet
+            </a>
+            {hasPermission(user, PERMISSIONS.CO_CREATE) && (
+              <Link href="/change-orders/new" className="btn-primary btn-lg">
+                New Change Order
+              </Link>
+            )}
+          </>
         }
       />
 

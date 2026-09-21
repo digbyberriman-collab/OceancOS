@@ -206,7 +206,12 @@ export default async function AdminPage() {
                       {a.actorId?.slice(0, 8) ?? "—"}
                     </td>
                     <td className="text-xs text-muted max-w-xs truncate">
-                      {a.details ?? ""}
+                      {/* Stored as real JSON on Postgres, so render it as text here. */}
+                      {a.details == null
+                        ? ""
+                        : typeof a.details === "string"
+                          ? a.details
+                          : JSON.stringify(a.details)}
                     </td>
                   </tr>
                 ))}

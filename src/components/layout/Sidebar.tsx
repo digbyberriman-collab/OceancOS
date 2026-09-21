@@ -19,12 +19,15 @@ import {
   Bell,
   Search,
   Settings,
+  Ship,
+  ReceiptText,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Quotes & requests", href: "/jobs", icon: ReceiptText },
   { label: "Change orders", href: "/change-orders", icon: FileDiff },
   { label: "Crew requests", href: "/crew-requests", icon: Users },
   { label: "Approvals", href: "/approvals", icon: CheckSquare },
@@ -41,6 +44,7 @@ const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[]
   { section: "System", label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Search", href: "/search", icon: Search },
   { label: "Admin", href: "/admin", icon: Settings },
+  { label: "Projects", href: "/admin/projects", icon: Ship },
 ];
 
 export function Sidebar({ unread = 0 }: { unread?: number }) {
@@ -60,7 +64,14 @@ export function Sidebar({ unread = 0 }: { unread?: number }) {
       </div>
       <nav className="py-3">
         {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          // Exact match for entries that are a prefix of another, so /admin
+          // does not stay lit while /admin/projects is open.
+          const hasDeeperEntry = NAV.some(
+            (other) => other.href !== item.href && other.href.startsWith(item.href + "/")
+          );
+          const active = hasDeeperEntry
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
           return (
             <div key={item.href}>
