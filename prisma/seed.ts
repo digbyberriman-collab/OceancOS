@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ROLE_KEYS, DEPARTMENTS } from "../src/lib/enums";
 import { ROLE_PERMISSIONS, PERMISSIONS } from "../src/lib/rbac";
+import { seedJobs } from "./seedJobs";
 
 const prisma = new PrismaClient();
 
@@ -339,6 +340,8 @@ async function main() {
       });
     }
   }
+
+  await seedJobs(prisma, project.id, projectYardPeriod.arrivalDate);
 
   console.log("Done.");
 }

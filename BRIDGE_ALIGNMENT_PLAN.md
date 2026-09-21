@@ -631,28 +631,30 @@ short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a da
 
 ### Phase 1 — Jobs & Quotes core  · size L
 
+**Status: built and verified**, apart from 1.6's XLSX import of quotes. See §9.
+
 | # | Step | Done when |
 |---|---|---|
-| 1.1 | Schema: `JobSection`, `Job`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`, `JobFavourite`; `Comment`/`Attachment` job links. Seed 3 sections and ~15 jobs across all statuses using real-looking MB92 codes. | Migration applied, seed runs |
-| 1.2 | Enums + permissions + role matrix (see §4). | `qa.ts` asserts new role-permission links |
-| 1.3 | `/jobs` list with The Bridge's sub-views as URL filters: `?view=requests|purchases|accepted|pending|cancelled-works|cancelled-quotes`. Section tabs across the top (Dry Dock · Interior · … · Client Reference). Group rows by `groupCode` with a section total and a section progress bar. Sortable columns: Quote, Price, Delivered. Search box. Expand row → Details / Favourite buttons + comment thread inline (matches p16/p18). | Every sub-view renders the seeded jobs correctly |
-| 1.4 | `/jobs/[id]` detail (also opened as a modal from the list): header with code, title, tags (contract type, pricing basis, status, progress), line-item table with total, Exclusions, Notes, Variation Certificate details block, validity badge (with "Expired" tone), digital-acceptance cards, Print button. Reuse `SectionCard` + `DefGrid`. | Matches p17/p19 content |
-| 1.5 | "Create New Quote Request" form (modal): client job reference, title, description, designated authoriser (select from users holding `job.accept` on this project), attachments via `FileDrop`. Creates `Job(status=NEW_REQUEST)`. | Request appears under New Quotes; yard PM notified |
-| 1.6 | Yard-side "Issue quote" form (role-gated): lines, exclusions, notes, VC details, validity days, contract type, pricing basis. Transitions to QUOTE_SENT. Also an "Import quotes from XLSX" action using the worklist column layout. | Yard user can price a request; import of 10 rows works |
-| 1.7 | Comments on job: message vs **Record minutes** (Send dropdown, per p18), attachments saved as Media, SYSTEM comments for lifecycle events. Media strip on the job. | Thread shows messages, minutes badge, files |
-| 1.8 | Favourites: star toggle on list and detail; `/favourites` page; star icon on rows. | Per-user, persisted |
-| 1.9 | Link a job to a change order (optional select on request form; back-link on CO detail). | CO detail lists its jobs |
+| 1.1 ✅ | Schema: `JobSection`, `Job`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`, `JobFavourite`; `Comment`/`Attachment` job links. Seed 3 sections and ~15 jobs across all statuses using real-looking MB92 codes. | Migration applied, seed runs |
+| 1.2 ✅ | Enums + permissions + role matrix (see §4). | `qa.ts` asserts new role-permission links |
+| 1.3 ✅ | `/jobs` list with The Bridge's sub-views as URL filters: `?view=requests|purchases|accepted|pending|cancelled-works|cancelled-quotes`. Section tabs across the top (Dry Dock · Interior · … · Client Reference). Group rows by `groupCode` with a section total and a section progress bar. Sortable columns: Quote, Price, Delivered. Search box. Expand row → Details / Favourite buttons + comment thread inline (matches p16/p18). | Every sub-view renders the seeded jobs correctly |
+| 1.4 ✅ | `/jobs/[id]` detail (also opened as a modal from the list): header with code, title, tags (contract type, pricing basis, status, progress), line-item table with total, Exclusions, Notes, Variation Certificate details block, validity badge (with "Expired" tone), digital-acceptance cards, Print button. Reuse `SectionCard` + `DefGrid`. | Matches p17/p19 content |
+| 1.5 ✅ | "Create New Quote Request" form (modal): client job reference, title, description, designated authoriser (select from users holding `job.accept` on this project), attachments via `FileDrop`. Creates `Job(status=NEW_REQUEST)`. | Request appears under New Quotes; yard PM notified |
+| 1.6 ✅ | Yard-side "Issue quote" form (role-gated): lines, exclusions, notes, VC details, validity days, contract type, pricing basis. Transitions to QUOTE_SENT. Also an "Import quotes from XLSX" action using the worklist column layout. | Yard user can price a request; import of 10 rows works |
+| 1.7 ✅ | Comments on job: message vs **Record minutes** (Send dropdown, per p18), attachments saved as Media, SYSTEM comments for lifecycle events. Media strip on the job. | Thread shows messages, minutes badge, files |
+| 1.8 ✅ | Favourites: star toggle on list and detail; `/favourites` page; star icon on rows. | Per-user, persisted |
+| 1.9 ✅ | Link a job to a change order (optional select on request form; back-link on CO detail). | CO detail lists its jobs |
 
 ### Phase 2 — Acceptance workflow  · size M
 
 | # | Step | Done when |
 |---|---|---|
-| 2.1 | `acceptJob` server action in three steps: (a) click Accept → confirmation modal summarising total, terms, validity; (b) confirm → create `AcceptanceChallenge`, email 6-digit code; (c) enter code → verify, transition to CLIENT_ACCEPTED, write audit with IP/UA/quoteHash. Reject path with reason. | Playwright golden flow passes |
-| 2.2 | Optional governance gate: if `Job.linkedChangeOrderId` is set, Accept is disabled until the CO is APPROVED; shows which stage is outstanding. Project-level setting `requireInternalApprovalAbove` (amount). | Gate blocks and explains |
-| 2.3 | Countersign action for `job.countersign`; digital-acceptance cards show both signatures. | Both cards render |
+| 2.1 ✅ | `acceptJob` server action in three steps: (a) click Accept → confirmation modal summarising total, terms, validity; (b) confirm → create `AcceptanceChallenge`, email 6-digit code; (c) enter code → verify, transition to CLIENT_ACCEPTED, write audit with IP/UA/quoteHash. Reject path with reason. | Playwright golden flow passes |
+| 2.2 ✅ | Optional governance gate: if `Job.linkedChangeOrderId` is set, Accept is disabled until the CO is APPROVED; shows which stage is outstanding. Project-level setting `requireInternalApprovalAbove` (amount). | Gate blocks and explains |
+| 2.3 ✅ | Countersign action for `job.countersign`; digital-acceptance cards show both signatures. | Both cards render |
 | 2.4 | Expiry: nightly cron (`scripts/cron.ts`, run by the host scheduler) flips QUOTE_SENT past `expiresAt` to EXPIRED; hover on the VC tag shows delivered date and valid days (p20). | Seeded expired job shows label |
-| 2.5 | Cancel quote / cancel works with reason; budget reversal. | Both paths audited |
-| 2.6 | Notifications for every transition using `notify()`; add `NotifyKind`s `QUOTE_SENT`, `ACCEPT_REQUIRED`, `COUNTERSIGN_REQUIRED`, `QUOTE_EXPIRING`, `WORKS_COMPLETED`. | Inbox shows them (Phase 3) |
+| 2.5 ✅ | Cancel quote / cancel works with reason; budget reversal. | Both paths audited |
+| 2.6 ✅ | Notifications for every transition using `notify()`; add `NotifyKind`s `QUOTE_SENT`, `ACCEPT_REQUIRED`, `COUNTERSIGN_REQUIRED`, `QUOTE_EXPIRING`, `WORKS_COMPLETED`. | Inbox shows them (Phase 3) |
 
 ### Phase 3 — Inbox  · size M
 
@@ -1103,3 +1105,61 @@ different casings so it cannot regress.
 tests pass, build succeeds, 17 QA checks pass, 31 end-to-end tests pass.
 
 **Next**: Phase 1, the Jobs and Quotes core.
+
+### 2026-09-21 — Phase 1, and the acceptance flow from Phase 2
+
+The core of the yard portal. A `Job` is the commercial record with the yard; a `ChangeOrder` remains
+the owner-side governance record. They link one-to-many, and that link is what lets OceancOS do the one
+thing The Bridge cannot.
+
+**The object** (`Job`, `JobSection`, `JobLine`, `JobNote`, `JobVariation`, `JobHistory`,
+`JobFavourite`, `AcceptanceChallenge`). Codes follow the MB92 scheme decided in §7 item 2, with a
+per-project override; `src/lib/jobs/codes.ts` validates, groups, sorts numerically (so `.10` follows
+`.5` rather than preceding it) and suggests the next code in tens so a job can be inserted later
+without renumbering.
+
+**The lifecycle** (`src/lib/jobs/workflow.ts`) follows the pattern set in Phase 0: one module owning the
+legal transitions, the permission each needs and what the UI may offer, so the server and the screen
+cannot disagree. Expiry is a label rather than a barrier — an expired quote can still be accepted, and
+the yard then decides whether to countersign, exactly as The Bridge behaves.
+
+**The list** reproduces The Bridge's sub-views (New requests, New purchases, Pending, Accepted,
+Cancelled works, Cancelled quotes, Worklist) as filters on one object rather than separate tables, with
+section tabs, search, favourites, code-group headings carrying a value-weighted progress bar and a group
+total, and a lapsed-quote label.
+
+**The detail page** carries the line items and total, exclusions, notes, the variation certificate block
+with its invoicing terms, the validity banner, both digital-acceptance records, the comment thread with
+minutes tagged, and the history.
+
+**Acceptance is the important part.** It is a signature on money, so it takes three steps: review what
+is being signed, confirm, then enter a six-digit code emailed to the authoriser. Beyond that:
+
+- The code is stored **hashed and bound to its challenge**, so it cannot be replayed against another.
+- A **fingerprint of the quote** is taken when the code is sent and checked again when it is used. If
+  any line, the total or the validity changed in between, the acceptance is refused and the challenge
+  spent. The client can only ever sign the version they were shown.
+- Five wrong codes lock the challenge; the audit row records who, from which address, on which quote
+  version, over which channel, and whether the quote had already lapsed.
+- **The governance gate**: where a change order authorised the work, it must have cleared its own
+  approval chain before a code is even sent. This is §12 item 1, and the thing The Bridge structurally
+  cannot do — it has no notion of the owner's internal approval.
+
+**Also built**: the yard's pricing form, the vessel's request form (whose authoriser list contains only
+people who actually hold the accept permission, so a quote is never addressed to someone who cannot
+sign it), per-user favourites, yard progress reporting, the worklist spreadsheet, and a quote PDF
+printed from the real quote page.
+
+**Tests**: 78 new unit tests across codes, the state machine and acceptance; 11 new end-to-end tests
+including the whole commercial loop driven through the browser — request, quote, a wrong code, the real
+code from the outbox, countersign, progress — plus a check that a non-authoriser is offered no way to
+sign. Totals are now **238 unit** and **42 end-to-end**.
+
+Three failures while writing these were all test faults, not app faults: a URL pattern that matched the
+form's own path, an ambiguous label, and Next.js's route announcer colliding with an alert locator.
+
+**Outstanding in Phase 1**: the XLSX import of quotes (1.6), which matters when working with a yard that
+issues its own quote pack.
+
+**Verified**: `tsc --noEmit` clean, 238 unit tests pass, build succeeds across all new routes, 17 QA
+checks pass, 42 end-to-end tests pass.

@@ -20,12 +20,14 @@ import {
   Search,
   Settings,
   Ship,
+  ReceiptText,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Quotes & requests", href: "/jobs", icon: ReceiptText },
   { label: "Change orders", href: "/change-orders", icon: FileDiff },
   { label: "Crew requests", href: "/crew-requests", icon: Users },
   { label: "Approvals", href: "/approvals", icon: CheckSquare },

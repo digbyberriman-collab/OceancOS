@@ -78,6 +78,77 @@ export const CREW_REQUEST_CATEGORIES = [
   "CLEANING",
 ] as const;
 
+// ---- Jobs & quotes ----
+
+export const JOB_STATUSES = [
+  "NEW_REQUEST",
+  "QUOTE_SENT",
+  "EXPIRED",
+  "CLIENT_ACCEPTED",
+  "ACCEPTED",
+  "YARD_COMPLETED",
+  "MINOR_DEFICIENCY",
+  "WORKS_ACCEPTED",
+  "CANCELLED_QUOTE",
+  "CANCELLED_WORKS",
+  "CLOSED",
+] as const;
+export type JobStatus = (typeof JOB_STATUSES)[number];
+
+export const CONTRACT_TYPES = [
+  "CONTRACT",
+  "VARIATION_CERTIFICATE",
+  "SERVICES",
+  "PURCHASE",
+] as const;
+export type ContractType = (typeof CONTRACT_TYPES)[number];
+
+export const PRICING_BASES = ["FIXED", "ESTIMATED", "TIME_AND_MATERIALS"] as const;
+export type PricingBasis = (typeof PRICING_BASES)[number];
+
+export const VARIATION_DUE_TO = [
+  "OWNER_REQUEST",
+  "YARD_FINDING",
+  "CLASS_REQUIREMENT",
+  "SURVEY_FINDING",
+  "OTHER",
+] as const;
+
+export const VARIATION_AFFECTING = [
+  "WORKS_SPECIFICATION",
+  "DELIVERY_DATE",
+  "CONTRACT_PRICE",
+  "OTHER",
+] as const;
+
+/** Human labels for the statuses, since the raw keys read badly in a UI. */
+export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
+  NEW_REQUEST: "New request",
+  QUOTE_SENT: "Quote sent",
+  EXPIRED: "Expired",
+  CLIENT_ACCEPTED: "Client accepted",
+  ACCEPTED: "Accepted",
+  YARD_COMPLETED: "Yard completed",
+  MINOR_DEFICIENCY: "Minor deficiency",
+  WORKS_ACCEPTED: "Works accepted",
+  CANCELLED_QUOTE: "Cancelled quote",
+  CANCELLED_WORKS: "Cancelled works",
+  CLOSED: "Closed",
+};
+
+export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
+  CONTRACT: "Contract",
+  VARIATION_CERTIFICATE: "Variation certificate",
+  SERVICES: "Services",
+  PURCHASE: "Purchase",
+};
+
+export const PRICING_BASIS_LABELS: Record<PricingBasis, string> = {
+  FIXED: "Fixed",
+  ESTIMATED: "Estimated",
+  TIME_AND_MATERIALS: "Time & materials",
+};
+
 export const APPROVAL_RESOURCES = [
   "CHANGE_ORDER",
   "CREW_REQUEST",
@@ -108,6 +179,9 @@ export const DEPARTMENTS = [
 
 export const PROJECT_TYPES = ["REFIT", "NEW_BUILD", "CONVERSION"] as const;
 
+/** Labels for status keys that read badly raw. StatusBadge consults this. */
+export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS };
+
 export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
   // shared
   DRAFT: "muted",
@@ -131,6 +205,16 @@ export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   MITIGATED: "ok",
   ACCEPTED: "info",
   ESCALATED: "bad",
+  // jobs
+  NEW_REQUEST: "info",
+  QUOTE_SENT: "warn",
+  CLIENT_ACCEPTED: "info",
+  YARD_COMPLETED: "info",
+  MINOR_DEFICIENCY: "warn",
+  WORKS_ACCEPTED: "ok",
+  EXPIRED: "bad",
+  CANCELLED_QUOTE: "muted",
+  CANCELLED_WORKS: "muted",
   // priorities
   LOW: "muted",
   MEDIUM: "info",

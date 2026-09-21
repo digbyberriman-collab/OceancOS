@@ -131,6 +131,8 @@ model Project {
   userRoles     UserRole[]
   approvals     Approval[]
   activeSessions Session[]     @relation("ActiveSessions")
+  jobs          Job[]
+  jobSections   JobSection[]
 }
 
 model Department {
@@ -180,6 +182,7 @@ model ChangeOrder {
   comments      Comment[]
   attachments   Attachment[]
   crewRequests  CrewRequest[]
+  jobs          Job[]
 }
 
 model ChangeOrderApproval {
@@ -538,9 +541,17 @@ model Comment {
   resourceId    String
   changeOrderId String?
   crewRequestId String?
+  jobId         String?
+  /// MESSAGE is an ordinary comment; MINUTE is tagged as a meeting minute;
+  /// SYSTEM records a lifecycle event in the same thread.
+  kind          String   @default("MESSAGE")
   createdAt     DateTime @default(now())
   changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
   crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
+  job           Job?         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attachments   Attachment[]
+
+  @@index([jobId])
 }
 
 model Attachment {
@@ -557,9 +568,16 @@ model Attachment {
   resourceId    String
   changeOrderId String?
   crewRequestId String?
+  jobId         String?
+  commentId     String?
   createdAt     DateTime @default(now())
   changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
   crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
+  job           Job?         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  comment       Comment?     @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([commentId])
 }
 
 // ---------- Audit ----------
@@ -585,6 +603,180 @@ model PasswordReset {
   usedAt    DateTime?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+
+// ---------- Jobs & quotes ----------
+//
+// The commercial record with the yard, and the core object of the yard portal.
+// A ChangeOrder is the owner-side governance record — why scope is changing and
+// who internally approves it. A Job is what the yard quotes, the client accepts
+// and the yard invoices. They link one-to-many: a change order can authorise
+// several jobs, and a job records which change order authorised it.
+
+model JobSection {
+  id        String  @id @default(cuid())
+  projectId String
+  /// Section letter in the yard's code system, e.g. "D" for Dry Dock.
+  letter    String
+  name      String
+  sort      Int     @default(0)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobs      Job[]
+
+  @@unique([projectId, letter])
+}
+
+model Job {
+  id           String  @id @default(cuid())
+  projectId    String
+  sectionId    String?
+  /// Yard job code, e.g. "D.0130.05". Unique within a project.
+  code         String
+  /// Group the code belongs to, e.g. "D.0130". Derived, stored for grouping.
+  groupCode    String?
+  /// The yacht's own tracking number, when they use one.
+  clientRef    String?
+  title        String
+  description  String
+
+  contractType String  @default("VARIATION_CERTIFICATE") // CONTRACT|VARIATION_CERTIFICATE|SERVICES|PURCHASE
+  pricingBasis String  @default("FIXED")                 // FIXED|ESTIMATED|TIME_AND_MATERIALS
+  exceptionFlag Boolean @default(false)
+
+  status       String  @default("NEW_REQUEST")
+  // NEW_REQUEST|QUOTE_SENT|CLIENT_ACCEPTED|ACCEPTED|EXPIRED|CANCELLED_QUOTE|
+  // CANCELLED_WORKS|YARD_COMPLETED|WORKS_ACCEPTED|MINOR_DEFICIENCY|CLOSED
+
+  total        Float   @default(0)
+  currency     String  @default("EUR")
+  /// Yard-reported completion, 0–100.
+  progressPct  Int     @default(0)
+
+  requestedAt      DateTime?
+  quoteDeliveredAt DateTime?
+  validityDays     Int?
+  /// quoteDeliveredAt + validityDays. Stored so expiry can be queried.
+  expiresAt        DateTime?
+
+  clientAcceptedAt   DateTime?
+  clientAcceptedById String?
+  yardAcceptedAt     DateTime?
+  yardAcceptedById   String?
+  cancelledAt        DateTime?
+  cancelReason       String?
+  yardCompletedAt    DateTime?
+  /// When works were accepted by the client. The warranty starts here.
+  worksAcceptedAt    DateTime?
+  warrantyMonths     Int?
+
+  designatedAuthoriserId String?
+  linkedChangeOrderId    String?
+
+  createdAt   DateTime  @default(now())
+  createdById String
+  updatedAt   DateTime  @updatedAt
+  updatedById String?
+  archivedAt  DateTime?
+
+  project     Project        @relation(fields: [projectId], references: [id])
+  section     JobSection?    @relation(fields: [sectionId], references: [id])
+  changeOrder ChangeOrder?   @relation(fields: [linkedChangeOrderId], references: [id])
+  lines       JobLine[]
+  notes       JobNote[]
+  variation   JobVariation?
+  history     JobHistory[]
+  favourites  JobFavourite[]
+  comments    Comment[]
+  attachments Attachment[]
+  challenges  AcceptanceChallenge[]
+
+  @@unique([projectId, code])
+  @@index([projectId, status])
+  @@index([projectId, groupCode])
+}
+
+model JobLine {
+  id          String @id @default(cuid())
+  jobId       String
+  sort        Int    @default(0)
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("UN")
+  unitPrice   Float  @default(0)
+  /// quantity × unitPrice, stored so a historic quote keeps the figure it was
+  /// accepted at even if the arithmetic convention ever changes.
+  total       Float  @default(0)
+  job         Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+model JobNote {
+  id    String @id @default(cuid())
+  jobId String
+  kind  String // EXCLUSION|NOTE
+  sort  Int    @default(0)
+  text  String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, kind])
+}
+
+/// Variation certificate detail, present only on a variation.
+model JobVariation {
+  id                 String  @id @default(cuid())
+  jobId              String  @unique
+  dueTo              String? // OWNER_REQUEST|YARD_FINDING|CLASS_REQUIREMENT|SURVEY_FINDING|OTHER
+  affecting          String? // WORKS_SPECIFICATION|DELIVERY_DATE|CONTRACT_PRICE|OTHER
+  deliveryAdjustment String?
+  priceAdjustment    Float?
+  /// Staged invoicing terms, e.g. 50% on signature and 50% on completion.
+  invoicingTerms     Json?
+  job                Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model JobHistory {
+  id         String   @id @default(cuid())
+  jobId      String
+  actorId    String?
+  event      String
+  fromStatus String?
+  toStatus   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+/// A pending acceptance: the code sent to the authoriser and what it signs.
+model AcceptanceChallenge {
+  id        String    @id @default(cuid())
+  jobId     String
+  userId    String
+  /// Only the hash is stored, bound to this challenge so a code cannot be replayed.
+  codeHash  String
+  channel   String    @default("EMAIL") // EMAIL|SMS
+  /// Fingerprint of the quote at the moment the code was sent, so an alteration
+  /// between sending and signing is detectable.
+  quoteHash String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime  @default(now())
+  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, userId])
+}
+
+model JobFavourite {
+  userId    String
+  jobId     String
+  createdAt DateTime @default(now())
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@id([userId, jobId])
 }
 
 // ---------- Settings ----------
