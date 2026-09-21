@@ -7,6 +7,26 @@ import { seedJobs } from "./seedJobs";
 
 const prisma = new PrismaClient();
 
+/**
+ * The password every seeded account is given.
+ *
+ * Development and test get a known value so the fixtures and the e2e suite can
+ * sign in. Production gets nothing unless SEED_PASSWORD is set — seeding a
+ * deployed database with a password that is written down in this file would
+ * hand every visitor an OWNER account.
+ */
+function seedPassword(): string {
+  const supplied = process.env.SEED_PASSWORD;
+  if (supplied) return supplied;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SEED_PASSWORD must be set to seed a production database. " +
+        "Refusing to create accounts with a password committed to the repository."
+    );
+  }
+  return "password";
+}
+
 async function main() {
   console.log("Seeding OceancOS…");
 
@@ -112,7 +132,11 @@ async function main() {
   }
 
   // Users
-  const passwordHash = await bcrypt.hash("password", 10);
+  //
+  // Seed accounts are a development and test convenience. In production the
+  // password must be supplied explicitly: there is no default, because a
+  // default is a published credential the moment the repository is public.
+  const passwordHash = await bcrypt.hash(seedPassword(), 10);
   const userSeeds: { email: string; name: string; role: typeof ROLE_KEYS[number] }[] = [
     { email: "owner@oceancos.dev", name: "Alex Owner", role: "OWNER" },
     { email: "rep@oceancos.dev", name: "Robin Rep", role: "OWNERS_REP" },

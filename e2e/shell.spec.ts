@@ -18,6 +18,18 @@ test.describe("authentication", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
+  test("publishes no credentials to an anonymous visitor", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+
+    // The sign-in page once carried a "Demo access" panel printing a working
+    // OWNER login. Nothing on this page may name an account or a password.
+    const body = (await page.locator("body").innerText()).toLowerCase();
+    expect(body).not.toContain("@oceancos.dev");
+    expect(body).not.toContain("demo access");
+    expect(body).not.toMatch(/password\s+password/);
+  });
+
   test("rejects a wrong password without signing in", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel(/email/i).fill(PM.email);

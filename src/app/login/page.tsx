@@ -8,7 +8,6 @@ import { recordAudit } from "@/lib/audit";
 import { Field, Input } from "@/components/ui/Form";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { BrandPanel } from "@/components/auth/BrandPanel";
-import { DemoHint } from "@/components/auth/DemoHint";
 
 async function login(formData: FormData) {
   "use server";
@@ -116,10 +115,6 @@ export default async function LoginPage({
                 Sign in
               </button>
             </form>
-          </div>
-
-          <div className="mt-5">
-            <DemoHint />
           </div>
 
           <p className="mt-8 text-center text-xs text-faint">
