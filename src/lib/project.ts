@@ -165,3 +165,50 @@ export async function storeActiveProject(userId: string, projectId: string) {
     data: { activeProjectId: projectId },
   });
 }
+
+/**
+ * The `UserRole` filter that admits a role scope reaching a given project —
+ * the inverse of `resolveProjectWhere`. That function asks "which projects
+ * can this role scope reach"; this asks "which role scopes reach this
+ * project". Used to find who to notify about something that happened on one
+ * project, without notifying everyone who holds the permission platform-wide.
+ *
+ * Pure, for the same reason `resolveProjectWhere` is.
+ */
+export function resolveUserRoleWhereForProject(project: { id: string; vesselId: string }) {
+  return {
+    OR: [
+      { projectId: null, vesselId: null },
+      { projectId: project.id },
+      { vesselId: project.vesselId },
+    ],
+  };
+}
+
+/**
+ * Active users holding `permKey` through a role scope that reaches `project`.
+ *
+ * Replaces the pattern of selecting every user who holds a permission
+ * anywhere on the platform to notify them about one project's job or change
+ * order — AUDIT_REPORT.md's `[NOTIFICATIONS] — Recipient lookups are global`:
+ * every yard PM on the platform was notified of every new quote request on
+ * every vessel, including the job code and title of one they could not open.
+ */
+export async function usersWithPermissionOnProject(
+  project: { id: string; vesselId: string },
+  permKey: string
+): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      active: true,
+      roles: {
+        some: {
+          role: { permissions: { some: { permission: { key: permKey } } } },
+          ...resolveUserRoleWhereForProject(project),
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}

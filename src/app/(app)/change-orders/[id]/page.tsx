@@ -9,6 +9,7 @@ import { Field, Textarea } from "@/components/ui/Form";
 import { fmtMoney, fmtDateTime } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
+import { accessibleProjectIds } from "@/lib/project";
 import {
   transitionChangeOrder,
   decideChangeOrderApproval,
@@ -47,6 +48,9 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
     },
   });
   if (!co) return notFound();
+
+  const projectIds = await accessibleProjectIds(user.id);
+  if (!projectIds.includes(co.projectId)) return notFound();
 
   // map authorIds to names for comments and history
   const userIds = Array.from(new Set([

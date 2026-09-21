@@ -6,8 +6,11 @@ import {
   PRIORITIES,
 } from "./enums";
 
+// projectId is deliberately not a field here: it comes from getActiveProject()
+// server-side, never from the submitted form. See AUDIT_REPORT.md's
+// [TENANCY] — "projectId is taken from the client form" and ACTION_PLAN.md
+// G2.1.
 export const ChangeOrderCreateSchema = z.object({
-  projectId: z.string().min(1),
   title: z.string().min(3).max(200),
   description: z.string().min(5),
   reason: z.string().min(3),
@@ -25,8 +28,9 @@ export type ChangeOrderCreateInput = z.infer<typeof ChangeOrderCreateSchema>;
 
 export const ChangeOrderStatusSchema = z.enum(CHANGE_ORDER_STATUSES);
 
+// projectId is deliberately not a field here either — same reasoning as
+// ChangeOrderCreateSchema above.
 export const CrewRequestCreateSchema = z.object({
-  projectId: z.string().min(1),
   title: z.string().min(3).max(200),
   description: z.string().min(3),
   category: z.enum(CREW_REQUEST_CATEGORIES),

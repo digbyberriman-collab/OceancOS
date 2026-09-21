@@ -8,6 +8,7 @@ import { fmtDate } from "@/lib/utils";
 import { CREW_REQUEST_CATEGORIES, CREW_REQUEST_STATUSES, PRIORITIES } from "@/lib/enums";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Users } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export default async function CrewRequestsPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.category) where.category = searchParams.category;

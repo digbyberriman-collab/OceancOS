@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
@@ -14,6 +15,7 @@ export default async function DrawingsPage() {
     return <EmptyState title="Forbidden" hint="Drawings are restricted." />;
   }
   const drawings = await prisma.drawing.findMany({
+    where: await projectScope(user.id),
     include: { revisions: { orderBy: { createdAt: "desc" } } },
     orderBy: { number: "asc" },
   });

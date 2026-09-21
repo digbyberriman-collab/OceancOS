@@ -10,10 +10,17 @@ import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validato
 import { nextSequence } from "@/lib/utils";
 import { conflict, invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
+import { getActiveProject, requireProjectAccess } from "@/lib/project";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_CREATE);
+
+  // The project comes from the caller's active project, never from the
+  // submitted form — see the note on CrewRequestCreateSchema.
+  const project = await getActiveProject(user.id);
+  if (!project) throw invalid("Choose a project before raising a crew request.");
+
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
@@ -21,6 +28,7 @@ export async function createCrewRequest(formData: FormData) {
   const cr = await prisma.crewRequest.create({
     data: {
       ...data,
+      projectId: project.id,
       number,
       requestedById: user.id,
       createdById: user.id,
@@ -53,6 +61,12 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
   const user = await requireUser();
   const cr = await prisma.crewRequest.findUnique({ where: { id } });
   if (!cr) throw notFound("That crew request");
+
+  // No project check existed here at all before this — see the identical
+  // note on transitionChangeOrder. (The per-status permission coverage
+  // below is its own separate gap, C6, fixed in G2.4.)
+  await requireProjectAccess(user.id, cr.projectId);
+
   const target = CrewRequestStatusSchema.parse(toStatus);
 
   // permission rules
@@ -105,6 +119,15 @@ export async function assignCrewRequest(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_ASSIGN);
   const id = String(formData.get("id"));
+
+  // CR_ASSIGN is a role permission, not proof this request is one the
+  // caller's role scope reaches — without this, a project-scoped user could
+  // assign any crew request platform-wide by id. (This function's separate
+  // bypass of the legal-transition map is G2.4's, not touched here.)
+  const cr = await prisma.crewRequest.findUnique({ where: { id }, select: { projectId: true } });
+  if (!cr) throw notFound("That crew request");
+  await requireProjectAccess(user.id, cr.projectId);
+
   const assignedToId = String(formData.get("assignedToId") || "") || null;
   await prisma.crewRequest.update({
     where: { id },
@@ -131,9 +154,17 @@ export async function assignCrewRequest(formData: FormData) {
 
 export async function addCrewRequestComment(formData: FormData) {
   const user = await requireUser();
+  assertPermission(user, PERMISSIONS.CR_VIEW);
+
   const id = String(formData.get("id"));
   const body = String(formData.get("body") ?? "").trim();
   if (!id || !body) return;
+
+  // Same situation as addChangeOrderComment — see the note there.
+  const cr = await prisma.crewRequest.findUnique({ where: { id }, select: { projectId: true } });
+  if (!cr) throw notFound("That crew request");
+  await requireProjectAccess(user.id, cr.projectId);
+
   await prisma.comment.create({
     data: {
       authorId: user.id,

@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDateTime, fmtMoney } from "@/lib/utils";
@@ -69,6 +70,7 @@ export default async function LogisticsPage() {
     );
   }
   const items = await prisma.logisticsItem.findMany({
+    where: await projectScope(user.id),
     orderBy: [{ whenAt: "asc" }],
     take: 200,
   });

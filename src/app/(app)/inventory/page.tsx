@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney } from "@/lib/utils";
@@ -62,7 +63,7 @@ export default async function InventoryPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.q) {
     where.OR = [
       { name: { contains: searchParams.q, mode: "insensitive" } },

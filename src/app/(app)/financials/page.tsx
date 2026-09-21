@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { fmtMoney } from "@/lib/utils";
 import { BudgetBar } from "@/components/data/BudgetBar";
@@ -20,6 +21,7 @@ export default async function FinancialsPage() {
     );
   }
   const budgets = await prisma.budget.findMany({
+    where: await projectScope(user.id),
     include: { category: true, project: { include: { vessel: true } } },
     orderBy: [{ project: { name: "asc" } }, { category: { name: "asc" } }],
   });

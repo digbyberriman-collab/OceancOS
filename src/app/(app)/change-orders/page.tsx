@@ -9,6 +9,7 @@ import { fmtMoney, fmtDate } from "@/lib/utils";
 import { CHANGE_ORDER_STATUSES, PRIORITIES } from "@/lib/enums";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { ClipboardList } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export default async function ChangeOrdersPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.q) {

@@ -14,7 +14,15 @@ export default async function AdminPage() {
     return <EmptyState title="Forbidden" hint="Admin tools are restricted." />;
   }
   const [users, vessels, projects, depts, audit] = await Promise.all([
-    prisma.user.findMany({ include: { roles: { include: { role: true } } }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        roles: { select: { role: { select: { key: true } } } },
+      },
+      orderBy: { name: "asc" },
+    }),
     prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
     prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" } }),
     prisma.department.findMany({ orderBy: { name: "asc" } }),

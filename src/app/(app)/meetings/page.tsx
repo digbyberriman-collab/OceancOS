@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { fmtDateTime } from "@/lib/utils";
@@ -14,6 +15,7 @@ export default async function MeetingsPage() {
     return <EmptyState title="Forbidden" hint="Meeting records are restricted." />;
   }
   const meetings = await prisma.meeting.findMany({
+    where: await projectScope(user.id),
     include: { actions: true, project: { include: { vessel: true } } },
     orderBy: { meetsAt: "desc" },
     take: 100,

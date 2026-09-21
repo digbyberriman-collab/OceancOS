@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
@@ -13,7 +14,11 @@ export default async function DocumentsPage() {
   if (!hasPermission(user, PERMISSIONS.DOC_VIEW)) {
     return <EmptyState title="Forbidden" hint="Documents are restricted." />;
   }
-  const docs = await prisma.document.findMany({ where: { archivedAt: null }, orderBy: { createdAt: "desc" }, take: 500 });
+  const docs = await prisma.document.findMany({
+    where: { archivedAt: null, ...(await projectScope(user.id)) },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
   const showConfidential = hasPermission(user, PERMISSIONS.DOC_VIEW_CONFIDENTIAL);
   const visible = showConfidential ? docs : docs.filter((d) => !["CONTRACT", "INVOICE", "PO"].includes(d.type));
 

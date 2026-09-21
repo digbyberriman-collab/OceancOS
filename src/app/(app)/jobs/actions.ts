@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
-import { getActiveProject, listProjectsForUser } from "@/lib/project";
+import { getActiveProject, listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";
 import { groupCodeOf, isValidJobCode, nextCodeInGroup, normaliseJobCode } from "@/lib/jobs/codes";
 import {
   JOB_TRANSITION_PERMISSION,
@@ -126,16 +126,12 @@ export async function createJobRequest(formData: FormData) {
     details: { code, title: data.title, projectId: project.id },
   });
 
-  // The yard needs to know there is something to price.
-  const yardUsers = await prisma.user.findMany({
-    where: {
-      active: true,
-      roles: { some: { role: { permissions: { some: { permission: { key: PERMISSIONS.JOB_ISSUE_QUOTE } } } } } },
-    },
-    select: { id: true },
-  });
+  // The yard needs to know there is something to price — only the yard on
+  // this project, not every yard PM on the platform (AUDIT_REPORT.md's
+  // [NOTIFICATIONS] — recipient lookups were global).
+  const yardUserIds = await usersWithPermissionOnProject(project, PERMISSIONS.JOB_ISSUE_QUOTE);
   await notify({
-    userIds: yardUsers.map((u) => u.id),
+    userIds: yardUserIds,
     kind: "ASSIGNED",
     priority: "MEDIUM",
     title: `New quote request ${code}: ${data.title}`,

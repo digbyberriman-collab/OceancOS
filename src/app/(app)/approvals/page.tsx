@@ -8,6 +8,7 @@ import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +29,15 @@ export default async function ApprovalsPage() {
     hasPermission(user, STAGE_PERM[s] as any)
   );
 
+  const scope = await projectScope(user.id);
+
   // Change order approvals waiting on me
   const myCoApprovals = myStages.length
     ? await prisma.changeOrderApproval.findMany({
         where: {
           decision: "PENDING",
           stage: { in: myStages as string[] },
-          changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+          changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
         },
         include: { changeOrder: true },
         orderBy: { createdAt: "asc" },
@@ -46,7 +49,7 @@ export default async function ApprovalsPage() {
     where: {
       decision: "PENDING",
       stage: { notIn: myStages as string[] },
-      changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+      changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
     },
     include: { changeOrder: true },
     orderBy: { createdAt: "asc" },
@@ -55,7 +58,7 @@ export default async function ApprovalsPage() {
 
   // Generic approvals queue (purchase orders, drawings, schedule changes etc.)
   const otherApprovals = await prisma.approval.findMany({
-    where: { status: "PENDING" },
+    where: { ...scope, status: "PENDING" },
     orderBy: { createdAt: "asc" },
     take: 50,
   });

@@ -9,7 +9,7 @@ import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { sendEmail } from "@/lib/email";
-import { listProjectsForUser } from "@/lib/project";
+import { listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";
 import { assertTransitionJob } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { forbidden, notFound } from "@/lib/errors";
@@ -230,19 +230,10 @@ export async function confirmAcceptance(formData: FormData) {
     },
   });
 
-  const yardUsers = await prisma.user.findMany({
-    where: {
-      active: true,
-      roles: {
-        some: {
-          role: { permissions: { some: { permission: { key: PERMISSIONS.JOB_COUNTERSIGN } } } },
-        },
-      },
-    },
-    select: { id: true },
-  });
+  // Only the yard on this project — see the note in jobs/actions.ts.
+  const yardUserIds = await usersWithPermissionOnProject(job.project, PERMISSIONS.JOB_COUNTERSIGN);
   await notify({
-    userIds: yardUsers.map((u) => u.id),
+    userIds: yardUserIds,
     kind: "APPROVAL_REQUIRED",
     priority: "HIGH",
     title: `${job.code} accepted by the client — ready to countersign`,

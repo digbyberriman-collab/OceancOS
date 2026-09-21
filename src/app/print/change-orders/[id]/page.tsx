@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,9 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
     },
   });
   if (!co) return notFound();
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === co.projectId)) return notFound();
 
   const decidedIds = co.approvals.map((a) => a.decidedById).filter((x): x is string => !!x);
   const names = new Map(

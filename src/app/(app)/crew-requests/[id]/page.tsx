@@ -11,6 +11,7 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { transitionCrewRequest, assignCrewRequest, addCrewRequestComment } from "../actions";
 import { ArrowLeft, MessageSquare, AlertTriangle } from "lucide-react";
+import { accessibleProjectIds } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,14 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
   });
   if (!cr) return notFound();
 
-  const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const projectIds = await accessibleProjectIds(user.id);
+  if (!projectIds.includes(cr.projectId)) return notFound();
+
+  const users = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: "asc" },
+  });
   const userMap = new Map(users.map((u) => [u.id, u.name]));
 
   const transitions: Record<string, { to: string; label: string; tone?: "danger" }[]> = {

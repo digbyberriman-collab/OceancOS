@@ -127,7 +127,7 @@ forms-validation `[SCHEMA] — attachUploads`.
 Independent. `.env.example` presents local-disk as the default, which on most deployments means
 uploads land on ephemeral disk. Make `STORAGE_DRIVER` required with no default, and fail startup
 when it is unset. Document `MAIL_OUTBOX_DIR` and `E2E_PORT` while in the file.
-Closes: C14, docs `[ENV] × 3`.
+Closes: C15, docs `[ENV] × 3`.
 
 ### G2.7 — Make the app usable on a phone
 Independent of everything else; can run in parallel with G2.1–G2.6. The 240px sidebar becomes a
@@ -242,6 +242,7 @@ out remains out of scope — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are
 | | Item | Closes |
 |---|---|---|
 | **G3.11** | **Label the ten scaffold modules as unbuilt.** A shared `ComingSoon` state replacing the misleading empty states on schedule, financials, logistics, inventory, drawings, documents, meetings, risks, contractors and suppliers. Keep the sidebar entries; make the state honest. | ui-ux `[SCAFFOLDS]`, `[EMPTY STATES]` |
+| **G3.12** | **Give suppliers a permission gate.** `suppliers/page.tsx` is the one list page with no `hasPermission` check at all — every other module has one. No `PERMISSIONS.SUP_VIEW` key exists yet, so this needs a small RBAC decision (which key, which roles) that the other nine pages' copy-paste fix doesn't need; that's why it wasn't folded into G2.1 alongside the rest of the scoping pass. Discovered in Phase 2 (`auth-security`, `[RBAC] — the suppliers page has no permission check`, Medium) but never assigned a gate in Phase 4 — noted here rather than silently left untracked. | auth-security `[RBAC] — suppliers` |
 
 ---
 

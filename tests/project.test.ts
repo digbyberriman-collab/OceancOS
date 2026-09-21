@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveProjectWhere } from "@/lib/project";
+import { resolveProjectWhere, resolveUserRoleWhereForProject } from "@/lib/project";
 
 describe("resolveProjectWhere", () => {
   it("admits everything for an unscoped role", () => {
@@ -49,5 +49,30 @@ describe("resolveProjectWhere", () => {
     // hand this user every project. null is the caller's signal to return
     // nothing without querying at all.
     expect(resolveProjectWhere([])).toBeNull();
+  });
+});
+
+describe("resolveUserRoleWhereForProject", () => {
+  const project = { id: "p1", vesselId: "v1" };
+
+  it("admits an unscoped role", () => {
+    const where = resolveUserRoleWhereForProject(project);
+    expect(where.OR).toContainEqual({ projectId: null, vesselId: null });
+  });
+
+  it("admits a role scoped to this exact project", () => {
+    const where = resolveUserRoleWhereForProject(project);
+    expect(where.OR).toContainEqual({ projectId: "p1" });
+  });
+
+  it("admits a role scoped to this project's vessel", () => {
+    const where = resolveUserRoleWhereForProject(project);
+    expect(where.OR).toContainEqual({ vesselId: "v1" });
+  });
+
+  it("does not admit a different project or vessel", () => {
+    const where = resolveUserRoleWhereForProject(project);
+    expect(where.OR).not.toContainEqual({ projectId: "other" });
+    expect(where.OR).not.toContainEqual({ vesselId: "other-vessel" });
   });
 });

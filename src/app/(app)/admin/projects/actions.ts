@@ -10,6 +10,7 @@ import {
   parseDateField,
   validateYardPeriod,
 } from "@/lib/projectDates";
+import { requireProjectAccess } from "@/lib/project";
 
 /**
  * Update a project's identity and yard period.
@@ -27,6 +28,11 @@ export async function updateProjectAction(formData: FormData) {
 
   const existing = await prisma.project.findUnique({ where: { id } });
   if (!existing) redirect("/admin/projects?err=missing");
+
+  // PROJ_EDIT is a role permission, not proof this project is one the
+  // caller's role scope reaches — a project-scoped PM otherwise edits any
+  // project in the database by id.
+  await requireProjectAccess(user.id, id);
 
   const dates = {
     arrivalDate: parseDateField(formData.get("arrivalDate")),

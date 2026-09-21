@@ -11,6 +11,7 @@ import { nextSequence } from "@/lib/utils";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
+import { getActiveProject, requireProjectAccess, usersWithPermissionOnProject } from "@/lib/project";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   assertTransitionChangeOrder,
@@ -28,6 +29,11 @@ export async function createChangeOrder(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CO_CREATE);
 
+  // The project comes from the caller's active project, never from the
+  // submitted form — see the note on ChangeOrderCreateSchema.
+  const project = await getActiveProject(user.id);
+  if (!project) throw invalid("Choose a project before raising a change order.");
+
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
@@ -39,6 +45,7 @@ export async function createChangeOrder(formData: FormData) {
   const co = await prisma.changeOrder.create({
     data: {
       ...data,
+      projectId: project.id,
       number,
       createdById: user.id,
       updatedById: user.id,
@@ -63,8 +70,16 @@ export async function createChangeOrder(formData: FormData) {
 
 export async function transitionChangeOrder(id: string, toStatus: string, comment?: string) {
   const user = await requireUser();
-  const co = await prisma.changeOrder.findUnique({ where: { id } });
+  const co = await prisma.changeOrder.findUnique({
+    where: { id },
+    include: { project: { select: { id: true, vesselId: true } } },
+  });
   if (!co) throw notFound("That change order");
+
+  // permissionForTransition checks *what the role may do*, not *whether this
+  // project is one the caller can reach* — this was previously missing
+  // entirely (AUDIT_REPORT.md C5: "no record-level or project-level check").
+  await requireProjectAccess(user.id, co.projectId);
 
   const target = ChangeOrderStatusSchema.parse(toStatus);
   // Who can move it where — see lib/workflow/changeOrder.ts
@@ -120,15 +135,11 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
     });
     if (firstPending) {
       const permKey = STAGE_PERMISSION[firstPending.stage as CoApprovalStage];
-      const approvers = await prisma.user.findMany({
-        where: {
-          active: true,
-          roles: { some: { role: { permissions: { some: { permission: { key: permKey } } } } } },
-        },
-        select: { id: true },
-      });
+      // Only the approvers on this project — see the note on
+      // usersWithPermissionOnProject in lib/project.ts.
+      const approverIds = await usersWithPermissionOnProject(co.project, permKey);
       await notify({
-        userIds: approvers.map((u) => u.id),
+        userIds: approverIds,
         kind: "APPROVAL_REQUIRED",
         priority: "HIGH",
         title: `Approval required: ${co.number} (${firstPending.stage})`,
@@ -223,9 +234,22 @@ export async function decideChangeOrderApproval(formData: FormData) {
 
 export async function addChangeOrderComment(formData: FormData) {
   const user = await requireUser();
+  assertPermission(user, PERMISSIONS.CO_VIEW);
+
   const id = String(formData.get("id") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   if (!id || !body) return;
+
+  // No CO_COMMENT permission key exists — CO_VIEW plus project access is
+  // the check available without inventing one (a role-grant decision, not
+  // this pass's to make; see ACTION_PLAN.md G3.12 for the same situation on
+  // suppliers). Previously: no permission check, no existence check, no
+  // project check at all — any signed-in user, including GUEST, could post
+  // into any project's change order by id.
+  const co = await prisma.changeOrder.findUnique({ where: { id }, select: { projectId: true } });
+  if (!co) throw notFound("That change order");
+  await requireProjectAccess(user.id, co.projectId);
+
   await prisma.comment.create({
     data: {
       authorId: user.id,

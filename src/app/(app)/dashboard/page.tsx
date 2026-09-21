@@ -23,31 +23,38 @@ import { StepArea } from "@/components/charts/StepArea";
 import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
 import { cumulativeByDate } from "@/lib/charts/geometry";
 import { projectTiming } from "@/lib/metrics/project";
-import { getActiveProject } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await requireUser();
 
+  // Every count and list below reflects only the projects this user can
+  // reach — a project-scoped user must never see a number on their own
+  // dashboard that comes from work they cannot open. AuditLog is the one
+  // exception: it carries no projectId at all (a genuinely cross-project
+  // log), so it stays unscoped here.
+  const scope = await projectScope(user.id);
+
   const [coOpen, coPending, crOpen, crOverdue, approvalsPending, milestonesUpcoming, risksOpen, recent] =
     await Promise.all([
-      prisma.changeOrder.count({ where: { status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
+      prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
       prisma.changeOrder.count({
-        where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+        where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
       }),
-      prisma.crewRequest.count({ where: { status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
+      prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
       prisma.crewRequest.count({
-        where: { dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
+        where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
       }),
-      prisma.approval.count({ where: { status: "PENDING" } }),
+      prisma.approval.count({ where: { ...scope, status: "PENDING" } }),
       prisma.milestone.findMany({
-        where: { date: { gte: new Date() }, status: { not: "COMPLETED" } },
+        where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
         orderBy: { date: "asc" },
         take: 5,
       }),
       prisma.risk.findMany({
-        where: { status: { in: ["OPEN", "ESCALATED"] } },
+        where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
         orderBy: { rating: "desc" },
         take: 5,
       }),
@@ -55,7 +62,7 @@ export default async function DashboardPage() {
     ]);
 
   // Budget rollup
-  const budgets = await prisma.budget.findMany();
+  const budgets = await prisma.budget.findMany({ where: scope });
   const original = budgets.reduce((s, b) => s + b.originalAmount, 0);
   const approved = budgets.reduce((s, b) => s + b.approvedChanges, 0);
   const pending = budgets.reduce((s, b) => s + b.pendingChanges, 0);
@@ -63,7 +70,7 @@ export default async function DashboardPage() {
   const forecast = budgets.reduce((s, b) => s + (b.forecastFinal || b.originalAmount + b.approvedChanges), 0);
 
   const myApprovals = await prisma.changeOrderApproval.findMany({
-    where: { decision: "PENDING" },
+    where: { decision: "PENDING", changeOrder: scope },
     include: { changeOrder: true },
     take: 5,
   });
@@ -74,7 +81,7 @@ export default async function DashboardPage() {
   const activeProject = await getActiveProject(user.id);
 
   const changeOrders = await prisma.changeOrder.findMany({
-    where: activeProject ? { projectId: activeProject.id } : undefined,
+    where: activeProject ? { projectId: activeProject.id } : scope,
     select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });

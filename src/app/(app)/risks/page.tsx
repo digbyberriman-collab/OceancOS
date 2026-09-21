@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
@@ -27,7 +28,10 @@ export default async function RisksPage() {
   if (!hasPermission(user, PERMISSIONS.RSK_VIEW)) {
     return <EmptyState title="Forbidden" hint="Risk register is restricted." />;
   }
-  const risks = await prisma.risk.findMany({ orderBy: [{ rating: "desc" }, { createdAt: "desc" }] });
+  const risks = await prisma.risk.findMany({
+    where: await projectScope(user.id),
+    orderBy: [{ rating: "desc" }, { createdAt: "desc" }],
+  });
 
   const critical = risks.filter((r) => r.rating >= 15).length;
   const high = risks.filter((r) => r.rating >= 10 && r.rating < 15).length;

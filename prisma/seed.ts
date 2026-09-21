@@ -165,6 +165,28 @@ async function main() {
     }
   }
 
+  // A project-scoped user, reaching only p1 ("2026 Refit"), never p2.
+  //
+  // Every one of the twelve accounts above holds an unscoped role
+  // assignment, so every one of them can already reach both seeded
+  // projects — none of them can exercise the scoping this project adds
+  // (AUDIT_REPORT.md's [TENANCY] Criticals and ACTION_PLAN.md's G2.1). This
+  // account is what e2e/tenancy.spec.ts signs in as.
+  const scopedUser = await prisma.user.upsert({
+    where: { email: "scoped@oceancos.dev" },
+    update: { name: "Sam Scoped" },
+    create: { email: "scoped@oceancos.dev", name: "Sam Scoped", passwordHash },
+  });
+  const pmRole = await prisma.role.findUnique({ where: { key: "PROJECT_MANAGER" } });
+  if (pmRole) {
+    const exists = await prisma.userRole.findFirst({
+      where: { userId: scopedUser.id, roleId: pmRole.id, projectId: project.id },
+    });
+    if (!exists) {
+      await prisma.userRole.create({ data: { userId: scopedUser.id, roleId: pmRole.id, projectId: project.id } });
+    }
+  }
+
   // Budget categories
   const categoryNames = ["Hull & Coatings", "Engineering", "Interior", "AV/IT", "Deck", "Project Management", "Contingency"];
   for (const name of categoryNames) {
@@ -319,6 +341,48 @@ async function main() {
         safetyImpact: "Slip hazard if leak grows. Monitor.",
       },
     });
+  }
+
+  // One change order and one crew request that live on p2 only — the record
+  // e2e/tenancy.spec.ts proves scoped@oceancos.dev cannot reach.
+  if (pm && crew) {
+    const existingP2Co = await prisma.changeOrder.findUnique({ where: { number: "CO-P2-0001" } });
+    if (!existingP2Co) {
+      await prisma.changeOrder.create({
+        data: {
+          projectId: "p2",
+          number: "CO-P2-0001",
+          title: "Northern Light galley refrigeration replacement",
+          description: "Replace both under-counter refrigeration units in the crew galley.",
+          reason: "Compressors beyond economic repair.",
+          departmentCode: "INTERIOR",
+          priority: "MEDIUM",
+          estimatedCost: 9_400,
+          scheduleImpactDays: 2,
+          status: "DRAFT",
+          createdById: pm.id,
+          updatedById: pm.id,
+          history: { create: { actorId: pm.id, event: "CREATED", toStatus: "DRAFT" } },
+        },
+      });
+    }
+    const existingP2Cr = await prisma.crewRequest.findFirst({ where: { projectId: "p2" } });
+    if (!existingP2Cr) {
+      await prisma.crewRequest.create({
+        data: {
+          projectId: "p2",
+          number: "REQ-P2-0001",
+          title: "Sundeck helm chair upholstery",
+          description: "Split seam on the port helm chair, exposed foam.",
+          category: "INTERIOR",
+          priority: "LOW",
+          status: "NEW",
+          requestedById: crew.id,
+          createdById: crew.id,
+          updatedById: crew.id,
+        },
+      });
+    }
   }
 
   // Sample risks

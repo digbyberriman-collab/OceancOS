@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Search, SearchX } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -41,34 +42,38 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   }
 
   const like = q;
+  // Contractors and suppliers carry no projectId — they're company directories,
+  // not tied to one project — so scope is applied to every other model but
+  // those two.
+  const scope = await projectScope(user.id);
   const [cos, crs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
     hasPermission(user, PERMISSIONS.CO_VIEW)
       ? prisma.changeOrder.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.CR_VIEW)
       ? prisma.crewRequest.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DRW_VIEW)
       ? prisma.drawing.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DOC_VIEW)
-      ? prisma.document.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
+      ? prisma.document.findMany({ where: { ...scope, name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
     prisma.supplier.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 }),
     hasPermission(user, PERMISSIONS.CON_VIEW)
       ? prisma.contractor.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
     hasPermission(user, PERMISSIONS.INV_VIEW)
-      ? prisma.inventoryItem.findMany({ where: { OR: [{ name: { contains: like, mode: "insensitive" } }, { serial: { contains: like, mode: "insensitive" } }] }, take: 20 })
+      ? prisma.inventoryItem.findMany({ where: { ...scope, OR: [{ name: { contains: like, mode: "insensitive" } }, { serial: { contains: like, mode: "insensitive" } }] }, take: 20 })
       : [],
   ]);
 

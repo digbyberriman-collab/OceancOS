@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
 import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
 
@@ -10,9 +10,17 @@ export const dynamic = "force-dynamic";
 
 type Row = Awaited<ReturnType<typeof loadRows>>[number];
 
-async function loadRows(projectId?: string) {
+/**
+ * Pinned to one project when the caller has one active; otherwise every
+ * project they can reach — never every project in the database. The old
+ * `projectId ? { projectId } : undefined` fell to "no filter at all" for a
+ * user with no active project, which for a user who could reach *no*
+ * project meant exporting everyone else's change orders too. See
+ * AUDIT_REPORT.md §6 and `projectScope`'s own docstring.
+ */
+async function loadRows(userId: string, projectId?: string) {
   return prisma.changeOrder.findMany({
-    where: projectId ? { projectId } : undefined,
+    where: { archivedAt: null, ...(projectId ? { projectId } : await projectScope(userId)) },
     include: { project: { include: { vessel: true } } },
     orderBy: { number: "asc" },
   });
@@ -32,7 +40,7 @@ export async function GET(request: Request) {
 
   const format = new URL(request.url).searchParams.get("format") === "csv" ? "csv" : "xlsx";
   const project = await getActiveProject(user.id);
-  const rows = await loadRows(project?.id);
+  const rows = await loadRows(user.id, project?.id);
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const sheet: Sheet<Row> = {
