@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PERMISSIONS, ROLE_PERMISSIONS, hasPermission, hasAnyRole, assertPermission } from "@/lib/rbac";
 import { ROLE_KEYS } from "@/lib/enums";
+import { ActionError } from "@/lib/errors";
 
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
 
@@ -125,10 +126,21 @@ describe("permission checks", () => {
     expect(hasPermission(fakeUser([PERMISSIONS.CO_VIEW]), PERMISSIONS.FIN_VIEW)).toBe(false);
   });
 
-  it("throws with the missing key named", () => {
-    expect(() => assertPermission(fakeUser([]), PERMISSIONS.FIN_VIEW)).toThrow(
-      /missing financial\.view/
+  it("throws, without naming the key it is missing", () => {
+    // This test used to assert the opposite. The message reaches the browser
+    // via the error digest, and naming `financial.view` in it would describe
+    // the permission model to anyone who probes for a denial.
+    expect(() => assertPermission(fakeUser([]), PERMISSIONS.FIN_VIEW)).toThrow(ActionError);
+    expect(() => assertPermission(fakeUser([]), PERMISSIONS.FIN_VIEW)).not.toThrow(
+      /financial\.view/
     );
+
+    try {
+      assertPermission(fakeUser([]), PERMISSIONS.FIN_VIEW);
+    } catch (err) {
+      expect((err as ActionError).kind).toBe("forbidden");
+      expect((err as Error).message).toBe("You do not have permission to do that.");
+    }
   });
 
   it("matches roles by key", () => {

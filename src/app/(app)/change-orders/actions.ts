@@ -9,6 +9,7 @@ import { notify } from "@/lib/notifications";
 import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import { forbidden, invalid, notFound } from "@/lib/errors";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   assertTransitionChangeOrder,
@@ -28,7 +29,7 @@ export async function createChangeOrder(formData: FormData) {
 
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("Invalid change order: " + parsed.error.errors.map((e) => e.message).join(", "));
+    throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
   const number = await nextSequence("CO", () => prisma.changeOrder.count());
@@ -62,7 +63,7 @@ export async function createChangeOrder(formData: FormData) {
 export async function transitionChangeOrder(id: string, toStatus: string, comment?: string) {
   const user = await requireUser();
   const co = await prisma.changeOrder.findUnique({ where: { id } });
-  if (!co) throw new Error("Change order not found");
+  if (!co) throw notFound("That change order");
 
   const target = ChangeOrderStatusSchema.parse(toStatus);
   // Who can move it where — see lib/workflow/changeOrder.ts
@@ -145,9 +146,13 @@ export async function decideChangeOrderApproval(formData: FormData) {
     where: { id: approvalId },
     include: { changeOrder: true },
   });
-  if (!approval) throw new Error("Approval not found");
+  if (!approval) throw notFound("That approval");
   const permKey = STAGE_PERMISSION[approval.stage as CoApprovalStage];
-  if (!hasPermission(user, permKey as any)) throw new Error(`Forbidden: ${approval.stage} approval requires ${permKey}`);
+  if (!hasPermission(user, permKey as any)) {
+    // The stage is named because the user can already see it on the page; the
+    // permission key is not, because it would describe the permission model.
+    throw forbidden(`You cannot decide the ${approval.stage} approval.`);
+  }
 
   await prisma.changeOrderApproval.update({
     where: { id: approvalId },

@@ -1,5 +1,6 @@
 import type { CurrentUser } from "./auth";
 import type { RoleKey } from "./enums";
+import { forbidden } from "./errors";
 
 // Permission keys used across the app. Format: <resource>.<action>[.<qualifier>]
 export const PERMISSIONS = {
@@ -204,8 +205,16 @@ export function hasAnyRole(user: NonNullable<CurrentUser>, ...roles: RoleKey[]):
   return roles.some((r) => user.roleKeys.includes(r));
 }
 
+/**
+ * Refuse unless the user holds the permission.
+ *
+ * The thrown `ActionError` reaches the browser, so it says what the user may
+ * not do, not which permission key they are missing — naming the key tells an
+ * attacker the shape of the permission model. The key is still in the logs via
+ * the digest.
+ */
 export function assertPermission(user: NonNullable<CurrentUser>, perm: PermissionKey) {
   if (!hasPermission(user, perm)) {
-    throw new Error(`Forbidden: missing ${perm}`);
+    throw forbidden("You do not have permission to do that.");
   }
 }

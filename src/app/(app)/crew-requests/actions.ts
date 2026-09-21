@@ -8,12 +8,13 @@ import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
+import { conflict, invalid, notFound } from "@/lib/errors";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_CREATE);
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) throw new Error("Invalid request: " + parsed.error.errors.map((e) => e.message).join(", "));
+  if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
   const number = await nextSequence("REQ", () => prisma.crewRequest.count());
   const cr = await prisma.crewRequest.create({
@@ -50,7 +51,7 @@ export async function createCrewRequest(formData: FormData) {
 export async function transitionCrewRequest(id: string, toStatus: string, comment?: string) {
   const user = await requireUser();
   const cr = await prisma.crewRequest.findUnique({ where: { id } });
-  if (!cr) throw new Error("Crew request not found");
+  if (!cr) throw notFound("That crew request");
   const target = CrewRequestStatusSchema.parse(toStatus);
 
   // permission rules
@@ -69,7 +70,7 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
     CLOSED: [],
   };
   if (!legal[cr.status]?.includes(target)) {
-    throw new Error(`Illegal transition ${cr.status} → ${target}`);
+    throw conflict(`A request at ${cr.status} cannot move to ${target}.`);
   }
 
   await prisma.crewRequest.update({

@@ -17,6 +17,7 @@ import {
 } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
+import { forbidden, invalid, notFound } from "@/lib/errors";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -24,11 +25,11 @@ async function loadJob(userId: string, jobId: string) {
     where: { id: jobId },
     include: { project: true },
   });
-  if (!job) throw new Error("Job not found");
+  if (!job) throw notFound("That job");
 
   const projects = await listProjectsForUser(userId);
   if (!projects.some((p) => p.id === job.projectId)) {
-    throw new Error("Forbidden: no access to that project");
+    throw forbidden("That job belongs to a project you cannot reach.");
   }
   return job;
 }
@@ -53,7 +54,7 @@ export async function createJobRequest(formData: FormData) {
   assertPermission(user, PERMISSIONS.JOB_REQUEST);
 
   const project = await getActiveProject(user.id);
-  if (!project) throw new Error("No active project");
+  if (!project) throw invalid("Choose a project before creating a job.");
 
   const parsed = RequestSchema.safeParse({
     clientRef: formData.get("clientRef") || null,

@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/email";
 import { listProjectsForUser } from "@/lib/project";
 import { assertTransitionJob } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
+import { forbidden, notFound } from "@/lib/errors";
 import {
   MAX_CHALLENGE_ATTEMPTS,
   acceptanceEmail,
@@ -29,11 +30,11 @@ async function loadJobForAccept(userId: string, jobId: string) {
     where: { id: jobId },
     include: { project: true, lines: { orderBy: { sort: "asc" } } },
   });
-  if (!job) throw new Error("Job not found");
+  if (!job) throw notFound("That job");
 
   const projects = await listProjectsForUser(userId);
   if (!projects.some((p) => p.id === job.projectId)) {
-    throw new Error("Forbidden: no access to that project");
+    throw forbidden("That job belongs to a project you cannot reach.");
   }
   return job;
 }

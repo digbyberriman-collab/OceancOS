@@ -88,6 +88,27 @@ test.describe("permissions", () => {
     await expect(page.getByRole("heading", { name: /financials/i })).toBeVisible();
     await expect(page.getByText(/forbidden/i)).toHaveCount(0);
   });
+
+  test("a refused page renders inside the shell, not as a blank crash", async ({ page }) => {
+    // /change-orders/new calls assertPermission, which throws. Crew does not
+    // hold change_order.create. Before the error boundary existed this threw
+    // into nothing and the user got a blank page with no way back.
+    await signIn(page, CREW);
+    await page.goto("/change-orders/new");
+
+    await expect(page.getByRole("heading", { name: /not permitted/i })).toBeVisible();
+    await expect(page.getByText(/do not have permission/i)).toBeVisible();
+
+    // The shell survives: the user is not stranded.
+    await expect(page.getByRole("navigation")).toBeVisible();
+    await expect(page.getByRole("link", { name: /back to dashboard/i })).toBeVisible();
+
+    // And the permission key is not disclosed to the browser.
+    expect(await page.locator("body").innerText()).not.toContain("change_order.create");
+
+    await page.getByRole("link", { name: /back to dashboard/i }).click();
+    await page.waitForURL("**/dashboard");
+  });
 });
 
 test.describe("uploads", () => {
