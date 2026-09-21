@@ -219,3 +219,26 @@ test.describe("dashboard charts", () => {
     await expect(page.getByText("Cumulative change-order value")).toHaveCount(0);
   });
 });
+
+test.describe("text search", () => {
+  // SQLite matched case-insensitively for free; PostgreSQL does not. Every
+  // `contains` filter carries mode: "insensitive" so the move did not quietly
+  // break search, and these assertions keep it that way.
+  test("matches regardless of the case typed", async ({ page }) => {
+    await signIn(page, PM);
+
+    for (const query of ["teak", "TEAK", "TeAk"]) {
+      await page.goto(`/change-orders?q=${query}`);
+      await expect(
+        page.getByRole("link", { name: /Sundeck teak caulking/i }),
+        `searching for ${query}`
+      ).toBeVisible();
+    }
+  });
+
+  test("matches case-insensitively from the global search too", async ({ page }) => {
+    await signIn(page, PM);
+    await page.goto("/search?q=STABILISER");
+    await expect(page.getByText(/Stabiliser fin bearing overhaul/i).first()).toBeVisible();
+  });
+});

@@ -33,9 +33,9 @@ export default async function ChangeOrdersPage({
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.q) {
     where.OR = [
-      { title: { contains: searchParams.q } },
-      { number: { contains: searchParams.q } },
-      { description: { contains: searchParams.q } },
+      { title: { contains: searchParams.q, mode: "insensitive" } },
+      { number: { contains: searchParams.q, mode: "insensitive" } },
+      { description: { contains: searchParams.q, mode: "insensitive" } },
     ];
   }
 

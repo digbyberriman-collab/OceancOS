@@ -9,8 +9,22 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: "file:./ci.db"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/oceancos_ci?schema=public"
       SESSION_SECRET: "ci-secret-not-used-in-production"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: oceancos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,9 +48,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Create and seed database
+      - name: Migrate and seed database
         run: |
-          npx prisma db push --skip-generate
+          npx prisma migrate deploy
           npm run db:seed
 
       - name: Database QA checks
@@ -45,8 +59,22 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: "file:./ci.db"
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/oceancos_ci?schema=public"
       SESSION_SECRET: "ci-secret-not-used-in-production"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: oceancos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -72,7 +100,7 @@ jobs:
         run: |
           npx prisma generate
           npm run build
-          npx prisma db push --skip-generate
+          npx prisma migrate deploy
           npm run db:seed
 
       - name: End-to-end tests

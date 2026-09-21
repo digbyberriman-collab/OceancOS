@@ -1,10 +1,11 @@
-// OceancOS schema. Portable types only — works on SQLite (dev) and Postgres (prod).
+// OceancOS schema. PostgreSQL, chosen before Phase 1 triples the table count
+// (BRIDGE_ALIGNMENT_PLAN.md §7 decision 6).
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -569,7 +570,7 @@ model AuditLog {
   action     String   // CREATE|UPDATE|DELETE|APPROVE|REJECT|STATUS|COMMENT|UPLOAD|LOGIN|LOGOUT
   resource   String
   resourceId String?
-  details    String?  // JSON
+  details    Json?
   createdAt  DateTime @default(now())
 }
 

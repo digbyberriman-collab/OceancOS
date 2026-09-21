@@ -751,14 +751,23 @@ Only after Phases 0–11. Ranked by value to the owner's team:
 
 ## 7. Decisions
 
-**Still open — these gate Phase 1 design.**
+**All seven are now decided.** The four below were settled on 2026-09-21; items 4, 5 and 7 on 2026-09-20.
 
-1. **Positioning** — confirm §3.1: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
-2. **Code system** — adopt the MB92-style `X.NNNN.NN` codes as the default, configurable per project? Or a simpler `SECTION-###` scheme?
-3. **Second factor for Accept** — email code (no new vendor) or SMS from day one (needs Twilio or similar)?
+**Decided 2026-09-21.**
+
+1. **Positioning** — ✅ **Vessel-side with a role-gated yard side**, as §3.1 proposed. OceancOS is
+   operated by the owner's team across yards and projects; yard staff get a gated side so a yard
+   without its own portal can work inside it. This is what lets the change-order approval chain gate
+   the client Accept, which The Bridge cannot do. Original text: vessel-side system with a role-gated yard side. (Alternative: build it purely as a yard product; that changes who creates quotes and removes the CO gate.)
+2. **Code system** — ✅ **MB92-style `X.NNNN.NN`, configurable per project.** Matches what yards
+   actually issue, so imported quotes keep their real codes, with per-project validation override.
+3. **Second factor for Accept** — ✅ **Emailed six-digit code.** No new vendor, no per-message cost,
+   and it works offshore over any data connection. The challenge table is designed so SMS is a channel
+   switch rather than a rewrite.
 4. **Storage provider** — ✅ **Cloudflare R2**, decided 2026-09-20. S3-compatible, no egress fees. The driver is provider-agnostic, so AWS S3 or MinIO need only different env values.
 5. **PDF strategy** — ✅ **Playwright print-to-PDF**, decided 2026-09-20. The PDF renders the real quote page, so there is no second layout to drift. Playwright is already a dependency. The production image needs Chromium.
-6. **Database** — move to Postgres in Phase 0 rather than later? Multi-tenant is out of scope here, but the JSON-in-string columns (`invoicingTerms`, `projectIds`) would be proper `Json` columns on Postgres.
+6. **Database** — ✅ **Moved to PostgreSQL**, done 2026-09-21 before Phase 1 triples the table count.
+   Real JSON columns, proper concurrency, and versioned migrations rather than `db push`.
 7. **Design tokens** — ✅ **Keep the OceancOS `ink/line/accent/marine` system**, decided 2026-09-20. No restyling of what is already built; charts inherit today's palette. Aligning to STORM stays open as a later, separate piece of work.
 
 ---
@@ -1065,3 +1074,32 @@ code, and a save that the header switcher then reads. Totals are now **160 unit*
 end-to-end tests pass.
 
 **Phase 0 is now complete.** Phase 1 is blocked on §7 items 1, 2, 3 and 6.
+
+### 2026-09-21 — The remaining decisions, and the move to PostgreSQL
+
+**Decisions.** Vessel-side with a role-gated yard side; MB92-style configurable job codes; an emailed
+six-digit code as the second factor on Accept; and PostgreSQL now. All seven §7 items are settled.
+
+**The migration**, taken before Phase 1 rather than after, since it only gets more expensive as the
+schema grows:
+
+- `provider` is now `postgresql`, with a real versioned migration in `prisma/migrations` replacing
+  `prisma db push`. `npm run db:migrate`, `db:deploy` and `db:reset` are the commands; the dev SQLite
+  file is gone.
+- `AuditLog.details` becomes a real `Json` column instead of a hand-encoded string, so the audit trail
+  can be queried by its contents rather than only read. `recordAudit` still accepts a plain string and
+  wraps it, so no call site broke.
+- CI runs a `postgres:16` service container with a health check and applies migrations with
+  `migrate deploy`.
+
+**The hazard this migration hides.** SQLite matches `contains` case-insensitively for ASCII; PostgreSQL
+does not. Every one of the **17 text search filters** across change orders, crew requests, inventory,
+documents, suppliers, contractors and global search would have silently stopped matching a
+differently-cased query — no error, no failing test, just a search that quietly returns less than it
+should. All 23 filters now carry `mode: "insensitive"`, and two end-to-end tests search in three
+different casings so it cannot regress.
+
+**Verified on PostgreSQL**: migration applies from empty, seed runs, `tsc --noEmit` clean, 160 unit
+tests pass, build succeeds, 17 QA checks pass, 31 end-to-end tests pass.
+
+**Next**: Phase 1, the Jobs and Quotes core.

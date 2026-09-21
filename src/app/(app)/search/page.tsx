@@ -44,31 +44,31 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   const [cos, crs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
     hasPermission(user, PERMISSIONS.CO_VIEW)
       ? prisma.changeOrder.findMany({
-          where: { OR: [{ title: { contains: like } }, { number: { contains: like } }, { description: { contains: like } }] },
+          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.CR_VIEW)
       ? prisma.crewRequest.findMany({
-          where: { OR: [{ title: { contains: like } }, { number: { contains: like } }, { description: { contains: like } }] },
+          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DRW_VIEW)
       ? prisma.drawing.findMany({
-          where: { OR: [{ title: { contains: like } }, { number: { contains: like } }] },
+          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DOC_VIEW)
-      ? prisma.document.findMany({ where: { name: { contains: like } }, take: 20 })
+      ? prisma.document.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
-    prisma.supplier.findMany({ where: { name: { contains: like } }, take: 20 }),
+    prisma.supplier.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 }),
     hasPermission(user, PERMISSIONS.CON_VIEW)
-      ? prisma.contractor.findMany({ where: { name: { contains: like } }, take: 20 })
+      ? prisma.contractor.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
     hasPermission(user, PERMISSIONS.INV_VIEW)
-      ? prisma.inventoryItem.findMany({ where: { OR: [{ name: { contains: like } }, { serial: { contains: like } }] }, take: 20 })
+      ? prisma.inventoryItem.findMany({ where: { OR: [{ name: { contains: like, mode: "insensitive" } }, { serial: { contains: like, mode: "insensitive" } }] }, take: 20 })
       : [],
   ]);
 
