@@ -10,6 +10,7 @@ import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validato
 import { nextSequence } from "@/lib/utils";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/transition";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   assertTransitionChangeOrder,
@@ -70,12 +71,17 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   assertPermission(user, permissionForTransition(target));
   assertTransitionChangeOrder(co.status as ChangeOrderStatus, target);
 
-  await prisma.$transaction([
-    prisma.changeOrder.update({
-      where: { id },
-      data: { status: target, updatedById: user.id },
-    }),
-    prisma.changeOrderHistory.create({
+  // Conditional on the status this function read (see applyTransition); the
+  // interactive transaction rolls the history row back with it if someone
+  // else moved this change order first.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition(tx.changeOrder, {
+      id,
+      from: co.status,
+      to: target,
+      data: { updatedById: user.id },
+    });
+    await tx.changeOrderHistory.create({
       data: {
         changeOrderId: id,
         actorId: user.id,
@@ -84,8 +90,8 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
         toStatus: target,
         details: comment,
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,

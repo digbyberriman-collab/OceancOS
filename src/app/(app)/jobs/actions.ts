@@ -18,6 +18,7 @@ import {
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/transition";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -320,7 +321,7 @@ export async function transitionJob(formData: FormData) {
   assertTransitionJob(job.status as JobStatus, to);
 
   const now = new Date();
-  const extra: Record<string, unknown> = { status: to, updatedById: user.id };
+  const extra: Record<string, unknown> = { updatedById: user.id };
 
   if (to === "ACCEPTED") {
     extra.yardAcceptedAt = now;
@@ -339,9 +340,13 @@ export async function transitionJob(formData: FormData) {
     extra.cancelReason = reason;
   }
 
-  await prisma.$transaction([
-    prisma.job.update({ where: { id: jobId }, data: extra }),
-    prisma.jobHistory.create({
+  // The write is conditional on the status this function read (see
+  // applyTransition) and, wrapped in an interactive transaction, rolls the
+  // history row and the system comment back with it if someone else moved
+  // this job first.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition(tx.job, { id: jobId, from: job.status, to, data: extra });
+    await tx.jobHistory.create({
       data: {
         jobId,
         actorId: user.id,
@@ -350,8 +355,8 @@ export async function transitionJob(formData: FormData) {
         toStatus: to,
         details: reason ? { reason } : undefined,
       },
-    }),
-    prisma.comment.create({
+    });
+    await tx.comment.create({
       data: {
         authorId: user.id,
         resource: "Job",
@@ -360,8 +365,8 @@ export async function transitionJob(formData: FormData) {
         kind: "SYSTEM",
         body: systemMessage(to, reason),
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,

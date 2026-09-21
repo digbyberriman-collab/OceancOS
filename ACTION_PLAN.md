@@ -136,9 +136,12 @@ Closes: C12, ui-ux `[RESPONSIVE] × 2`.
 
 ### G2.8 — Optional fields that are blank must be `NULL`
 Independent. A `blankToNull` preprocessor on every optional field in `lib/validators.ts`, so `""`
-becomes `undefined` before coercion. Fixes the blank due date outright and stops `""` being stored
-where `NULL` belongs. A data migration for rows already written with `""`.
-Closes: C13, forms-validation `[REQUIRED-FIELDS] × 2`.
+becomes `undefined` before coercion. Fixes the blank due date outright, stops the unselected
+"linked change order" select from crashing the database with a foreign-key violation (reproduced
+directly in G1.3's e2e test — see `audit/findings-forms-validation.md`'s retraction), and stops
+`""` being stored where `NULL` belongs on the columns with no relation. A data migration for rows
+already written with `""`.
+Closes: C13, C14, forms-validation `[REQUIRED-FIELDS] × 2`.
 
 ---
 

@@ -51,8 +51,8 @@ distinct defects**.
 
 | Severity | Raw | Distinct | What it means here |
 |---|---|---|---|
-| **Critical** | 18 | **14** | Data loss, authentication bypass, cross-tenant exposure, or a financial control that can be defeated |
-| **High** | 62 | 54 | A documented capability that does not work, or a defect a user will hit on a normal path |
+| **Critical** | 18 | **15** | Data loss, authentication bypass, cross-tenant exposure, or a financial control that can be defeated |
+| **High** | 62 | 53 | A documented capability that does not work, or a defect a user will hit on a normal path |
 | **Medium** | 79 | 71 | Wrong behaviour in a reachable but non-default case, or a standard the platform claims and misses |
 | **Low** | 43 | 39 | Inconsistency, rough edge, avoidable confusion |
 | **Cosmetic** | 19 | 9 | Tidiness; no behavioural consequence |
@@ -73,7 +73,7 @@ distinct defects**.
 
 ---
 
-## 3. The fourteen Criticals
+## 3. The fifteen Criticals
 
 Ordered by what they let an attacker or an ordinary user do, not by module.
 
@@ -92,7 +92,8 @@ Ordered by what they let an attacker or an ordinary user do, not by module.
 | C11 | No error boundary anywhere; every thrown server action is a blank crash page | `src/app/` (no `error.tsx`) | ui-ux, forms-validation, data-api |
 | C12 | The sidebar is a fixed 240px column; the app is unusable below ~600px | `components/layout/Sidebar.tsx` | ui-ux |
 | C13 | Leaving the optional "Due Date" blank rejects the whole crew request | `lib/validators.ts:37` | forms-validation |
-| C14 | `.env.example` makes local-disk storage the silent production default, losing uploads | `.env.example` | docs |
+| C14 | An unselected "Linked change order" throws a foreign-key crash, not a validation message | `crew-requests/new/page.tsx:129`, `lib/validators.ts:41` | forms-validation |
+| C15 | `.env.example` makes local-disk storage the silent production default, losing uploads | `.env.example` | docs |
 
 C5 and C7–C10 are five distinct defects in a single 70-line function. That function is the
 platform's financial control. It should be rewritten, not patched.
@@ -174,8 +175,9 @@ orders with two full approval chains, or collides on the sequence.
 
 Server minimums are not reflected on the client, so valid-looking input crashes the form (T3).
 Every validation failure discards the entire form. Raw zod messages are shown to users. Optional
-fields that are left blank arrive as `""`: dates fail outright (C13), strings are stored as `""`
-where `NULL` belongs.
+fields that are left blank arrive as `""`: dates fail validation outright (C13), a blank relation
+select fails the database instead (C14), and plain string columns silently hold `""` where `NULL`
+belongs.
 
 ### T9 — Reads are unbounded
 
@@ -225,16 +227,27 @@ Where more than one specialist found the same defect, the merged entry and its s
 
 ## 6. Claims that did not survive verification
 
-Every Critical was re-checked against source before being recorded. Two did not hold as stated.
-Both corrections are also appended to the originating findings files.
+Every Critical was re-checked against source before being recorded. One correction made here in
+Phase 3 was itself wrong, and was only caught by running the code in Phase 5 — see below.
 
 **forms-validation — "Unselected optional dropdowns … one of them violates a foreign key."**
-The empty-string half is confirmed by executing the project's own schema: `{assignedToId: ""}`,
-`{vesselAreaId: ""}` and `{departmentCode: ""}` all parse and are written verbatim, so the column
-holds `""` where `NULL` belongs and `where: { assignedToId: null }` silently misses those rows.
-The foreign-key half is false — none of the three columns declares a `@relation` in
-`prisma/schema.prisma`. The one FK on `CrewRequest` besides `project` is `linkedChangeOrderId`,
-which is not a field on the create form. **Downgraded Critical → High.**
+Originally reported correctly, in full. In Phase 3 I downgraded the foreign-key half of this to
+false, on the reasoning that none of `assignedToId`, `vesselAreaId` or `departmentCode` declares a
+`@relation`, and that `linkedChangeOrderId` — the one field that does — "is not a field on the
+create form." That reasoning was wrong twice over: it is on the form
+(`crew-requests/new/page.tsx:129`), and I had that exact line in front of me two paragraphs above
+the claim when I wrote it. The error survived a second read in Phase 3 and was only caught in
+Phase 5 (G1.3) by writing an e2e test that submits the form and hitting
+`PrismaClientKnownRequestError P2003: Foreign key constraint violated:
+CrewRequest_linkedChangeOrderId_fkey` directly. **Restored to Critical, and split into its own
+entry (C14) rather than merged back into C13** — a blank due date and an unselected change order
+are two different fields failing two different ways (one a validation message, one an unhandled
+crash), and collapsing them under one line item was part of what let the error hide. The
+`assignedToId` / `vesselAreaId` / `departmentCode` half of the original finding — no FK, `""`
+stored instead of `NULL`, silent rather than crashing — was correctly assessed and stays at High.
+
+Full detail, including the reproduction, is in `audit/findings-forms-validation.md`'s appended
+retraction. The general lesson: prefer running code over re-reading it wherever the two disagree.
 
 **data-api — "the change-order export ignores project scope."**
 It does not. `api/export/change-orders/route.ts:35` calls `getActiveProject(user.id)` and passes

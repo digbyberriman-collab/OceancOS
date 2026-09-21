@@ -9,6 +9,7 @@ import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
 import { conflict, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/transition";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -73,9 +74,12 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
     throw conflict(`A request at ${cr.status} cannot move to ${target}.`);
   }
 
-  await prisma.crewRequest.update({
-    where: { id },
-    data: { status: target, updatedById: user.id },
+  // Conditional on the status this function read — see applyTransition.
+  await applyTransition(prisma.crewRequest, {
+    id,
+    from: cr.status,
+    to: target,
+    data: { updatedById: user.id },
   });
   await recordAudit({
     actorId: user.id,
