@@ -54,7 +54,12 @@ test.describe("project switcher", () => {
   test("lists the seeded projects and remembers the choice", async ({ page }) => {
     await signIn(page, PM);
 
-    const switcher = page.getByLabel("Active project");
+    // The switcher renders twice since G2.7 — once in TopBar (desktop) and
+    // once in Sidebar's mobile drawer (e2e/mobileNav.spec.ts covers that
+    // one) — both in the DOM regardless of viewport, only one visible at a
+    // time. This test runs at the default desktop viewport, so scope to
+    // the header landmark to get the one that's actually shown.
+    const switcher = page.getByRole("banner").getByLabel("Active project");
     await expect(switcher).toBeVisible();
 
     const options = await switcher.locator("option").allTextContents();
@@ -62,14 +67,24 @@ test.describe("project switcher", () => {
     expect(options.join(" ")).toContain("R-00721");
     expect(options.join(" ")).toContain("R-00806");
 
-    // Switch to the second project.
+    // Switch to the second project. The select's onChange fires a form
+    // submit to a server action (setActiveProjectAction) that persists the
+    // choice on the session row — an async round trip. selectOption sets
+    // the DOM value synchronously, so asserting on it alone (as this used
+    // to) races that request: it's satisfied before the write lands, and a
+    // goto() straight after can hit the server before the session update
+    // commits, reading back the old project. Wait for the action's
+    // response so the choice is actually persisted before navigating.
     const second = (await switcher.locator("option").nth(1).getAttribute("value"))!;
-    await switcher.selectOption(second);
+    await Promise.all([
+      page.waitForResponse((res) => res.request().method() === "POST"),
+      switcher.selectOption(second),
+    ]);
     await expect(switcher).toHaveValue(second);
 
     // The choice survives a full page load, because it lives on the session.
     await page.goto("/change-orders");
-    await expect(page.getByLabel("Active project")).toHaveValue(second);
+    await expect(page.getByRole("banner").getByLabel("Active project")).toHaveValue(second);
   });
 });
 

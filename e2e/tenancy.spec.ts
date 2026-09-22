@@ -56,7 +56,10 @@ test.describe("project scoping", () => {
     await page.goto("/change-orders/new");
     // No project selector exists on this form at all — see the note on
     // ChangeOrderCreateSchema. Confirm the page names the scoped project.
-    await expect(page.getByText("R-00721", { exact: true }).first()).toBeVisible();
+    // Scoped to the banner landmark since G2.7: the single-project static
+    // label also renders in Sidebar's mobile drawer, hidden at this (desktop)
+    // viewport, so an unscoped match can resolve to the hidden copy.
+    await expect(page.getByRole("banner").getByText("R-00721", { exact: true })).toBeVisible();
 
     const title = `Tenancy regression ${Date.now()}`;
     await page.getByLabel("Title").fill(title);
@@ -65,6 +68,6 @@ test.describe("project scoping", () => {
     await page.getByRole("button", { name: /create draft/i }).click();
 
     await page.waitForURL((url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
-    await expect(page.getByText("M/Y Solstice", { exact: false }).first()).toBeVisible();
+    await expect(page.getByRole("banner").getByText("M/Y Solstice", { exact: false })).toBeVisible();
   });
 });

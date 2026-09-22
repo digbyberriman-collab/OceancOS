@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { Search, Bell } from "lucide-react";
+import { Search, Bell, Menu } from "lucide-react";
 import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import type { ProjectSummary } from "@/lib/project";
@@ -8,10 +10,12 @@ export function TopBar({
   user,
   projects,
   activeProjectId,
+  onOpenNav,
 }: {
   user: { name: string; email: string; roleKeys: string[] };
   projects: ProjectSummary[];
   activeProjectId: string | null;
+  onOpenNav: () => void;
 }) {
   const initials = user.name
     .split(" ")
@@ -22,6 +26,14 @@ export function TopBar({
 
   return (
     <header className="h-14 border-b border-line bg-ink-950/70 backdrop-blur-md sticky top-0 z-10 flex items-center px-4 gap-4">
+      <button
+        type="button"
+        onClick={onOpenNav}
+        aria-label="Open menu"
+        className="btn-ghost h-9 w-9 p-0 shrink-0 md:hidden"
+      >
+        <Menu className="h-4 w-4" aria-hidden />
+      </button>
       <form action="/search" className="flex-1 max-w-xl relative">
         <Search
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint"

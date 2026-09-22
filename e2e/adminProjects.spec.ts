@@ -63,8 +63,9 @@ test.describe("project administration", () => {
     await expect(page.getByLabel("Yard")).toHaveValue("MB92 Barcelona");
     await expect(page.getByLabel("Sea trials")).toHaveValue("2026-09-20");
 
-    // The switcher reads the same record.
+    // The switcher reads the same record. Scoped to the banner landmark
+    // since G2.7 added a second (mobile-drawer) instance of the switcher.
     await page.goto("/dashboard");
-    await expect(page.getByLabel("Active project")).toBeVisible();
+    await expect(page.getByRole("banner").getByLabel("Active project")).toBeVisible();
   });
 });
