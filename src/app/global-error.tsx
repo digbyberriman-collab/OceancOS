@@ -50,7 +50,7 @@ export default function GlobalError({
               style={{
                 marginTop: "0.75rem",
                 fontSize: "11px",
-                color: "#5a6b8c",
+                color: "#7e90ad",
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
               }}
             >

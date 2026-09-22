@@ -31,7 +31,13 @@ const config: Config = {
         warn: "#f59e0b",
         bad: "#ef4444",
         muted: "#8294b3",
-        faint: "#5a6b8c",
+        // ACTION_PLAN.md G5.1: was #5a6b8c, which fails WCAG AA body-text
+        // contrast (4.5:1) on every surface in the app — as low as 2.86:1 on
+        // ink-700 — and every use is caption/meta-sized text (text-xs and
+        // smaller), so the 3:1 large-text exemption never applied. Raised to
+        // clear 4.5:1 on ink-700, the least contrasting surface, with margin
+        // (4.73:1), while staying visibly a step below `muted`.
+        faint: "#7e90ad",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "Inter", "sans-serif"],
