@@ -75,14 +75,17 @@ if `3210` is taken.
 There's no hosting-specific config here (no Dockerfile, no platform manifest) — this section covers
 what the app itself needs to be told, regardless of where it runs.
 
-**Required in production** (`NODE_ENV=production`), with no inferred fallback — the app throws at
-startup rather than silently defaulting:
+**Required in production** (`NODE_ENV=production`). `STORAGE_DRIVER` and `SEED_PASSWORD` throw at
+startup / refuse to run rather than silently defaulting; the others don't have that guard yet and
+should still be set deliberately:
 
 - `DATABASE_URL` — include `connection_limit` and `pool_timeout` explicitly (see the comment in
   `.env.example`); Prisma's per-process default multiplies badly once more than one instance runs
   against the same database. Put a pooler (PgBouncer, or the provider's own) in front and add
   `&pgbouncer=true` if you're scaling past a handful of instances or running serverless.
-- `SESSION_SECRET` — a long random string.
+- `SESSION_SECRET` — a long random string. **No fail-fast guard**: if unset, the app silently falls
+  back to a hard-coded development literal instead of refusing to start. Always set this explicitly
+  in production.
 - `STORAGE_DRIVER` — `s3` or `local`. `local` writes to `UPLOAD_DIR` on the container's own disk,
   which is ephemeral on most platforms; use `s3` (any S3-compatible service — Cloudflare R2 is the
   default target) for anything that isn't a single persistent-disk VM. See `.env.example` for the
@@ -134,7 +137,9 @@ never leaks into another's.
 
 - `BRIDGE_ALIGNMENT_PLAN.md` — the product and architecture reference: what OceancOS's refit-project
   surface is aligned against, the open design decisions, and the progress log.
-- `SITE_MAP.md` — every route, who can reach it, and what it does.
+- `SITE_MAP.md` — every route, who can reach it, and what it does. A point-in-time snapshot, not
+  living documentation — check the current code (`src/app`, `src/lib/rbac.ts`) for how routing and
+  permissions actually behave today.
 - `AUDIT_REPORT.md` / `ACTION_PLAN.md` — the point-in-time platform audit this codebase was brought
   up from, and the sequenced remediation plan executed against it. A development record, not living
   documentation — check the current code and the two files above for how the app actually behaves
