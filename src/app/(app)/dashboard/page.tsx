@@ -37,34 +37,61 @@ export default async function DashboardPage() {
   // log), so it stays unscoped here.
   const scope = await projectScope(user.id);
 
-  const [coOpen, coPending, crOpen, crOverdue, milestonesUpcoming, risksOpen, recent] =
-    await Promise.all([
-      prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
-      prisma.changeOrder.count({
-        where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
-      }),
-      prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
-      prisma.crewRequest.count({
-        where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
-      }),
-      prisma.milestone.findMany({
-        where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
-        orderBy: { date: "asc" },
-        take: 5,
-      }),
-      prisma.risk.findMany({
-        where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
-        orderBy: { rating: "desc" },
-        take: 5,
-      }),
-      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
-    ]);
+  // Five sequential stages down to two (ACTION_PLAN.md G4.4): only
+  // `changeOrders` below genuinely depends on a result from this batch
+  // (`activeProject.id`) — budgets, approvals and the active project itself
+  // depended on nothing but `user.id`/`scope`, both already in hand, and
+  // previously ran as four separate awaited round trips after this one.
+  // `getActiveProject` is `requestCache`d (G4.3), so calling it here costs
+  // nothing extra on top of `(app)/layout.tsx`'s own call.
+  const [
+    coOpen,
+    coPending,
+    crOpen,
+    crOverdue,
+    milestonesUpcoming,
+    risksOpen,
+    recent,
+    budgets,
+    myApprovals,
+    activeProject,
+  ] = await Promise.all([
+    prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
+    prisma.changeOrder.count({
+      where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+    }),
+    prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
+    prisma.crewRequest.count({
+      where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
+    }),
+    prisma.milestone.findMany({
+      where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
+      orderBy: { date: "asc" },
+      take: 5,
+    }),
+    prisma.risk.findMany({
+      where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
+      orderBy: { rating: "desc" },
+      take: 5,
+    }),
+    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
+    // A backstop cap, not a real page size — see the identical note on
+    // /financials (ACTION_PLAN.md G4.1): `forecast`'s per-row conditional
+    // can't be expressed as a Prisma `aggregate` without raw SQL, and
+    // Budget rows are one per project × category, not one per user action.
+    prisma.budget.findMany({
+      where: scope,
+      include: { project: { select: { currency: true } } },
+      take: 2000,
+    }),
+    prisma.changeOrderApproval.findMany({
+      where: { decision: "PENDING", changeOrder: scope },
+      include: { changeOrder: { include: { project: { select: { currency: true } } } } },
+      take: 5,
+    }),
+    getActiveProject(user.id),
+  ]);
 
-  // Budget rollup
-  const budgets = await prisma.budget.findMany({
-    where: scope,
-    include: { project: { select: { currency: true } } },
-  });
   const original = budgets.reduce((s, b) => s + toNumber(b.originalAmount), 0);
   const approved = budgets.reduce((s, b) => s + toNumber(b.approvedChanges), 0);
   const pending = budgets.reduce((s, b) => s + toNumber(b.pendingChanges), 0);
@@ -80,21 +107,15 @@ export default async function DashboardPage() {
   const budgetCurrency = aggregateCurrency(budgets.map((b) => b.project.currency));
   const mixedBudgetCurrencies = budgets.length > 0 && budgetCurrency === null;
 
-  const myApprovals = await prisma.changeOrderApproval.findMany({
-    where: { decision: "PENDING", changeOrder: scope },
-    include: { changeOrder: { include: { project: { select: { currency: true } } } } },
-    take: 5,
-  });
-
   const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
-  // ---- Charts -------------------------------------------------------------
-  const activeProject = await getActiveProject(user.id);
-
+  // ---- Charts ---------------------------------------------------------------
+  // The one genuinely dependent stage: needs `activeProject.id` from above.
   const changeOrders = await prisma.changeOrder.findMany({
     where: activeProject ? { projectId: activeProject.id } : scope,
     select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
     orderBy: { createdAt: "asc" },
+    take: 5000,
   });
 
   // Statuses are states, so they wear the status colours rather than arbitrary
