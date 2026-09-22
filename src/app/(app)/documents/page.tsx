@@ -17,7 +17,7 @@ export default async function DocumentsPage({
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.DOC_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Documents are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Documents are restricted." />;
   }
   const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.q) {

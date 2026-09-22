@@ -19,6 +19,14 @@ const config: Config = {
           DEFAULT: "#1e2a48",
           soft: "#16203a",
           strong: "#2c3a60",
+          // ACTION_PLAN.md G5.5: a control boundary needs 3:1 (WCAG 1.4.11
+          // non-text contrast) — DEFAULT only manages 1.02-1.73:1 against the
+          // surfaces .input-base and .btn actually sit on. A separate token
+          // rather than raising DEFAULT itself, which stays decorative (card
+          // and table dividers are not subject to 1.4.11). Clears 3:1 with
+          // margin against every measured surface: 3.95:1 on .surface,
+          // 4.03:1 on the input fill, 3.55:1 on .btn's ink-800 fill.
+          interactive: "#5670ab",
         },
         // Primary brand blue with a cyan highlight for gradients/glow
         accent: {

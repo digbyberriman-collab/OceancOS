@@ -14,6 +14,7 @@ export default async function FinancialsPage() {
   if (!hasPermission(user, PERMISSIONS.FIN_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<AlertCircle className="h-5 w-5" />}
         title="Forbidden"
         hint="Financials are restricted."
@@ -182,17 +183,17 @@ export default async function FinancialsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="text-left">Project / Vessel</th>
-                  <th className="text-left">Category</th>
-                  <th className="text-left">Dept</th>
-                  <th className="text-right">Original</th>
-                  <th className="text-right">Approved Δ</th>
-                  <th className="text-right">Pending Δ</th>
-                  <th className="text-right">Committed</th>
-                  <th className="text-right">Actual</th>
-                  <th className="text-right">Forecast</th>
-                  <th className="text-right">Variance</th>
-                  <th className="min-w-[100px]">Progress</th>
+                  <th scope="col" className="text-left">Project / Vessel</th>
+                  <th scope="col" className="text-left">Category</th>
+                  <th scope="col" className="text-left">Dept</th>
+                  <th scope="col" className="text-right">Original</th>
+                  <th scope="col" className="text-right">Approved Δ</th>
+                  <th scope="col" className="text-right">Pending Δ</th>
+                  <th scope="col" className="text-right">Committed</th>
+                  <th scope="col" className="text-right">Actual</th>
+                  <th scope="col" className="text-right">Forecast</th>
+                  <th scope="col" className="text-right">Variance</th>
+                  <th scope="col" className="min-w-[100px]">Progress</th>
                 </tr>
               </thead>
               <tbody>

@@ -31,6 +31,7 @@ export default async function AcceptQuote({
   if (!hasPermission(user, PERMISSIONS.JOB_ACCEPT)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Not an authoriser"
         hint="Only a designated authoriser can accept a quote. Ask your project manager."
       />
@@ -55,6 +56,7 @@ export default async function AcceptQuote({
   if (!["QUOTE_SENT", "EXPIRED"].includes(job.status)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Nothing to accept"
         hint={`${job.code} is not awaiting a decision.`}
         action={
@@ -137,11 +139,11 @@ export default async function AcceptQuote({
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>Description</th>
-                      <th className="text-right">Qty</th>
-                      <th>Unit</th>
-                      <th className="text-right">Unit price</th>
-                      <th className="text-right">Total</th>
+                      <th scope="col">Description</th>
+                      <th scope="col" className="text-right">Qty</th>
+                      <th scope="col">Unit</th>
+                      <th scope="col" className="text-right">Unit price</th>
+                      <th scope="col" className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -84,7 +84,11 @@ export function Sidebar({
           aria-hidden="true"
         />
       )}
-      <aside
+      {/* A plain div, not <aside> — the primary nav below should be the
+          `navigation` landmark, not nested inside a `complementary` one
+          (ACTION_PLAN.md G5.5). */}
+      <div
+        data-testid="mobile-nav-drawer"
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-60 shrink-0 bg-ink-950 border-r border-line overflow-y-auto",
           "transition-transform duration-200 ease-out",
@@ -120,7 +124,7 @@ export function Sidebar({
           <ProjectSwitcher projects={projects} activeId={activeProjectId} mobile />
         </div>
 
-        <nav className="py-3">
+        <nav className="py-3" aria-label="Main">
           {NAV.map((item) => {
             // Exact match for entries that are a prefix of another, so /admin
             // does not stay lit while /admin/projects is open.
@@ -154,7 +158,7 @@ export function Sidebar({
             );
           })}
         </nav>
-      </aside>
+      </div>
     </>
   );
 }

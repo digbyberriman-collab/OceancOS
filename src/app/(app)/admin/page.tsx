@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminPage() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.ADM_USERS) && !hasPermission(user, PERMISSIONS.AUDIT_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Admin tools are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Admin tools are restricted." />;
   }
   const [users, vessels, projects, depts, audit] = await Promise.all([
     prisma.user.findMany({
@@ -82,9 +82,9 @@ export default async function AdminPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th className="w-40">Roles</th>
+                <th scope="col">Name</th>
+                <th scope="col">Email</th>
+                <th scope="col" className="w-40">Roles</th>
               </tr>
             </thead>
             <tbody>
@@ -191,11 +191,11 @@ export default async function AdminPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="w-40">When</th>
-                  <th className="w-32">Action</th>
-                  <th className="w-40">Resource</th>
-                  <th className="w-28">Actor</th>
-                  <th>Details</th>
+                  <th scope="col" className="w-40">When</th>
+                  <th scope="col" className="w-32">Action</th>
+                  <th scope="col" className="w-40">Resource</th>
+                  <th scope="col" className="w-28">Actor</th>
+                  <th scope="col">Details</th>
                 </tr>
               </thead>
               <tbody>

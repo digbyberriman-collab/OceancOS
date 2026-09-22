@@ -123,6 +123,7 @@ export default async function SchedulePage() {
   if (!hasPermission(user, PERMISSIONS.SCH_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<ShieldAlert className="h-5 w-5" />}
         title="Forbidden"
         hint="Schedule is restricted."

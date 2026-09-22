@@ -29,7 +29,10 @@ async function signOut(page: Page) {
 
 async function decide(page: Page, decision: "APPROVED" | "REJECTED" | "MORE_INFO") {
   const label = decision === "APPROVED" ? "Approve" : decision === "REJECTED" ? "Reject" : "Request Info";
-  await page.getByRole("button", { name: label, exact: true }).click();
+  // Not `exact: true`: the accessible name now leads with the visible label
+  // but continues with the change order it applies to (ACTION_PLAN.md G5.5,
+  // "row-action buttons have no row context"), e.g. "Approve CO-0001 — Title".
+  await page.getByRole("button", { name: new RegExp(`^${label}`) }).click();
 }
 
 test.describe("change order approval chain", () => {
@@ -55,7 +58,7 @@ test.describe("change order approval chain", () => {
     await signOut(page);
     await signIn(page, TECH);
     await page.goto(coUrl);
-    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
     await expect(page.getByText(/waiting on captain/i)).toBeVisible();
 
     // --- CAPTAIN decides first --------------------------------------------
@@ -106,7 +109,7 @@ test.describe("change order approval chain", () => {
     await signOut(page);
     await signIn(page, TECH);
     await page.goto(coUrl);
-    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
     await expect(page.getByText("REJECTED", { exact: true }).first()).toBeVisible();
   });
 
@@ -158,7 +161,7 @@ test.describe("change order approval chain", () => {
     await signOut(page);
     await signIn(page, TECH);
     await page.goto(coUrl);
-    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
     await expect(page.getByText(/waiting on captain/i)).toBeVisible();
   });
 });

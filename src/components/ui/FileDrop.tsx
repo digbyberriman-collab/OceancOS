@@ -89,6 +89,17 @@ export function FileDrop({
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
 
+  // Nothing about an upload's progress or outcome was announced — a
+  // screen-reader user who drops a file that turns out to be too large gets
+  // no signal at all, and may submit believing it attached (ACTION_PLAN.md
+  // G5.5, WCAG 4.1.3). `statusMsg` reports success through a polite live
+  // region; `alertMsg` reports failure through an assertive one — kept as
+  // two regions rather than switching one region's role, since role="alert"
+  // already implies assertive delivery and mixing it with aria-live="polite"
+  // on the same element is itself an anti-pattern found elsewhere in the app.
+  const [statusMsg, setStatusMsg] = useState("");
+  const [alertMsg, setAlertMsg] = useState("");
+
   const patch = useCallback((id: string, next: Partial<Item>) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...next } : i)));
   }, []);
@@ -125,11 +136,11 @@ export function FileDrop({
         if (!putRes.ok) throw new Error(`Storage rejected the file (${putRes.status})`);
 
         patch(item.id, { status: "done", key: signed.key });
+        setStatusMsg(`${item.filename} uploaded`);
       } catch (err) {
-        patch(item.id, {
-          status: "error",
-          error: err instanceof Error ? err.message : "Upload failed",
-        });
+        const message = err instanceof Error ? err.message : "Upload failed";
+        patch(item.id, { status: "error", error: message });
+        setAlertMsg(`${item.filename} rejected: ${message}`);
       }
     },
     [patch, projectId, resource, resourceId]
@@ -174,6 +185,12 @@ export function FileDrop({
         );
       }
       setItems((prev) => [...prev, ...next]);
+
+      const oversized = next.filter((i) => i.status === "error");
+      if (oversized.length) {
+        setAlertMsg(oversized.map((i) => `${i.filename} rejected: ${i.error}`).join(". "));
+      }
+
       queue.current.push(...next.filter((i) => i.status === "pending"));
       drain();
     },
@@ -200,6 +217,12 @@ export function FileDrop({
 
   return (
     <div>
+      <div role="status" aria-live="polite" className="sr-only">
+        {statusMsg}
+      </div>
+      <div role="alert" className="sr-only">
+        {alertMsg}
+      </div>
       <div
         onDragOver={(e) => {
           e.preventDefault();

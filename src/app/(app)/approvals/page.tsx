@@ -101,16 +101,18 @@ export default async function ApprovalsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Change Order</th>
-                  <th>Status</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Schedule&nbsp;Δ</th>
-                  <th>Action</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Change Order</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="text-right">Cost</th>
+                  <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {myCoApprovals.map((a) => (
+                {myCoApprovals.map((a) => {
+                  const rowLabel = `${a.changeOrder.number} — ${a.changeOrder.title}`;
+                  return (
                   <tr key={a.id}>
                     <td>
                       <Badge tone="info">{a.stage.replace(/_/g, " ")}</Badge>
@@ -140,19 +142,35 @@ export default async function ApprovalsPage() {
                     <td>
                       <form action={decideChangeOrderApproval} className="flex gap-1.5 flex-wrap">
                         <input type="hidden" name="approvalId" value={a.id} />
-                        <SubmitButton name="decision" value="APPROVED" className="btn-primary text-xs py-1 px-2.5">
+                        <SubmitButton
+                          name="decision"
+                          value="APPROVED"
+                          aria-label={`Approve ${rowLabel}`}
+                          className="btn-primary text-xs py-1 px-2.5"
+                        >
                           Approve
                         </SubmitButton>
-                        <SubmitButton name="decision" value="MORE_INFO" className="btn text-xs py-1 px-2.5">
+                        <SubmitButton
+                          name="decision"
+                          value="MORE_INFO"
+                          aria-label={`Request Info — ${rowLabel}`}
+                          className="btn text-xs py-1 px-2.5"
+                        >
                           Request Info
                         </SubmitButton>
-                        <SubmitButton name="decision" value="REJECTED" className="btn-danger text-xs py-1 px-2.5">
+                        <SubmitButton
+                          name="decision"
+                          value="REJECTED"
+                          aria-label={`Reject ${rowLabel}`}
+                          className="btn-danger text-xs py-1 px-2.5"
+                        >
                           Reject
                         </SubmitButton>
                       </form>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -176,11 +194,11 @@ export default async function ApprovalsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Change Order</th>
-                  <th>Status</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Raised</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Change Order</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="text-right">Cost</th>
+                  <th scope="col" className="text-right">Raised</th>
                 </tr>
               </thead>
               <tbody>

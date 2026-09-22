@@ -63,6 +63,7 @@ export default async function LogisticsPage() {
   if (!hasPermission(user, PERMISSIONS.LOG_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<ShieldAlert className="h-5 w-5" />}
         title="Forbidden"
         hint="Logistics is restricted."

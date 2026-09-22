@@ -27,6 +27,7 @@ export default async function AdminProjectsPage({
   if (!hasPermission(user, PERMISSIONS.PROJ_EDIT)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Forbidden"
         hint="Editing projects is restricted to the project manager and the owner's representative."
       />
@@ -40,7 +41,7 @@ export default async function AdminProjectsPage({
   });
 
   if (!projects.length) {
-    return <EmptyState icon={<Ship size={20} />} title="No projects yet" />;
+    return <EmptyState headingLevel={1} icon={<Ship size={20} />} title="No projects yet" />;
   }
 
   const selected = projects.find((p) => p.id === searchParams.id) ?? projects[0];

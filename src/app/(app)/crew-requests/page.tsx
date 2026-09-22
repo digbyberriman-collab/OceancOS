@@ -21,6 +21,7 @@ export default async function CrewRequestsPage({
   if (!hasPermission(user, PERMISSIONS.CR_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Access Restricted"
         hint="You don't have access to crew requests."
         icon={<Users size={20} />}

@@ -21,7 +21,7 @@ test.describe("mobile navigation", () => {
   test("the drawer starts closed and the hamburger opens it", async ({ page }) => {
     await signIn(page);
 
-    const drawer = page.locator("aside");
+    const drawer = page.getByTestId("mobile-nav-drawer");
     await expect(drawer).toHaveClass(/-translate-x-full/);
 
     await page.getByRole("button", { name: /open menu/i }).click();
@@ -36,19 +36,19 @@ test.describe("mobile navigation", () => {
     await page.getByRole("link", { name: "Change orders", exact: true }).click();
     await page.waitForURL("**/change-orders");
 
-    await expect(page.locator("aside")).toHaveClass(/-translate-x-full/);
+    await expect(page.getByTestId("mobile-nav-drawer")).toHaveClass(/-translate-x-full/);
   });
 
   test("clicking the backdrop closes the drawer without navigating", async ({ page }) => {
     await signIn(page);
     await page.getByRole("button", { name: /open menu/i }).click();
-    await expect(page.locator("aside")).toHaveClass(/translate-x-0/);
+    await expect(page.getByTestId("mobile-nav-drawer")).toHaveClass(/translate-x-0/);
 
     // The backdrop is the fixed, full-screen overlay behind the drawer —
     // click its far corner so the click can't land on the drawer itself.
     await page.mouse.click(360, 20);
 
-    await expect(page.locator("aside")).toHaveClass(/-translate-x-full/);
+    await expect(page.getByTestId("mobile-nav-drawer")).toHaveClass(/-translate-x-full/);
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
@@ -56,7 +56,7 @@ test.describe("mobile navigation", () => {
     await signIn(page);
     await page.getByRole("button", { name: /open menu/i }).click();
     await page.getByRole("button", { name: /close menu/i }).click();
-    await expect(page.locator("aside")).toHaveClass(/-translate-x-full/);
+    await expect(page.getByTestId("mobile-nav-drawer")).toHaveClass(/-translate-x-full/);
   });
 
   test("the project switcher appears inside the drawer, not nowhere", async ({ page }) => {
@@ -65,7 +65,7 @@ test.describe("mobile navigation", () => {
     // no mobile equivalent at all (ui-ux's separate finding).
     await signIn(page);
     await page.getByRole("button", { name: /open menu/i }).click();
-    await expect(page.locator("aside").getByLabel("Active project")).toBeVisible();
+    await expect(page.getByTestId("mobile-nav-drawer").getByLabel("Active project")).toBeVisible();
   });
 });
 

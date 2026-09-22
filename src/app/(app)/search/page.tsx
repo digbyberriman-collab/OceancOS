@@ -26,7 +26,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
           <form className="flex gap-2">
             <div className="relative flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-              <input name="q" defaultValue={q} className="input-base pl-9" autoFocus />
+              <input name="q" defaultValue={q} aria-label="Search" className="input-base pl-9" autoFocus />
             </div>
             <button type="submit" className="btn btn-primary px-5">Search</button>
           </form>
@@ -55,6 +55,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
               <input
                 name="q"
                 placeholder="Type and press enter…"
+                aria-label="Search"
                 className="input-base pl-9"
                 autoFocus
               />
@@ -138,7 +139,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
         <form className="flex gap-2">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-            <input name="q" defaultValue={q} className="input-base pl-9" />
+            <input name="q" defaultValue={q} aria-label="Search" className="input-base pl-9" />
           </div>
           <button type="submit" className="btn btn-primary px-5">Search</button>
         </form>

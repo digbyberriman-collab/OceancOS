@@ -29,7 +29,7 @@ export default async function QuoteJob({
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_ISSUE_QUOTE)) {
-    return <EmptyState title="Forbidden" hint="Only the yard prices requests." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Only the yard prices requests." />;
   }
 
   const job = await prisma.job.findUnique({
@@ -59,6 +59,7 @@ export default async function QuoteJob({
   if (job.status !== "NEW_REQUEST" && !isRevision) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Cannot be quoted here"
         hint={`${job.code} is ${job.status.replace(/_/g, " ").toLowerCase()}, so it cannot be priced or revised from this form.`}
         action={
@@ -216,10 +217,10 @@ export default async function QuoteJob({
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="w-1/2">Description</th>
-                  <th className="text-right">Quantity</th>
-                  <th>Unit</th>
-                  <th className="text-right">Unit price</th>
+                  <th scope="col" className="w-1/2">Description</th>
+                  <th scope="col" className="text-right">Quantity</th>
+                  <th scope="col">Unit</th>
+                  <th scope="col" className="text-right">Unit price</th>
                 </tr>
               </thead>
               <tbody>

@@ -26,7 +26,7 @@ function ratingLabel(rating: number) {
 export default async function RisksPage() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.RSK_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Risk register is restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Risk register is restricted." />;
   }
   // Rows are capped (ACTION_PLAN.md G4.1); the severity buckets come from a
   // `groupBy` on the rating column rather than `.filter(...).length` on the
@@ -102,15 +102,21 @@ export default async function RisksPage() {
               <table className="table-base">
                 <thead>
                   <tr>
-                    <th>Risk</th>
-                    <th className="w-28">Category</th>
-                    <th className="w-10 text-center" title="Likelihood (1–5)">L</th>
-                    <th className="w-10 text-center" title="Impact (1–5)">I</th>
-                    <th className="w-36">Rating</th>
-                    <th className="w-32">Status</th>
-                    <th className="w-24 text-right">Cost</th>
-                    <th className="w-16 text-right" title="Schedule impact (days)">Sched</th>
-                    <th className="w-28 text-right">Due</th>
+                    <th scope="col">Risk</th>
+                    <th scope="col" className="w-28">Category</th>
+                    <th scope="col" className="w-10 text-center">
+                      L<span className="sr-only"> Likelihood, 1 to 5</span>
+                    </th>
+                    <th scope="col" className="w-10 text-center">
+                      I<span className="sr-only"> Impact, 1 to 5</span>
+                    </th>
+                    <th scope="col" className="w-36">Rating</th>
+                    <th scope="col" className="w-32">Status</th>
+                    <th scope="col" className="w-24 text-right">Cost</th>
+                    <th scope="col" className="w-16 text-right">
+                      Sched<span className="sr-only"> Schedule impact, days</span>
+                    </th>
+                    <th scope="col" className="w-28 text-right">Due</th>
                   </tr>
                 </thead>
                 <tbody>

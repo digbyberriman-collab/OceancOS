@@ -210,11 +210,11 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>Description</th>
-                      <th className="text-right">Quantity</th>
-                      <th>Unit</th>
-                      <th className="text-right">Unit price</th>
-                      <th className="text-right">Total</th>
+                      <th scope="col">Description</th>
+                      <th scope="col" className="text-right">Quantity</th>
+                      <th scope="col">Unit</th>
+                      <th scope="col" className="text-right">Unit price</th>
+                      <th scope="col" className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -229,6 +229,8 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                  <tfoot>
                     <tr>
                       <td colSpan={4} className="text-right font-medium text-muted">
                         Total
@@ -237,7 +239,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                         {fmtMoney(job.total, currency)}
                       </td>
                     </tr>
-                  </tbody>
+                  </tfoot>
                 </table>
               </div>
             ) : (
@@ -564,6 +566,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                       <input
                         name="reason"
                         placeholder="Reason (recorded on the job)"
+                        aria-label="Reason"
                         className="input-base text-xs"
                       />
                     )}

@@ -22,6 +22,7 @@ export default async function ChangeOrdersPage({
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Access restricted"
         hint="You don't have permission to view change orders."
         icon={<ClipboardList size={20} />}
@@ -132,13 +133,13 @@ export default async function ChangeOrdersPage({
           <table className="table-base">
             <thead>
               <tr>
-                <th className="w-32">Number</th>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th className="text-right">Cost</th>
-                <th className="text-right">Schedule&nbsp;Δ</th>
-                <th>Created</th>
+                <th scope="col" className="w-32">Number</th>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th scope="col">Priority</th>
+                <th scope="col" className="text-right">Cost</th>
+                <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
+                <th scope="col">Created</th>
               </tr>
             </thead>
             <tbody>

@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function EditChangeOrderPage({ params }: { params: { id: string } }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CO_EDIT)) {
-    return <EmptyState title="Forbidden" hint="You cannot edit change orders." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="You cannot edit change orders." />;
   }
 
   const co = await prisma.changeOrder.findUnique({
@@ -32,6 +32,7 @@ export default async function EditChangeOrderPage({ params }: { params: { id: st
   if (co.status !== "DRAFT" && co.status !== "MORE_INFO") {
     return (
       <EmptyState
+        headingLevel={1}
         title="Cannot be edited"
         hint={`${co.number} is ${co.status.replace(/_/g, " ").toLowerCase()}, so it can no longer be amended here.`}
         action={

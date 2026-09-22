@@ -112,6 +112,14 @@
   .table-base tbody tr:last-child td {
     @apply border-b-0;
   }
+  /* A summary row (jobs/[id]/page.tsx's "Total") belongs in <tfoot>, not as
+     a <tbody> row with colSpan — the finding this fixes (ACTION_PLAN.md
+     G5.5) — which moves the "last row, no border below" edge from the last
+     <tbody> row to <tfoot>: replace it with a border above <tfoot> instead,
+     so the visual separation between line items and the total is preserved. */
+  .table-base tfoot td {
+    @apply border-t border-line-soft border-b-0;
+  }
 
   /* Forms ----------------------------------------------------------------- */
   .input-base {
@@ -122,7 +130,7 @@
        the field's own focus background. Dropped, so the sitewide outline
        applies here too; border-accent and bg-ink-950 stay as extra (not the
        sole) focus feedback. */
-    @apply w-full bg-ink-950/70 border border-line rounded-lg px-3 py-2 text-sm text-white
+    @apply w-full bg-ink-950/70 border border-line-interactive rounded-lg px-3 py-2 text-sm text-white
       placeholder:text-faint transition-all duration-150
       focus:border-accent focus:bg-ink-950;
   }
@@ -133,7 +141,7 @@
   /* Buttons --------------------------------------------------------------- */
   .btn {
     @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium
-      border border-line bg-ink-800 text-white
+      border border-line-interactive bg-ink-800 text-white
       transition-all duration-150 ease-out-cubic
       hover:bg-ink-700 hover:border-line-strong
       active:scale-[0.97]

@@ -56,6 +56,7 @@ export default async function InventoryPage({
   if (!hasPermission(user, PERMISSIONS.INV_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<ShieldAlert className="h-5 w-5" />}
         title="Forbidden"
         hint="Inventory is restricted."

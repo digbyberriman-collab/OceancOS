@@ -19,7 +19,8 @@ export default async function NewChangeOrderPage() {
   // The project is the caller's active project, not a choice on this form —
   // see the note on ChangeOrderCreateSchema in lib/validators.ts.
   const project = await getActiveProject(user.id);
-  if (!project) return <EmptyState title="No project" hint="You have no project assigned." />;
+  if (!project)
+    return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
 
   const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
 

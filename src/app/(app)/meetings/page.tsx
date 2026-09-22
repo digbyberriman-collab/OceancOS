@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function MeetingsPage() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.MTG_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Meeting records are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Meeting records are restricted." />;
   }
   const meetings = await prisma.meeting.findMany({
     where: await projectScope(user.id),

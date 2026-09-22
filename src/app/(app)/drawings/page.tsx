@@ -17,7 +17,7 @@ export default async function DrawingsPage({
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.DRW_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Drawings are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Drawings are restricted." />;
   }
   const where: any = { ...(await projectScope(user.id)) };
   if (searchParams.q) {

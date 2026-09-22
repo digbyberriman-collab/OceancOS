@@ -19,7 +19,7 @@ export default async function NewCrewRequest() {
   // The project is the caller's active project, not a choice on this form —
   // see the note on CrewRequestCreateSchema in lib/validators.ts.
   const project = await getActiveProject(user.id);
-  if (!project) return <EmptyState title="No project" hint="You have no project assigned." />;
+  if (!project) return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
 
   const users = await prisma.user.findMany({
     where: { active: true },

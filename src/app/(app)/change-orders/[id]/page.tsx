@@ -280,16 +280,32 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
                       <textarea
                         name="comment"
                         placeholder="Comment (optional)…"
+                        aria-label="Decision comment"
                         className="input-base text-xs min-h-[64px]"
                       />
                       <div className="flex gap-2">
-                        <SubmitButton name="decision" value="APPROVED" className="btn-primary text-xs">
+                        <SubmitButton
+                          name="decision"
+                          value="APPROVED"
+                          aria-label={`Approve ${co.number} — ${co.title}`}
+                          className="btn-primary text-xs"
+                        >
                           Approve
                         </SubmitButton>
-                        <SubmitButton name="decision" value="MORE_INFO" className="btn text-xs">
+                        <SubmitButton
+                          name="decision"
+                          value="MORE_INFO"
+                          aria-label={`Request Info — ${co.number} — ${co.title}`}
+                          className="btn text-xs"
+                        >
                           Request Info
                         </SubmitButton>
-                        <SubmitButton name="decision" value="REJECTED" className="btn-danger text-xs">
+                        <SubmitButton
+                          name="decision"
+                          value="REJECTED"
+                          aria-label={`Reject ${co.number} — ${co.title}`}
+                          className="btn-danger text-xs"
+                        >
                           Reject
                         </SubmitButton>
                       </div>

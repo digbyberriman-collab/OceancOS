@@ -15,7 +15,7 @@ export default async function ContractorsPage({
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CON_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Contractor records are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Contractor records are restricted." />;
   }
   const where: any = { archivedAt: null };
   if (searchParams.q) {

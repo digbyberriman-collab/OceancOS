@@ -18,11 +18,12 @@ export const dynamic = "force-dynamic";
 export default async function NewJobRequest() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_REQUEST)) {
-    return <EmptyState title="Forbidden" hint="You cannot raise quote requests." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="You cannot raise quote requests." />;
   }
 
   const project = await getActiveProject(user.id);
-  if (!project) return <EmptyState title="No project" hint="You have no project assigned." />;
+  if (!project)
+    return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
 
   const flash = readFormFlash<JobRequestFlash>("jobRequest");
 

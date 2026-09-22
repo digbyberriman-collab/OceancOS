@@ -31,12 +31,12 @@ export default async function JobsPage({
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Quotes are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Quotes are restricted." />;
   }
 
   const project = await getActiveProject(user.id);
   if (!project) {
-    return <EmptyState title="No project" hint="You have no project assigned yet." />;
+    return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned yet." />;
   }
 
   const view = jobView(searchParams.view);
@@ -258,10 +258,11 @@ export default async function JobsPage({
                 <table className="table-base">
                   <thead className="sr-only">
                     <tr>
-                      <th>Quote</th>
-                      <th>Status</th>
-                      <th>Price</th>
-                      <th>Delivered</th>
+                      <th scope="col">Quote</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Price</th>
+                      <th scope="col">Delivered</th>
+                      <th scope="col">Progress</th>
                     </tr>
                   </thead>
                   <tbody>
