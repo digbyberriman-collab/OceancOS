@@ -37,7 +37,3 @@ export function fmtDateTime(d: Date | string | null | undefined) {
   return dt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export async function nextSequence(prefix: string, fetchCount: () => Promise<number>) {
-  const n = (await fetchCount()) + 1;
-  return `${prefix}-${String(n).padStart(4, "0")}`;
-}

@@ -7,7 +7,7 @@ import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
-import { nextSequence } from "@/lib/utils";
+import { nextSequence } from "@/lib/sequence";
 import { invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
 import { getActiveProject, requireProjectAccess } from "@/lib/project";
@@ -29,7 +29,7 @@ export async function createCrewRequest(formData: FormData) {
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
-  const number = await nextSequence("REQ", () => prisma.crewRequest.count());
+  const number = await nextSequence("REQ");
   const cr = await prisma.crewRequest.create({
     data: {
       ...data,

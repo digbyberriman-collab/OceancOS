@@ -144,8 +144,16 @@ export async function confirmAcceptance(formData: FormData) {
   if (problem) back(challengeProblemMessage(problem));
 
   if (!verifyAcceptanceCode(challengeId, code, challenge!.codeHash)) {
-    const attempts = challenge!.attempts + 1;
-    await prisma.acceptanceChallenge.update({ where: { id: challengeId }, data: { attempts } });
+    // Incremented atomically at the database, not read-then-write in JS
+    // (ACTION_PLAN.md G3.3, AUDIT_REPORT.md T5) — two wrong codes submitted
+    // at once must not both read the same starting count and each land
+    // "attempt 3 of 5", letting the five-attempt lockout be outrun by
+    // concurrency.
+    const updated = await prisma.acceptanceChallenge.update({
+      where: { id: challengeId },
+      data: { attempts: { increment: 1 } },
+    });
+    const attempts = updated.attempts;
     await recordAudit({
       actorId: user.id,
       action: "REJECT",

@@ -431,6 +431,25 @@ async function main() {
 
   await seedJobs(prisma, project.id, projectYardPeriod.arrivalDate);
 
+  // src/lib/sequence.ts allocates CO-/REQ- numbers from these counters, not
+  // from a row count — sync them to what this seed actually created so the
+  // next real create continues the sequence instead of colliding with a
+  // seeded number (ACTION_PLAN.md G3.3).
+  const [coCount, crCount] = await Promise.all([
+    prisma.changeOrder.count(),
+    prisma.crewRequest.count(),
+  ]);
+  await prisma.counter.upsert({
+    where: { key: "CO" },
+    create: { key: "CO", value: coCount },
+    update: { value: coCount },
+  });
+  await prisma.counter.upsert({
+    where: { key: "REQ" },
+    create: { key: "REQ", value: crCount },
+    update: { value: crCount },
+  });
+
   console.log("Done.");
 }
 

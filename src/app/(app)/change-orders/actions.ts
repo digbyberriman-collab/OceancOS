@@ -7,7 +7,7 @@ import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { ApprovalDecisionSchema, ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
-import { nextSequence } from "@/lib/utils";
+import { nextSequence } from "@/lib/sequence";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import { conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
@@ -44,7 +44,7 @@ export async function createChangeOrder(formData: FormData) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
-  const number = await nextSequence("CO", () => prisma.changeOrder.count());
+  const number = await nextSequence("CO");
   const stages = defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview });
 
   const co = await prisma.changeOrder.create({

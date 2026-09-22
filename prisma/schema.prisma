@@ -991,3 +991,15 @@ model Setting {
   key   String @id
   value String
 }
+
+// ---------- Sequences ----------
+
+// Atomic sequence allocation for human-facing record numbers (CO-0001,
+// REQ-0001, …) — ACTION_PLAN.md G3.3. Replaces `count() + 1`, which raced
+// every concurrent create against the same `@unique` column. See
+// src/lib/sequence.ts for the single `INSERT ... ON CONFLICT DO UPDATE`
+// that increments a row here atomically.
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
