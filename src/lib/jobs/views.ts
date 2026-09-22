@@ -80,6 +80,34 @@ export function jobView(key: string | undefined): JobView {
   return JOB_VIEWS.find((v) => v.key === key) ?? JOB_VIEWS[2]; // Pending is the default
 }
 
+/** One group's worth of `prisma.job.groupBy({ by: ["status", "contractType"] })`. */
+export type JobStatusContractGroup = { status: string; contractType: string; _count: { _all: number } };
+
+/**
+ * Every view's count, derived from one grouped aggregate instead of one
+ * `job.count` per view (ACTION_PLAN.md G4.2, performance `[QUERY]` — seven
+ * sequential `SELECT COUNT(*)` statements on every `/jobs` render,
+ * unconditionally, even when the caller has filtered to one section).
+ *
+ * Deliberately whole-project counts, matching the tab counts before this
+ * change: they do not take `q`, `sectionLetter` or `favouriteOf` into
+ * account, so a tab's number does not shift as the caller types a search.
+ */
+export function viewCountsFromGroups(groups: JobStatusContractGroup[]): Map<JobViewKey, number> {
+  return new Map(
+    JOB_VIEWS.map((v) => [
+      v.key,
+      groups
+        .filter(
+          (g) =>
+            (!v.statuses || v.statuses.includes(g.status as JobStatus)) &&
+            (!v.contractTypes || v.contractTypes.includes(g.contractType))
+        )
+        .reduce((sum, g) => sum + g._count._all, 0),
+    ])
+  );
+}
+
 /**
  * The Prisma filter for a view, combined with the caller's search and section.
  *
