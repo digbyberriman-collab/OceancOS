@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { listProjectsForUser } from "@/lib/project";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
+import { resolveUserNames } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +31,10 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === co.projectId)) return notFound();
 
-  const decidedIds = co.approvals.map((a) => a.decidedById).filter((x): x is string => !!x);
-  const names = new Map(
-    (
-      await prisma.user.findMany({
-        where: { id: { in: [...decidedIds, co.createdById] } },
-        select: { id: true, name: true },
-      })
-    ).map((u) => [u.id, u.name])
-  );
+  const names = await resolveUserNames([
+    ...co.approvals.map((a) => a.decidedById),
+    co.createdById,
+  ]);
 
   const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 

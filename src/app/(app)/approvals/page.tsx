@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";

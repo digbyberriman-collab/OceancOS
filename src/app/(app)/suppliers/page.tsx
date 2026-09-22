@@ -31,7 +31,7 @@ export default async function SuppliersPage({
       <PageHeader
         eyebrow="Network"
         title="Suppliers"
-        subtitle="Linked to purchase orders and invoices."
+        subtitle="Contact details for the yard's approved supplier network."
       />
 
       <FilterBar resetHref="/suppliers" resultCount={totalCount} resultLabel="supplier">

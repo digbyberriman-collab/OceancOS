@@ -8,7 +8,8 @@ import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { PdfButton } from "@/components/ui/PdfButton";
-import { fmtMoney, fmtDateTime } from "@/lib/utils";
+import { fmtMoney, fmtDateTime, cn } from "@/lib/utils";
+import { resolveUserNames } from "@/lib/users";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { accessibleProjectIds } from "@/lib/project";
@@ -32,7 +33,6 @@ import {
   Clock,
   MessageSquare,
   History,
-  GitMerge,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -65,16 +65,12 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
   const projectIds = await accessibleProjectIds(user.id);
   if (!projectIds.includes(co.projectId)) return notFound();
 
-  // map authorIds to names for comments and history
-  const userIds = Array.from(new Set([
+  const usersMap = await resolveUserNames([
     ...co.comments.map((c) => c.authorId),
     ...co.history.map((h) => h.actorId),
-    ...co.approvals.map((a) => a.decidedById).filter((x): x is string => !!x),
+    ...co.approvals.map((a) => a.decidedById),
     co.createdById,
-  ]));
-  const usersMap = new Map(
-    (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
-  );
+  ]);
 
   const allowedTransitions = changeOrderActions(co.status as ChangeOrderStatus).filter((t) =>
     hasPermission(user, t.permission)
@@ -426,8 +422,4 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
       </div>
     </div>
   );
-}
-
-function cn(...classes: (string | boolean | undefined | null)[]) {
-  return classes.filter(Boolean).join(" ");
 }

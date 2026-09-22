@@ -54,7 +54,6 @@ model User {
   jobHistoryEntries           JobHistory[]
   logisticsItemsResponsible   LogisticsItem[]
   meetingActionsOwned         MeetingAction[]
-  purchaseOrdersCreated       PurchaseOrder[]
   risksOwned                  Risk[]
   scheduleTasksOwned          ScheduleTask[]
 }
@@ -177,7 +176,6 @@ model Project {
   activeSessions Session[]       @relation("ActiveSessions")
   jobs           Job[]
   jobSections    JobSection[]
-  purchaseOrders PurchaseOrder[]
 
   @@index([vesselId])
 }
@@ -373,14 +371,6 @@ model BudgetCategory {
   @@index([parentId])
 }
 
-model CostCode {
-  id   String @id @default(cuid())
-  code String @unique
-  name String
-
-  purchaseOrders PurchaseOrder[]
-}
-
 model Budget {
   id              String         @id @default(cuid())
   projectId       String
@@ -411,49 +401,8 @@ model Supplier {
   notes          String?
   createdAt      DateTime        @default(now())
   archivedAt     DateTime?
-  invoices       Invoice[]
-  pos            PurchaseOrder[]
   inventoryItems InventoryItem[]
   logisticsItems LogisticsItem[]
-}
-
-model PurchaseOrder {
-  id          String    @id @default(cuid())
-  number      String    @unique
-  supplierId  String
-  projectId   String?
-  amount      Decimal   @db.Decimal(14, 2)
-  status      String    @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECEIVED|CLOSED
-  description String?
-  costCodeId  String?
-  createdAt   DateTime  @default(now())
-  createdById String
-  supplier    Supplier  @relation(fields: [supplierId], references: [id])
-  project     Project?  @relation(fields: [projectId], references: [id])
-  costCode    CostCode? @relation(fields: [costCodeId], references: [id])
-  createdBy   User      @relation(fields: [createdById], references: [id])
-  invoices    Invoice[]
-
-  @@index([supplierId])
-  @@index([projectId])
-  @@index([costCodeId])
-  @@index([createdById])
-}
-
-model Invoice {
-  id         String         @id @default(cuid())
-  number     String
-  supplierId String
-  poId       String?
-  amount     Decimal        @db.Decimal(14, 2)
-  status     String         @default("RECEIVED") // RECEIVED|APPROVED|REJECTED|PAID
-  dueDate    DateTime?
-  createdAt  DateTime       @default(now())
-  supplier   Supplier       @relation(fields: [supplierId], references: [id])
-  po         PurchaseOrder? @relation(fields: [poId], references: [id])
-
-  @@index([supplierId])
-  @@index([poId])
 }
 
 // ---------- Schedule ----------
@@ -993,13 +942,6 @@ model JobFavourite {
 
   @@id([userId, jobId])
   @@index([jobId])
-}
-
-// ---------- Settings ----------
-
-model Setting {
-  key   String @id
-  value String
 }
 
 // ---------- Sequences ----------

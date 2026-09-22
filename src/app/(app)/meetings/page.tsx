@@ -4,7 +4,6 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
-import { fmtDateTime } from "@/lib/utils";
 import { CalendarDays, CheckCircle2, Clock3, MapPin } from "lucide-react";
 
 export const dynamic = "force-dynamic";

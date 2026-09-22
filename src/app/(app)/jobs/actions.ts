@@ -6,7 +6,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { getActiveProject, listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";

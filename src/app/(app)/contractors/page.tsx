@@ -4,7 +4,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
-import { Building2, AlertTriangle, Phone, Mail } from "lucide-react";
+import { Building2, AlertTriangle, Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 

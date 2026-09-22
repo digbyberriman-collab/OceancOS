@@ -13,10 +13,8 @@ import { JOB_VIEWS, groupJobs, jobView, jobWhere, viewCountsFromGroups } from "@
 import { daysUntilExpiry, isExpired } from "@/lib/jobs/workflow";
 import {
   CONTRACT_TYPE_LABELS,
-  JOB_STATUS_LABELS,
   PRICING_BASIS_LABELS,
   type ContractType,
-  type JobStatus,
   type PricingBasis,
 } from "@/lib/enums";
 

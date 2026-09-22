@@ -13,7 +13,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { listProjectsForUser } from "@/lib/project";
-import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
@@ -23,6 +23,7 @@ import { PdfButton } from "@/components/ui/PdfButton";
 import { fmtBytes, fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
 import { downloadUrl } from "@/lib/storage";
 import { daysUntilExpiry, isExpired, jobActions } from "@/lib/jobs/workflow";
+import { resolveUserNames } from "@/lib/users";
 import {
   CONTRACT_TYPE_LABELS,
   PRICING_BASIS_LABELS,
@@ -83,27 +84,15 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
 
-  const people = await prisma.user.findMany({
-    where: {
-      id: {
-        in: Array.from(
-          new Set(
-            [
-              job.createdById,
-              job.designatedAuthoriserId,
-              job.clientAcceptedById,
-              job.yardAcceptedById,
-              ...job.comments.map((c) => c.authorId),
-              ...job.history.map((h) => h.actorId).filter((x): x is string => !!x),
-            ].filter((x): x is string => !!x)
-          )
-        ),
-      },
-    },
-    select: { id: true, name: true },
-  });
-  const nameOf = (id: string | null | undefined) =>
-    (id && people.find((p) => p.id === id)?.name) || "—";
+  const usersMap = await resolveUserNames([
+    job.createdById,
+    job.designatedAuthoriserId,
+    job.clientAcceptedById,
+    job.yardAcceptedById,
+    ...job.comments.map((c) => c.authorId),
+    ...job.history.map((h) => h.actorId),
+  ]);
+  const nameOf = (id: string | null | undefined) => (id && usersMap.get(id)) || "—";
 
   const currency = job.currency || job.project.currency;
   const expired = isExpired(job);

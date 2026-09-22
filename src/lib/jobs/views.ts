@@ -7,10 +7,7 @@
 
 import { Prisma } from "@prisma/client";
 import type { JobStatus } from "@/lib/enums";
-import {
-  JOB_ACCEPTED_STATUSES,
-  JOB_PENDING_STATUSES,
-} from "./workflow";
+import { JOB_ACCEPTED_STATUSES } from "./workflow";
 
 export type JobViewKey =
   | "requests"
