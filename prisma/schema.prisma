@@ -12,31 +12,66 @@ datasource db {
 // ---------- Identity & access ----------
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String
   passwordHash String
-  active       Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   archivedAt   DateTime?
 
-  roles        UserRole[]
-  sessions     Session[]
-  notifications Notification[]
+  roles          UserRole[]
+  sessions       Session[]
+  notifications  Notification[]
   passwordResets PasswordReset[]
+
+  // ---- Back-relations for the ~35 previously-orphan *Id columns
+  // (ACTION_PLAN.md G3.1, closing AUDIT_REPORT.md's [SCHEMA] finding on
+  // unconstrained *Id columns). Named wherever a model holds more than one
+  // reference to User, so Prisma can tell them apart.
+  acceptanceChallenges        AcceptanceChallenge[]
+  approvalsRequested          Approval[]            @relation("ApprovalRequestedBy")
+  approvalsGiven              Approval[]            @relation("ApprovalApprovedBy")
+  attachmentsUploaded         Attachment[]
+  auditLogEntries             AuditLog[]
+  comments                    Comment[]
+  documentsOwned              Document[]
+  changeOrdersCreated         ChangeOrder[]         @relation("ChangeOrderCreatedBy")
+  changeOrdersUpdated         ChangeOrder[]         @relation("ChangeOrderUpdatedBy")
+  changeOrderApprovalsDecided ChangeOrderApproval[]
+  changeOrderHistoryEntries   ChangeOrderHistory[]
+  crewRequestsAssigned        CrewRequest[]         @relation("CrewRequestAssignedTo")
+  crewRequestsCreated         CrewRequest[]         @relation("CrewRequestCreatedBy")
+  crewRequestsRequested       CrewRequest[]         @relation("CrewRequestRequestedBy")
+  crewRequestsUpdated         CrewRequest[]         @relation("CrewRequestUpdatedBy")
+  jobsClientAccepted          Job[]                 @relation("JobClientAcceptedBy")
+  jobsCreated                 Job[]                 @relation("JobCreatedBy")
+  jobsDesignatedAuthoriser    Job[]                 @relation("JobDesignatedAuthoriser")
+  jobsUpdated                 Job[]                 @relation("JobUpdatedBy")
+  jobsYardAccepted            Job[]                 @relation("JobYardAcceptedBy")
+  jobFavourites               JobFavourite[]
+  jobHistoryEntries           JobHistory[]
+  logisticsItemsResponsible   LogisticsItem[]
+  meetingActionsOwned         MeetingAction[]
+  purchaseOrdersCreated       PurchaseOrder[]
+  risksOwned                  Risk[]
+  scheduleTasksOwned          ScheduleTask[]
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id              String   @id @default(cuid())
+  userId          String
+  token           String   @unique
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
   // Project the user is currently working in — drives the header switcher.
   activeProjectId String?
-  user      User     @relation(fields: [userId], references: [id])
-  activeProject Project? @relation("ActiveSessions", fields: [activeProjectId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
+  activeProject   Project? @relation("ActiveSessions", fields: [activeProjectId], references: [id])
+
+  @@index([userId])
+  @@index([activeProjectId])
 }
 
 model Role {
@@ -60,35 +95,42 @@ model RolePermission {
   permissionId String
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
   @@id([roleId, permissionId])
 }
 
 model UserRole {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   userId       String
   roleId       String
   vesselId     String?
   projectId    String?
   departmentId String?
-  user         User     @relation(fields: [userId], references: [id])
-  role         Role     @relation(fields: [roleId], references: [id])
-  vessel       Vessel?  @relation(fields: [vesselId], references: [id])
-  project      Project? @relation(fields: [projectId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
+  role         Role        @relation(fields: [roleId], references: [id])
+  vessel       Vessel?     @relation(fields: [vesselId], references: [id])
+  project      Project?    @relation(fields: [projectId], references: [id])
   department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([userId])
+  @@index([roleId])
+  @@index([vesselId])
+  @@index([projectId])
+  @@index([departmentId])
 }
 
 // ---------- Org / project ----------
 
 model Vessel {
-  id         String     @id @default(cuid())
+  id         String       @id @default(cuid())
   name       String
   imo        String?
   flag       String?
   loa        Float?
   builtYear  Int?
   notes      String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
   archivedAt DateTime?
   projects   Project[]
   areas      VesselArea[]
@@ -96,330 +138,434 @@ model Vessel {
 }
 
 model Project {
-  id            String         @id @default(cuid())
-  vesselId      String
-  name          String
+  id             String          @id @default(cuid())
+  vesselId       String
+  name           String
   // Short project code shown in the header, e.g. "R-00721".
-  code          String?        @unique
-  type          String         // REFIT | NEW_BUILD | CONVERSION
-  status        String         @default("ACTIVE")
-  startDate     DateTime?
-  targetEndDate DateTime?
+  code           String?         @unique
+  type           String // REFIT | NEW_BUILD | CONVERSION
+  // No comment and no write path in the app today — see the note in
+  // ACTION_PLAN.md G3.1 on this column's CHECK constraint.
+  status         String          @default("ACTIVE")
+  startDate      DateTime?
+  targetEndDate  DateTime?
   // Yard period — drives the Home timing cards and the time-progress ring.
-  yardName      String?
-  arrivalDate   DateTime?
-  haulOutDate   DateTime?
-  seaTrialsDate DateTime?
-  departureDate DateTime?
-  currency      String         @default("EUR")
-  notes         String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  archivedAt    DateTime?
-  vessel        Vessel         @relation(fields: [vesselId], references: [id])
-  changeOrders  ChangeOrder[]
-  crewRequests  CrewRequest[]
-  budgets       Budget[]
-  tasks         ScheduleTask[]
-  milestones    Milestone[]
-  logistics     LogisticsItem[]
-  drawings      Drawing[]
-  documents     Document[]
-  meetings      Meeting[]
-  risks         Risk[]
-  inventory     InventoryItem[]
-  userRoles     UserRole[]
-  approvals     Approval[]
-  activeSessions Session[]     @relation("ActiveSessions")
-  jobs          Job[]
-  jobSections   JobSection[]
+  yardName       String?
+  arrivalDate    DateTime?
+  haulOutDate    DateTime?
+  seaTrialsDate  DateTime?
+  departureDate  DateTime?
+  currency       String          @default("EUR")
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  archivedAt     DateTime?
+  vessel         Vessel          @relation(fields: [vesselId], references: [id])
+  changeOrders   ChangeOrder[]
+  crewRequests   CrewRequest[]
+  budgets        Budget[]
+  tasks          ScheduleTask[]
+  milestones     Milestone[]
+  logistics      LogisticsItem[]
+  drawings       Drawing[]
+  documents      Document[]
+  meetings       Meeting[]
+  risks          Risk[]
+  inventory      InventoryItem[]
+  userRoles      UserRole[]
+  approvals      Approval[]
+  activeSessions Session[]       @relation("ActiveSessions")
+  jobs           Job[]
+  jobSections    JobSection[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([vesselId])
 }
 
 model Department {
-  id        String        @id @default(cuid())
-  name      String        @unique
+  id        String     @id @default(cuid())
+  name      String     @unique
   code      String?
   userRoles UserRole[]
 }
 
 model VesselArea {
-  id       String   @id @default(cuid())
+  id       String  @id @default(cuid())
   vesselId String
-  name     String   // e.g. "Engine Room", "Owner's Suite"
+  name     String // e.g. "Engine Room", "Owner's Suite"
   code     String?
-  vessel   Vessel   @relation(fields: [vesselId], references: [id])
+  vessel   Vessel  @relation(fields: [vesselId], references: [id])
+
+  changeOrders ChangeOrder[]
+  crewRequests CrewRequest[]
+  drawings     Drawing[]
+
+  @@index([vesselId])
 }
 
 // ---------- Change orders ----------
 
 model ChangeOrder {
-  id              String   @id @default(cuid())
-  projectId       String
-  number          String   @unique // CO-0001
-  title           String
-  description     String
-  reason          String
-  departmentCode  String?
-  vesselAreaId    String?
-  status          String   @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|MORE_INFO|APPROVED|REJECTED|IN_PROGRESS|COMPLETED|CLOSED|CANCELLED
-  priority        String   @default("MEDIUM")
-  estimatedCost   Float    @default(0)
-  approvedCost    Float?
-  scheduleImpactDays Int   @default(0)
-  riskImpact      String?
-  technicalImpact String?
-  needsClassReview  Boolean @default(false)
-  needsFlagReview   Boolean @default(false)
-  createdAt       DateTime @default(now())
-  createdById     String
-  updatedAt       DateTime @updatedAt
-  updatedById     String?
-  archivedAt      DateTime?
+  id                 String    @id @default(cuid())
+  projectId          String
+  number             String    @unique // CO-0001
+  title              String
+  description        String
+  reason             String
+  departmentCode     String?
+  vesselAreaId       String?
+  status             String    @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|MORE_INFO|APPROVED|REJECTED|IN_PROGRESS|COMPLETED|CLOSED|CANCELLED
+  priority           String    @default("MEDIUM")
+  estimatedCost      Float     @default(0)
+  approvedCost       Float?
+  scheduleImpactDays Int       @default(0)
+  riskImpact         String?
+  technicalImpact    String?
+  needsClassReview   Boolean   @default(false)
+  needsFlagReview    Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  createdById        String
+  updatedAt          DateTime  @updatedAt
+  updatedById        String?
+  archivedAt         DateTime?
 
-  project       Project @relation(fields: [projectId], references: [id])
-  approvals     ChangeOrderApproval[]
-  history       ChangeOrderHistory[]
-  comments      Comment[]
-  attachments   Attachment[]
-  crewRequests  CrewRequest[]
-  jobs          Job[]
+  project      Project               @relation(fields: [projectId], references: [id])
+  vesselArea   VesselArea?           @relation(fields: [vesselAreaId], references: [id])
+  createdBy    User                  @relation("ChangeOrderCreatedBy", fields: [createdById], references: [id])
+  updatedBy    User?                 @relation("ChangeOrderUpdatedBy", fields: [updatedById], references: [id])
+  approvals    ChangeOrderApproval[]
+  history      ChangeOrderHistory[]
+  comments     Comment[]
+  attachments  Attachment[]
+  crewRequests CrewRequest[]
+  jobs         Job[]
+
+  @@index([projectId, status])
+  @@index([archivedAt, createdAt])
+  @@index([vesselAreaId])
+  @@index([createdById])
+  @@index([updatedById])
 }
 
 model ChangeOrderApproval {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   changeOrderId String
-  stage         String   // CAPTAIN|OWNERS_REP|YARD|FINANCE|TECH_MANAGER|CLASS|FLAG
-  decision      String   @default("PENDING") // PENDING|APPROVED|REJECTED|MORE_INFO
+  stage         String // CAPTAIN|OWNERS_REP|YARD|FINANCE|TECH_MANAGER|CLASS|FLAG
+  decision      String      @default("PENDING") // PENDING|APPROVED|REJECTED|MORE_INFO
   decidedById   String?
   decidedAt     DateTime?
   comment       String?
-  required      Boolean  @default(true)
-  order         Int      @default(0)
-  createdAt     DateTime @default(now())
+  required      Boolean     @default(true)
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now())
   changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  decidedBy     User?       @relation(fields: [decidedById], references: [id])
+
+  @@index([changeOrderId, decision])
+  @@index([decision, stage])
+  @@index([decidedById])
 }
 
 model ChangeOrderHistory {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   changeOrderId String
   actorId       String
   event         String
   fromStatus    String?
   toStatus      String?
   details       String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
   changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
+  actor         User        @relation(fields: [actorId], references: [id])
+
+  @@index([changeOrderId])
+  @@index([actorId])
 }
 
 // ---------- Crew requests ----------
 
 model CrewRequest {
-  id              String   @id @default(cuid())
-  projectId       String
-  number          String   @unique // REQ-0001
-  title           String
-  description     String
-  category        String   // DEFECT|OPERATIONAL|SAFETY|INTERIOR|ENGINEERING|DECK|IT|PROCUREMENT|ACCOMMODATION|ACCESS|CLEANING
-  departmentCode  String?
-  vesselAreaId    String?
-  priority        String   @default("MEDIUM")
-  status          String   @default("NEW") // NEW|TRIAGED|ASSIGNED|IN_PROGRESS|BLOCKED|AWAITING_APPROVAL|COMPLETED|REJECTED|CLOSED
-  requestedById   String
-  assignedToId    String?
-  dueDate         DateTime?
-  costImpact      Float    @default(0)
-  scheduleImpactDays Int   @default(0)
-  safetyImpact    String?
+  id                  String    @id @default(cuid())
+  projectId           String
+  number              String    @unique // REQ-0001
+  title               String
+  description         String
+  category            String // DEFECT|OPERATIONAL|SAFETY|INTERIOR|ENGINEERING|DECK|IT|PROCUREMENT|ACCOMMODATION|ACCESS|CLEANING
+  departmentCode      String?
+  vesselAreaId        String?
+  priority            String    @default("MEDIUM")
+  status              String    @default("NEW") // NEW|TRIAGED|ASSIGNED|IN_PROGRESS|BLOCKED|AWAITING_APPROVAL|COMPLETED|REJECTED|CLOSED
+  requestedById       String
+  assignedToId        String?
+  dueDate             DateTime?
+  costImpact          Float     @default(0)
+  scheduleImpactDays  Int       @default(0)
+  safetyImpact        String?
   linkedChangeOrderId String?
-  createdAt       DateTime @default(now())
-  createdById     String
-  updatedAt       DateTime @updatedAt
-  updatedById     String?
-  archivedAt      DateTime?
+  createdAt           DateTime  @default(now())
+  createdById         String
+  updatedAt           DateTime  @updatedAt
+  updatedById         String?
+  archivedAt          DateTime?
 
-  project          Project       @relation(fields: [projectId], references: [id])
+  project           Project      @relation(fields: [projectId], references: [id])
+  vesselArea        VesselArea?  @relation(fields: [vesselAreaId], references: [id])
   linkedChangeOrder ChangeOrder? @relation(fields: [linkedChangeOrderId], references: [id])
-  comments         Comment[]
-  attachments      Attachment[]
+  assignedTo        User?        @relation("CrewRequestAssignedTo", fields: [assignedToId], references: [id])
+  requestedBy       User         @relation("CrewRequestRequestedBy", fields: [requestedById], references: [id])
+  createdBy         User         @relation("CrewRequestCreatedBy", fields: [createdById], references: [id])
+  updatedBy         User?        @relation("CrewRequestUpdatedBy", fields: [updatedById], references: [id])
+  comments          Comment[]
+  attachments       Attachment[]
+
+  @@index([projectId, status])
+  @@index([dueDate])
+  @@index([vesselAreaId])
+  @@index([linkedChangeOrderId])
+  @@index([assignedToId])
+  @@index([requestedById])
+  @@index([createdById])
+  @@index([updatedById])
 }
 
 // ---------- Generic approvals queue ----------
 
+// Read-only in the current app — findMany/count only, no create or update
+// call site anywhere (verified while investigating G3.1). `stage` and
+// `status` therefore have no observed value beyond the "PENDING" default;
+// see the note on this model's CHECK constraints.
 model Approval {
-  id          String   @id @default(cuid())
-  projectId   String?
-  resource    String   // CHANGE_ORDER|CREW_REQUEST|PURCHASE_ORDER|DRAWING|BUDGET_CHANGE|SCHEDULE_CHANGE|ACCESS|SUBSTITUTION|VARIATION|FINAL_ACCEPTANCE
-  resourceId  String
-  stage       String
-  status      String   @default("PENDING")
-  requesterId String
-  approverId  String?
-  costImpact  Float    @default(0)
-  scheduleImpactDays Int @default(0)
-  dueDate     DateTime?
-  notes       String?
-  createdAt   DateTime @default(now())
-  decidedAt   DateTime?
-  project     Project? @relation(fields: [projectId], references: [id])
+  id                 String    @id @default(cuid())
+  projectId          String?
+  resource           String // CHANGE_ORDER|CREW_REQUEST|PURCHASE_ORDER|DRAWING|BUDGET_CHANGE|SCHEDULE_CHANGE|ACCESS|SUBSTITUTION|VARIATION|FINAL_ACCEPTANCE
+  resourceId         String
+  stage              String
+  status             String    @default("PENDING")
+  requesterId        String
+  approverId         String?
+  costImpact         Float     @default(0)
+  scheduleImpactDays Int       @default(0)
+  dueDate            DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  decidedAt          DateTime?
+  project            Project?  @relation(fields: [projectId], references: [id])
+  requester          User      @relation("ApprovalRequestedBy", fields: [requesterId], references: [id])
+  approver           User?     @relation("ApprovalApprovedBy", fields: [approverId], references: [id])
+
+  @@index([projectId])
+  @@index([requesterId])
+  @@index([approverId])
 }
 
 // ---------- Financials ----------
 
 model BudgetCategory {
-  id      String  @id @default(cuid())
-  name    String  @unique
+  id       String           @id @default(cuid())
+  name     String           @unique
   parentId String?
-  parent   BudgetCategory? @relation("BC", fields: [parentId], references: [id])
+  parent   BudgetCategory?  @relation("BC", fields: [parentId], references: [id])
   children BudgetCategory[] @relation("BC")
   budgets  Budget[]
+
+  @@index([parentId])
 }
 
 model CostCode {
-  id      String @id @default(cuid())
-  code    String @unique
-  name    String
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+
+  purchaseOrders PurchaseOrder[]
 }
 
 model Budget {
-  id            String   @id @default(cuid())
-  projectId     String
-  categoryId    String
-  departmentCode String?
-  originalAmount Float    @default(0)
-  approvedChanges Float   @default(0)
-  pendingChanges  Float   @default(0)
-  committed       Float   @default(0)
-  actual          Float   @default(0)
-  forecastFinal   Float   @default(0)
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  project       Project  @relation(fields: [projectId], references: [id])
-  category      BudgetCategory @relation(fields: [categoryId], references: [id])
+  id              String         @id @default(cuid())
+  projectId       String
+  categoryId      String
+  departmentCode  String?
+  originalAmount  Float          @default(0)
+  approvedChanges Float          @default(0)
+  pendingChanges  Float          @default(0)
+  committed       Float          @default(0)
+  actual          Float          @default(0)
+  forecastFinal   Float          @default(0)
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  project         Project        @relation(fields: [projectId], references: [id])
+  category        BudgetCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([projectId])
+  @@index([categoryId])
 }
 
 model Supplier {
-  id        String  @id @default(cuid())
-  name      String  @unique
-  contact   String?
-  email     String?
-  phone     String?
-  notes     String?
-  createdAt DateTime @default(now())
-  archivedAt DateTime?
-  invoices  Invoice[]
-  pos       PurchaseOrder[]
+  id             String          @id @default(cuid())
+  name           String          @unique
+  contact        String?
+  email          String?
+  phone          String?
+  notes          String?
+  createdAt      DateTime        @default(now())
+  archivedAt     DateTime?
+  invoices       Invoice[]
+  pos            PurchaseOrder[]
+  inventoryItems InventoryItem[]
+  logisticsItems LogisticsItem[]
 }
 
 model PurchaseOrder {
-  id          String   @id @default(cuid())
-  number      String   @unique
+  id          String    @id @default(cuid())
+  number      String    @unique
   supplierId  String
   projectId   String?
   amount      Float
-  status      String   @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECEIVED|CLOSED
+  status      String    @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECEIVED|CLOSED
   description String?
   costCodeId  String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   createdById String
-  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id])
+  costCode    CostCode? @relation(fields: [costCodeId], references: [id])
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  invoices    Invoice[]
+
+  @@index([supplierId])
+  @@index([projectId])
+  @@index([costCodeId])
+  @@index([createdById])
 }
 
 model Invoice {
-  id         String   @id @default(cuid())
+  id         String         @id @default(cuid())
   number     String
   supplierId String
   poId       String?
   amount     Float
-  status     String   @default("RECEIVED") // RECEIVED|APPROVED|REJECTED|PAID
+  status     String         @default("RECEIVED") // RECEIVED|APPROVED|REJECTED|PAID
   dueDate    DateTime?
-  createdAt  DateTime @default(now())
-  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  createdAt  DateTime       @default(now())
+  supplier   Supplier       @relation(fields: [supplierId], references: [id])
+  po         PurchaseOrder? @relation(fields: [poId], references: [id])
+
+  @@index([supplierId])
+  @@index([poId])
 }
 
 // ---------- Schedule ----------
 
 model ScheduleTask {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   projectId   String
   name        String
   ownerId     String?
   startDate   DateTime?
   endDate     DateTime?
-  status      String   @default("PLANNED") // PLANNED|IN_PROGRESS|BLOCKED|DONE|CANCELLED
+  status      String         @default("PLANNED") // PLANNED|IN_PROGRESS|BLOCKED|DONE|CANCELLED
   dependsOnId String?
-  riskLevel   String   @default("LOW")
+  // No comment; matches the LOW|MEDIUM|HIGH|CRITICAL scale every other
+  // "risk"/"priority" column in the schema uses (src/lib/enums.ts PRIORITIES).
+  riskLevel   String         @default("LOW")
   blockers    String?
-  createdAt   DateTime @default(now())
-  project     Project  @relation(fields: [projectId], references: [id])
-  dependsOn   ScheduleTask? @relation("Dep", fields: [dependsOnId], references: [id])
+  createdAt   DateTime       @default(now())
+  project     Project        @relation(fields: [projectId], references: [id])
+  owner       User?          @relation(fields: [ownerId], references: [id])
+  dependsOn   ScheduleTask?  @relation("Dep", fields: [dependsOnId], references: [id])
   blocked     ScheduleTask[] @relation("Dep")
+
+  @@index([projectId])
+  @@index([ownerId])
+  @@index([dependsOnId])
 }
 
+// Read-only in the current app today — no create/update call site (verified
+// while investigating G3.1). `status` therefore has no observed value beyond
+// the "PENDING" default; see the note on its CHECK constraint.
 model Milestone {
   id        String   @id @default(cuid())
   projectId String
   name      String
   date      DateTime
-  type      String   // YARD_PERIOD|SEA_TRIAL|HAT|SAT|CLASS_INSPECTION|FLAG_INSPECTION|DELIVERY|CUSTOM
+  type      String // YARD_PERIOD|SEA_TRIAL|HAT|SAT|CLASS_INSPECTION|FLAG_INSPECTION|DELIVERY|CUSTOM
   status    String   @default("PENDING")
   project   Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
 }
 
 // ---------- Logistics ----------
 
+// Read-only in the current app today — no create/update call site (verified
+// while investigating G3.1). `status` therefore has no observed value beyond
+// the "PLANNED" default; see the note on its CHECK constraint.
 model LogisticsItem {
-  id          String   @id @default(cuid())
-  projectId   String
-  type        String   // CREW_TRAVEL|CONTRACTOR_TRAVEL|YARD_ACCESS|DELIVERY|SHIPMENT|CUSTOMS|COURIER|ACCOMMODATION|TRANSPORT|CRANE|DOCK|TUG|PILOT|LINESMEN|BUNKERING|WASTE|PROVISIONING|GUEST
-  whenAt      DateTime?
+  id            String    @id @default(cuid())
+  projectId     String
+  type          String // CREW_TRAVEL|CONTRACTOR_TRAVEL|YARD_ACCESS|DELIVERY|SHIPMENT|CUSTOMS|COURIER|ACCOMMODATION|TRANSPORT|CRANE|DOCK|TUG|PILOT|LINESMEN|BUNKERING|WASTE|PROVISIONING|GUEST
+  whenAt        DateTime?
   responsibleId String?
-  status      String   @default("PLANNED")
-  supplierId  String?
-  cost        Float    @default(0)
-  notes       String?
-  createdAt   DateTime @default(now())
-  project     Project  @relation(fields: [projectId], references: [id])
+  status        String    @default("PLANNED")
+  supplierId    String?
+  cost          Float     @default(0)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  project       Project   @relation(fields: [projectId], references: [id])
+  responsible   User?     @relation(fields: [responsibleId], references: [id])
+  supplier      Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([projectId])
+  @@index([responsibleId])
+  @@index([supplierId])
 }
 
 // ---------- Inventory ----------
 
 model InventoryItem {
-  id           String  @id @default(cuid())
-  projectId    String?
-  name         String
-  category     String  // EQUIPMENT|SPARE|CRITICAL_SPARE|TOOL|CONSUMABLE|LSA|FFE|AV_IT|ENGINEERING|DECK|INTERIOR|GALLEY|MEDICAL|DIVE|SAFETY
-  departmentCode String?
-  location     String?
-  qty          Int     @default(0)
-  manufacturer String?
-  model        String?
-  serial       String?
-  supplierId   String?
-  warranty     String?
-  certificate  String?
-  maintenance  String?
-  replacementCost Float @default(0)
-  status       String  @default("OK") // OK|LOW|REORDER|MISSING|FAULTY|RETIRED
-  minStock     Int     @default(0)
-  reorderTrigger Int   @default(0)
-  createdAt    DateTime @default(now())
-  archivedAt   DateTime?
-  project      Project? @relation(fields: [projectId], references: [id])
+  id              String    @id @default(cuid())
+  projectId       String?
+  name            String
+  category        String // EQUIPMENT|SPARE|CRITICAL_SPARE|TOOL|CONSUMABLE|LSA|FFE|AV_IT|ENGINEERING|DECK|INTERIOR|GALLEY|MEDICAL|DIVE|SAFETY
+  departmentCode  String?
+  location        String?
+  qty             Int       @default(0)
+  manufacturer    String?
+  model           String?
+  serial          String?
+  supplierId      String?
+  warranty        String?
+  certificate     String?
+  maintenance     String?
+  replacementCost Float     @default(0)
+  status          String    @default("OK") // OK|LOW|REORDER|MISSING|FAULTY|RETIRED
+  minStock        Int       @default(0)
+  reorderTrigger  Int       @default(0)
+  createdAt       DateTime  @default(now())
+  archivedAt      DateTime?
+  project         Project?  @relation(fields: [projectId], references: [id])
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([projectId])
+  @@index([supplierId])
 }
 
 // ---------- Drawings & docs ----------
 
 model Drawing {
-  id        String   @id @default(cuid())
-  projectId String
-  number    String   @unique
-  title     String
-  status    String   @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|COMMENTS|REVISED|APPROVED|APPROVED_W_COMMENTS|REJECTED|SUPERSEDED|ARCHIVED
+  id           String            @id @default(cuid())
+  projectId    String
+  number       String            @unique
+  title        String
+  status       String            @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|COMMENTS|REVISED|APPROVED|APPROVED_W_COMMENTS|REJECTED|SUPERSEDED|ARCHIVED
   vesselAreaId String?
-  createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id])
-  revisions DrawingRevision[]
+  createdAt    DateTime          @default(now())
+  project      Project           @relation(fields: [projectId], references: [id])
+  vesselArea   VesselArea?       @relation(fields: [vesselAreaId], references: [id])
+  revisions    DrawingRevision[]
+
+  @@index([projectId])
+  @@index([vesselAreaId])
 }
 
 model DrawingRevision {
@@ -431,110 +577,137 @@ model DrawingRevision {
   current   Boolean  @default(false)
   createdAt DateTime @default(now())
   drawing   Drawing  @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+
+  @@index([drawingId])
 }
 
+// Read-only in the current app today — no create/update call site (verified
+// while investigating G3.1). `approvalStatus` therefore has no observed
+// value beyond the "DRAFT" default; see the note on its CHECK constraint.
 model Document {
-  id         String   @id @default(cuid())
-  projectId  String?
-  name       String
-  type       String   // CONTRACT|SPEC|DRAWING|CERT|CLASS|FLAG|MANUAL|WARRANTY|QUOTE|INVOICE|PO|RA|MS|MINUTES|REPORT|OTHER
-  folder     String?
-  tags       String?
-  fileUrl    String?
-  ownerId    String?
-  expiresAt  DateTime?
-  reviewAt   DateTime?
-  approvalStatus String @default("DRAFT")
-  createdAt  DateTime @default(now())
-  archivedAt DateTime?
-  project    Project? @relation(fields: [projectId], references: [id])
+  id             String    @id @default(cuid())
+  projectId      String?
+  name           String
+  type           String // CONTRACT|SPEC|DRAWING|CERT|CLASS|FLAG|MANUAL|WARRANTY|QUOTE|INVOICE|PO|RA|MS|MINUTES|REPORT|OTHER
+  folder         String?
+  tags           String?
+  fileUrl        String?
+  ownerId        String?
+  expiresAt      DateTime?
+  reviewAt       DateTime?
+  approvalStatus String    @default("DRAFT")
+  createdAt      DateTime  @default(now())
+  archivedAt     DateTime?
+  project        Project?  @relation(fields: [projectId], references: [id])
+  owner          User?     @relation(fields: [ownerId], references: [id])
+
+  @@index([projectId])
+  @@index([ownerId])
 }
 
 // ---------- Contractors ----------
 
 model Contractor {
-  id        String  @id @default(cuid())
-  name      String  @unique
-  trade     String?
-  contact   String?
-  email     String?
-  phone     String?
-  contractValue Float @default(0)
+  id                 String    @id @default(cuid())
+  name               String    @unique
+  trade              String?
+  contact            String?
+  email              String?
+  phone              String?
+  contractValue      Float     @default(0)
   insuranceExpiresAt DateTime?
-  notes     String?
-  createdAt DateTime @default(now())
-  archivedAt DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  archivedAt         DateTime?
 }
 
 // ---------- Meetings ----------
 
 model Meeting {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   projectId String
   title     String
-  type      String   // OWNERS|YARD|TECH|INTERIOR|CLASS_FLAG|FINANCE|HOD|CONTRACTOR
+  type      String // OWNERS|YARD|TECH|INTERIOR|CLASS_FLAG|FINANCE|HOD|CONTRACTOR
   meetsAt   DateTime
   location  String?
   agenda    String?
   minutes   String?
   attendees String?
-  createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id])
+  createdAt DateTime        @default(now())
+  project   Project         @relation(fields: [projectId], references: [id])
   actions   MeetingAction[]
+
+  @@index([projectId])
 }
 
+// Read-only in the current app today — no create/update call site (verified
+// while investigating G3.1). `status` therefore has no observed value beyond
+// the "OPEN" default; see the note on its CHECK constraint.
 model MeetingAction {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   meetingId String
   text      String
   ownerId   String?
   dueDate   DateTime?
-  status    String   @default("OPEN")
-  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  status    String    @default("OPEN")
+  meeting   Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  owner     User?     @relation(fields: [ownerId], references: [id])
+
+  @@index([meetingId])
+  @@index([ownerId])
 }
 
 // ---------- Risks ----------
 
+// Write path is seed-only (three fixture rows) — no application create/edit
+// UI exists yet, so `category` reflects only the values the seed uses plus
+// the schema default; see the note on its CHECK constraint.
 model Risk {
-  id          String   @id @default(cuid())
-  projectId   String
-  title       String
-  description String?
-  category    String   @default("GENERAL")
-  likelihood  Int      @default(1) // 1-5
-  impact      Int      @default(1) // 1-5
-  rating      Int      @default(1) // computed = L*I
-  mitigation  String?
-  ownerId     String?
-  dueDate     DateTime?
-  status      String   @default("OPEN") // OPEN|MITIGATED|ACCEPTED|CLOSED|ESCALATED
-  costImpact  Float    @default(0)
-  scheduleImpactDays Int @default(0)
-  safetyImpact String?
-  createdAt   DateTime @default(now())
-  project     Project  @relation(fields: [projectId], references: [id])
+  id                 String    @id @default(cuid())
+  projectId          String
+  title              String
+  description        String?
+  category           String    @default("GENERAL")
+  likelihood         Int       @default(1) // 1-5
+  impact             Int       @default(1) // 1-5
+  rating             Int       @default(1) // computed = L*I
+  mitigation         String?
+  ownerId            String?
+  dueDate            DateTime?
+  status             String    @default("OPEN") // OPEN|MITIGATED|ACCEPTED|CLOSED|ESCALATED
+  costImpact         Float     @default(0)
+  scheduleImpactDays Int       @default(0)
+  safetyImpact       String?
+  createdAt          DateTime  @default(now())
+  project            Project   @relation(fields: [projectId], references: [id])
+  owner              User?     @relation(fields: [ownerId], references: [id])
+
+  @@index([projectId])
+  @@index([ownerId])
 }
 
 // ---------- Notifications ----------
 
 model Notification {
-  id          String   @id @default(cuid())
-  userId      String
-  kind        String
-  priority    String   @default("MEDIUM")
-  title       String
-  body        String?
-  resource    String?
-  resourceId  String?
-  readAt      DateTime?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id])
+  id         String    @id @default(cuid())
+  userId     String
+  kind       String
+  priority   String    @default("MEDIUM")
+  title      String
+  body       String?
+  resource   String?
+  resourceId String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
 }
 
 // ---------- Comments / attachments ----------
 
 model Comment {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   authorId      String
   body          String
   resource      String
@@ -544,22 +717,26 @@ model Comment {
   jobId         String?
   /// MESSAGE is an ordinary comment; MINUTE is tagged as a meeting minute;
   /// SYSTEM records a lifecycle event in the same thread.
-  kind          String   @default("MESSAGE")
-  createdAt     DateTime @default(now())
+  kind          String       @default("MESSAGE")
+  createdAt     DateTime     @default(now())
   changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
   crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
   job           Job?         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  author        User         @relation(fields: [authorId], references: [id])
   attachments   Attachment[]
 
   @@index([jobId])
+  @@index([changeOrderId])
+  @@index([crewRequestId])
+  @@index([authorId])
 }
 
 model Attachment {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   uploaderId    String
   filename      String
   mimetype      String?
-  size          Int      @default(0)
+  size          Int          @default(0)
   // Object key in the storage bucket. `url` stays for externally hosted files
   // recorded before object storage existed.
   storageKey    String?
@@ -570,14 +747,18 @@ model Attachment {
   crewRequestId String?
   jobId         String?
   commentId     String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime     @default(now())
   changeOrder   ChangeOrder? @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
   crewRequest   CrewRequest? @relation(fields: [crewRequestId], references: [id], onDelete: Cascade)
   job           Job?         @relation(fields: [jobId], references: [id], onDelete: Cascade)
   comment       Comment?     @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  uploader      User         @relation(fields: [uploaderId], references: [id])
 
   @@index([jobId])
   @@index([commentId])
+  @@index([changeOrderId])
+  @@index([crewRequestId])
+  @@index([uploaderId])
 }
 
 // ---------- Audit ----------
@@ -585,26 +766,32 @@ model Attachment {
 model AuditLog {
   id         String   @id @default(cuid())
   actorId    String?
-  action     String   // CREATE|UPDATE|DELETE|APPROVE|REJECT|STATUS|COMMENT|UPLOAD|LOGIN|LOGOUT
+  action     String // CREATE|UPDATE|DELETE|APPROVE|REJECT|STATUS|COMMENT|UPLOAD|LOGIN|LOGOUT
   resource   String
   resourceId String?
   details    Json?
   createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorId], references: [id])
+
+  @@index([createdAt])
+  @@index([resource, resourceId])
+  @@index([actorId])
 }
 
 // ---------- Password reset ----------
 
 model PasswordReset {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
   // Only the hash is stored, so a database leak yields no usable links.
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+}
 
 // ---------- Jobs & quotes ----------
 //
@@ -621,6 +808,8 @@ model JobSection {
   letter    String
   name      String
   sort      Int     @default(0)
+  // No extra index needed: @@unique([projectId, letter]) already leads with
+  // projectId, which Postgres can use for a projectId-only lookup too.
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   jobs      Job[]
 
@@ -628,30 +817,30 @@ model JobSection {
 }
 
 model Job {
-  id           String  @id @default(cuid())
-  projectId    String
-  sectionId    String?
+  id          String  @id @default(cuid())
+  projectId   String
+  sectionId   String?
   /// Yard job code, e.g. "D.0130.05". Unique within a project.
-  code         String
+  code        String
   /// Group the code belongs to, e.g. "D.0130". Derived, stored for grouping.
-  groupCode    String?
+  groupCode   String?
   /// The yacht's own tracking number, when they use one.
-  clientRef    String?
-  title        String
-  description  String
+  clientRef   String?
+  title       String
+  description String
 
-  contractType String  @default("VARIATION_CERTIFICATE") // CONTRACT|VARIATION_CERTIFICATE|SERVICES|PURCHASE
-  pricingBasis String  @default("FIXED")                 // FIXED|ESTIMATED|TIME_AND_MATERIALS
+  contractType  String  @default("VARIATION_CERTIFICATE") // CONTRACT|VARIATION_CERTIFICATE|SERVICES|PURCHASE
+  pricingBasis  String  @default("FIXED") // FIXED|ESTIMATED|TIME_AND_MATERIALS
   exceptionFlag Boolean @default(false)
 
-  status       String  @default("NEW_REQUEST")
+  status String @default("NEW_REQUEST")
   // NEW_REQUEST|QUOTE_SENT|CLIENT_ACCEPTED|ACCEPTED|EXPIRED|CANCELLED_QUOTE|
   // CANCELLED_WORKS|YARD_COMPLETED|WORKS_ACCEPTED|MINOR_DEFICIENCY|CLOSED
 
-  total        Float   @default(0)
-  currency     String  @default("EUR")
+  total       Float  @default(0)
+  currency    String @default("EUR")
   /// Yard-reported completion, 0–100.
-  progressPct  Int     @default(0)
+  progressPct Int    @default(0)
 
   requestedAt      DateTime?
   quoteDeliveredAt DateTime?
@@ -679,21 +868,33 @@ model Job {
   updatedById String?
   archivedAt  DateTime?
 
-  project     Project        @relation(fields: [projectId], references: [id])
-  section     JobSection?    @relation(fields: [sectionId], references: [id])
-  changeOrder ChangeOrder?   @relation(fields: [linkedChangeOrderId], references: [id])
-  lines       JobLine[]
-  notes       JobNote[]
-  variation   JobVariation?
-  history     JobHistory[]
-  favourites  JobFavourite[]
-  comments    Comment[]
-  attachments Attachment[]
-  challenges  AcceptanceChallenge[]
+  project              Project               @relation(fields: [projectId], references: [id])
+  section              JobSection?           @relation(fields: [sectionId], references: [id])
+  changeOrder          ChangeOrder?          @relation(fields: [linkedChangeOrderId], references: [id])
+  clientAcceptedBy     User?                 @relation("JobClientAcceptedBy", fields: [clientAcceptedById], references: [id])
+  yardAcceptedBy       User?                 @relation("JobYardAcceptedBy", fields: [yardAcceptedById], references: [id])
+  designatedAuthoriser User?                 @relation("JobDesignatedAuthoriser", fields: [designatedAuthoriserId], references: [id])
+  createdBy            User                  @relation("JobCreatedBy", fields: [createdById], references: [id])
+  updatedBy            User?                 @relation("JobUpdatedBy", fields: [updatedById], references: [id])
+  lines                JobLine[]
+  notes                JobNote[]
+  variation            JobVariation?
+  history              JobHistory[]
+  favourites           JobFavourite[]
+  comments             Comment[]
+  attachments          Attachment[]
+  challenges           AcceptanceChallenge[]
 
   @@unique([projectId, code])
-  @@index([projectId, status])
+  @@index([projectId, archivedAt, status])
   @@index([projectId, groupCode])
+  @@index([sectionId])
+  @@index([linkedChangeOrderId])
+  @@index([clientAcceptedById])
+  @@index([yardAcceptedById])
+  @@index([designatedAuthoriserId])
+  @@index([createdById])
+  @@index([updatedById])
 }
 
 model JobLine {
@@ -746,26 +947,29 @@ model JobHistory {
   details    Json?
   createdAt  DateTime @default(now())
   job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  actor      User?    @relation(fields: [actorId], references: [id])
 
   @@index([jobId])
+  @@index([actorId])
 }
 
 /// A pending acceptance: the code sent to the authoriser and what it signs.
 model AcceptanceChallenge {
-  id        String    @id @default(cuid())
-  jobId     String
-  userId    String
+  id         String    @id @default(cuid())
+  jobId      String
+  userId     String
   /// Only the hash is stored, bound to this challenge so a code cannot be replayed.
-  codeHash  String
-  channel   String    @default("EMAIL") // EMAIL|SMS
+  codeHash   String
+  channel    String    @default("EMAIL") // EMAIL|SMS
   /// Fingerprint of the quote at the moment the code was sent, so an alteration
   /// between sending and signing is detectable.
-  quoteHash String
-  attempts  Int       @default(0)
-  expiresAt DateTime
+  quoteHash  String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
   consumedAt DateTime?
-  createdAt DateTime  @default(now())
-  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  job        Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id])
 
   @@index([jobId, userId])
 }
@@ -775,8 +979,10 @@ model JobFavourite {
   jobId     String
   createdAt DateTime @default(now())
   job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
 
   @@id([userId, jobId])
+  @@index([jobId])
 }
 
 // ---------- Settings ----------

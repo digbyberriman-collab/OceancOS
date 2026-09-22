@@ -73,3 +73,48 @@ every gate's e2e tests add more unassigned fixtures. Query for an assigned row
 directly (`findFirst({ where: { assignedToId: { not: null } } })`) instead of
 assuming the first row returned has the property being checked. Committed
 separately from G2.4's functional changes — this is test tooling, not app code.
+
+---
+
+### [DEAD CODE] — Five models have no create/update call site anywhere in the application
+Severity: Medium
+Location: `prisma/schema.prisma` — `Approval`, `Milestone`, `LogisticsItem`, `Document`,
+`MeetingAction`; `prisma/seed.ts`; `src/app/(app)/{logistics,documents,schedule,approvals}/page.tsx`
+Found by: orchestrator, during G3.1
+
+Description:
+
+While sourcing value lists for G3.1's CHECK constraints, five models turned out to have **no
+`.create` or `.update` call anywhere in `src/`, and no seed fixture either** — confirmed with
+`grep -rn "prisma\.<model>\."` across the whole app:
+
+    Approval        — src/app/(app)/approvals/page.tsx and dashboard/page.tsx read it
+                       (`findMany`, `count`) but nothing ever writes a row. `stage` has no
+                       default and has therefore never held any value at all.
+    Milestone       — seed.ts creates rows (`type`, `date`), but `status` is never set past
+                       its "PENDING" default; no in-app create/edit path exists.
+    LogisticsItem   — `/logistics` reads a table nothing ever writes to.
+    Document        — `/documents` and search read a table nothing ever writes to.
+    MeetingAction   — read via `Meeting.actions` off `/meetings`; nothing ever writes to it (nor
+                       does anything write a `Meeting` row itself, for that matter).
+
+`Meeting`, `Drawing`, `PurchaseOrder`, `Invoice`, `Contractor` and `Budget` are the same shape —
+readable pages backed by tables only `prisma/seed.ts` populates, several (Meeting, Drawing,
+Contractor) not even that. The Approvals Centre page itself is already flagged
+(`findings-ui-ux.md`'s `[DEAD LISTS]`, ACTION_PLAN.md G3.7) as having "no decision controls, no
+links" — this finding is the reason why: there is nothing to decide, because nothing ever creates
+an `Approval` row to decide on.
+
+Impact:
+
+Six-plus feature areas the UI presents as real (Logistics, Documents, Schedule tasks, the
+Approvals Centre, Meetings, Purchase Orders/Invoices/Contractors) are permanently empty beyond
+whatever `prisma/seed.ts` happens to plant, because no path exists to add to them. A user
+navigating to `/logistics` sees a working-looking table with no way to ever add a row. This reads
+as "the feature is broken" rather than "the feature was never built" — the gap is disguised by the
+page rendering cleanly with an empty state.
+
+Not fixed here: out of scope for G3.1 (schema constraints), and building nine create/edit flows is
+a scoped feature-build, not a bug fix — it needs its own sequenced plan item(s), most likely a new
+Gate. Logged rather than folded into G3.1 per the protocol's rule against silently expanding an
+item's scope.
