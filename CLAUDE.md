@@ -90,8 +90,8 @@ way a `Job` can.
 Nineteen roles (`lib/enums.ts`'s `ROLE_KEYS`), covering both sides of the relationship: the owner's
 side (Owner, Owner's Rep, Project Manager, Captain, Chief Officer, Chief Engineer, Purser, HOD,
 Crew), the yard's side (Yard PM, Yard Trade Lead, Finance, Technical Manager), and external parties
-(Contractor, Supplier, Class Surveyor, Flag Surveyor, Auditor, Guest). Twelve have a seeded
-walkthrough account (see `README.md`); seven don't yet.
+(Contractor, Supplier, Class Surveyor, Flag Surveyor, Auditor, Guest). Every role has a seeded
+walkthrough account (see `README.md`).
 
 RBAC is role → permission, evaluated server-side on every protected page and every mutating server
 action (`lib/rbac.ts`'s `hasPermission()` / `assertPermission()`) — never trust a client-side hide

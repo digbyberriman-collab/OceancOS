@@ -10,26 +10,38 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const user = await requireUser();
-  if (!hasPermission(user, PERMISSIONS.ADM_USERS) && !hasPermission(user, PERMISSIONS.AUDIT_VIEW)) {
+  // Two separate grants, rendered separately below: ADM_USERS for the user
+  // directory (names, emails, role assignments — the roster the reset flow
+  // takes care not to leak) and AUDIT_VIEW for the audit log. Before
+  // ACTION_PLAN.md G6.9, ADM_USERS was granted to no role, so this page's
+  // "either" guard meant AUDIT_VIEW alone — held by AUDITOR, a read-only
+  // role by design — actually decided who saw the full user directory too.
+  const canSeeUsers = hasPermission(user, PERMISSIONS.ADM_USERS);
+  const canSeeAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  if (!canSeeUsers && !canSeeAudit) {
     return <EmptyState headingLevel={1} title="Forbidden" hint="Admin tools are restricted." />;
   }
   const [users, vessels, projects, depts, audit] = await Promise.all([
-    prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        roles: { select: { role: { select: { key: true } } } },
-      },
-      orderBy: { name: "asc" },
-      take: 500,
-    }),
-    prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, take: 200 }),
-    prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" }, take: 200 }),
-    prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }),
-    hasPermission(user, PERMISSIONS.AUDIT_VIEW)
-      ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 })
+    canSeeUsers
+      ? prisma.user.findMany({
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            roles: { select: { role: { select: { key: true } } } },
+          },
+          orderBy: { name: "asc" },
+          take: 500,
+        })
       : [],
+    canSeeUsers
+      ? prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, take: 200 })
+      : [],
+    canSeeUsers
+      ? prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" }, take: 200 })
+      : [],
+    canSeeUsers ? prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }) : [],
+    canSeeAudit ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : [],
   ]);
 
   return (
@@ -46,32 +58,34 @@ export default async function AdminPage() {
         }
       />
 
-      {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="stat-card">
-          <div className="stat-label">Users</div>
-          <div className="stat-value text-white">{users.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Projects</div>
-          <div className="stat-value text-accent-bright">{projects.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-accent/60" />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Vessels</div>
-          <div className="stat-value text-marine">{vessels.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Departments</div>
-          <div className="stat-value text-muted">{depts.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
-        </div>
-      </div>
+      {canSeeUsers && (
+        <>
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="stat-card">
+              <div className="stat-label">Users</div>
+              <div className="stat-value text-white">{users.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Projects</div>
+              <div className="stat-value text-accent-bright">{projects.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-accent/60" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Vessels</div>
+              <div className="stat-value text-marine">{vessels.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Departments</div>
+              <div className="stat-value text-muted">{depts.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
+            </div>
+          </div>
 
-      {/* Main grid: Users + Projects/Vessels/Depts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Main grid: Users + Projects/Vessels/Depts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Users card */}
         <div className="surface overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
@@ -178,9 +192,11 @@ export default async function AdminPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
       {/* Audit log */}
-      {audit.length > 0 && (
+      {canSeeAudit && audit.length > 0 && (
         <div className="surface overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
             <ScrollText size={14} className="text-marine shrink-0" />

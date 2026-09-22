@@ -108,26 +108,27 @@ See `.env.example` for the complete list with defaults and further comments.
 
 ## Seeded accounts
 
-`npm run db:seed` creates thirteen accounts, one per commonly-used role, all sharing the same
-password. In development and test that password is `password`; it is a fixture, and the e2e suite
-depends on it. **It is never shown in the application** — the sign-in page has no credential hint,
-in any environment.
+`npm run db:seed` creates one account per role — all nineteen — sharing the same password. In
+development and test that password is `password`; it is a fixture, and the e2e suite depends on it.
+**It is never shown in the application** — the sign-in page has no credential hint, in any
+environment.
 
 | Email | Role | | Email | Role |
 |---|---|---|---|---|
-| `owner@oceancos.dev` | Owner | | `yard@oceancos.dev` | Yard PM |
-| `rep@oceancos.dev` | Owner's Rep | | `finance@oceancos.dev` | Finance |
-| `pm@oceancos.dev` | Project Manager | | `tech@oceancos.dev` | Technical Manager |
-| `captain@oceancos.dev` | Captain | | `class@oceancos.dev` | Class Surveyor |
-| `eng@oceancos.dev` | Chief Engineer | | `flag@oceancos.dev` | Flag Surveyor |
-| `crew@oceancos.dev` | Crew | | `contractor@oceancos.dev` | Contractor |
+| `owner@oceancos.dev` | Owner | | `tradelead@oceancos.dev` | Yard Trade Lead |
+| `rep@oceancos.dev` | Owner's Rep | | `contractor@oceancos.dev` | Contractor |
+| `pm@oceancos.dev` | Project Manager | | `supplier@oceancos.dev` | Supplier |
+| `captain@oceancos.dev` | Captain | | `finance@oceancos.dev` | Finance |
+| `officer@oceancos.dev` | Chief Officer | | `tech@oceancos.dev` | Technical Manager |
+| `eng@oceancos.dev` | Chief Engineer | | `class@oceancos.dev` | Class Surveyor |
+| `purser@oceancos.dev` | Purser | | `flag@oceancos.dev` | Flag Surveyor |
+| `hod@oceancos.dev` | HOD | | `auditor@oceancos.dev` | Auditor |
+| `crew@oceancos.dev` | Crew | | `guest@oceancos.dev` | Guest |
+| `yard@oceancos.dev` | Yard PM | | | |
 
 Plus `scoped@oceancos.dev`, a Project Manager scoped to only one of the two seeded projects
 (every account above reaches both) — used by `e2e/tenancy.spec.ts` to prove one project's data
 never leaks into another's.
-
-Seven of the nineteen roles — Chief Officer, Purser, HOD, Yard Trade Lead, Supplier, Auditor and
-Guest — have no seeded account and have therefore never been walked through the application.
 
 ## Further documentation
 

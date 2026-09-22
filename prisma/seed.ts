@@ -150,6 +150,15 @@ async function main() {
     { email: "class@oceancos.dev", name: "Carl Class", role: "CLASS_SURVEYOR" },
     { email: "flag@oceancos.dev", name: "Flo Flag", role: "FLAG_SURVEYOR" },
     { email: "contractor@oceancos.dev", name: "Connor Contractor", role: "CONTRACTOR" },
+    // ACTION_PLAN.md G6.9: these seven roles previously had no seeded
+    // account at all, so nobody had ever walked through the app as one.
+    { email: "officer@oceancos.dev", name: "Owen Officer", role: "CHIEF_OFFICER" },
+    { email: "purser@oceancos.dev", name: "Paula Purser", role: "PURSER" },
+    { email: "hod@oceancos.dev", name: "Devon Hod", role: "HOD" },
+    { email: "tradelead@oceancos.dev", name: "Trent Tradelead", role: "YARD_TRADE_LEAD" },
+    { email: "supplier@oceancos.dev", name: "Sonia Supplier", role: "SUPPLIER" },
+    { email: "auditor@oceancos.dev", name: "Amara Auditor", role: "AUDITOR" },
+    { email: "guest@oceancos.dev", name: "Gia Guest", role: "GUEST" },
   ];
 
   for (const u of userSeeds) {
@@ -167,7 +176,7 @@ async function main() {
 
   // A project-scoped user, reaching only p1 ("2026 Refit"), never p2.
   //
-  // Every one of the twelve accounts above holds an unscoped role
+  // Every one of the nineteen accounts above holds an unscoped role
   // assignment, so every one of them can already reach both seeded
   // projects — none of them can exercise the scoping this project adds
   // (AUDIT_REPORT.md's [TENANCY] Criticals and ACTION_PLAN.md's G2.1). This
