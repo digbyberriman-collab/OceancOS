@@ -8,8 +8,13 @@
 //   local — writes under ./uploads for development and CI, so the app runs
 //           with no cloud credentials.
 //
-// Uploads go straight from the browser to storage using a presigned PUT, so
-// large drawings never pass through the Next.js server.
+// Uploads go through a presigned PUT either way, but only the s3 driver's URL
+// points at the bucket directly — the local driver's "signed URL" is this
+// app's own /api/uploads/local route (below). So with STORAGE_DRIVER=local
+// (the default for dev, test and CI) every upload does pass through the
+// Next.js server, streamed to disk rather than buffered (ACTION_PLAN.md
+// G4.8). Large drawings bypass the server only in production, where
+// STORAGE_DRIVER=s3 is required.
 
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
