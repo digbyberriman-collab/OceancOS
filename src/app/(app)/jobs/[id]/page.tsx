@@ -102,9 +102,10 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
   );
   const canQuote =
     hasPermission(user, PERMISSIONS.JOB_ISSUE_QUOTE) &&
-    ["NEW_REQUEST"].includes(job.status);
+    ["NEW_REQUEST", "QUOTE_SENT", "EXPIRED"].includes(job.status);
   const canProgress =
-    hasPermission(user, PERMISSIONS.JOB_PROGRESS) && job.status === "ACCEPTED";
+    hasPermission(user, PERMISSIONS.JOB_PROGRESS) &&
+    ["ACCEPTED", "MINOR_DEFICIENCY"].includes(job.status);
 
   const invoicingTerms = Array.isArray(job.variation?.invoicingTerms)
     ? (job.variation?.invoicingTerms as InvoicingTerm[])
@@ -503,7 +504,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
             <SectionCard title="Yard">
               <Link href={`/jobs/${job.id}/quote`} className="btn-primary w-full justify-center">
                 <FileText size={14} />
-                Price this request
+                {job.status === "NEW_REQUEST" ? "Price this request" : "Revise quote"}
               </Link>
             </SectionCard>
           )}

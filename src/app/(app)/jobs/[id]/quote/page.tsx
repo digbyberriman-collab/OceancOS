@@ -11,7 +11,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRICING_BASES, PRICING_BASIS_LABELS } from "@/lib/enums";
 import { DEFAULT_JOB_CODE_PATTERN } from "@/lib/jobs/codes";
-import { fmtBytes } from "@/lib/utils";
+import { fmtBytes, toNumber } from "@/lib/utils";
 import { downloadUrl } from "@/lib/storage";
 import { issueQuote, type IssueQuoteFlash } from "../../actions";
 import { readFormFlash } from "@/lib/formFlash";
@@ -34,7 +34,13 @@ export default async function QuoteJob({
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },
-    include: { project: true, section: true, attachments: { orderBy: { createdAt: "desc" } } },
+    include: {
+      project: true,
+      section: true,
+      attachments: { orderBy: { createdAt: "desc" } },
+      lines: { orderBy: { sort: "asc" } },
+      notes: { orderBy: [{ kind: "asc" }, { sort: "asc" }] },
+    },
   });
   if (!job) return notFound();
 
@@ -45,11 +51,16 @@ export default async function QuoteJob({
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
 
-  if (job.status !== "NEW_REQUEST") {
+  // A quote can be revised or re-issued from QUOTE_SENT or EXPIRED, not only
+  // priced from NEW_REQUEST (ACTION_PLAN.md G3.9) — before this the only
+  // route for a mispriced or lapsed quote was cancel-and-raise-again under a
+  // new job code.
+  const isRevision = job.status === "QUOTE_SENT" || job.status === "EXPIRED";
+  if (job.status !== "NEW_REQUEST" && !isRevision) {
     return (
       <EmptyState
-        title="Already priced"
-        hint={`${job.code} is no longer a new request, so it cannot be quoted again here.`}
+        title="Cannot be quoted here"
+        hint={`${job.code} is ${job.status.replace(/_/g, " ").toLowerCase()}, so it cannot be priced or revised from this form.`}
         action={
           <Link href={`/jobs/${job.id}`} className="btn">
             Back to the job
@@ -60,7 +71,20 @@ export default async function QuoteJob({
   }
 
   const flash = readFormFlash<IssueQuoteFlash>(`quote-${job.id}`);
-  const lineAt = (i: number) => flash?.values.lines[i];
+  const existingLineAt = (i: number) => {
+    const line = job.lines[i];
+    if (!line) return undefined;
+    return {
+      description: line.description,
+      quantity: String(toNumber(line.quantity)),
+      unit: line.unit,
+      unitPrice: String(toNumber(line.unitPrice)),
+    };
+  };
+  const lineAt = (i: number) => flash?.values.lines[i] ?? existingLineAt(i);
+  const lineRows = Math.max(LINE_ROWS, job.lines.length);
+  const existingExclusions = job.notes.filter((n) => n.kind === "EXCLUSION").map((n) => n.text).join("\n");
+  const existingNotes = job.notes.filter((n) => n.kind === "NOTE").map((n) => n.text).join("\n");
 
   return (
     <div className="animate-fade-up">
@@ -74,8 +98,12 @@ export default async function QuoteJob({
 
       <PageHeader
         eyebrow="Yard"
-        title="Issue quote"
-        subtitle="Set the job code, price the work, and state what is excluded."
+        title={isRevision ? "Revise quote" : "Issue quote"}
+        subtitle={
+          isRevision
+            ? "Editing replaces every line and note below with what you submit here — the superseded figures stay on the job's history."
+            : "Set the job code, price the work, and state what is excluded."
+        }
       />
 
       {flash && (
@@ -168,7 +196,7 @@ export default async function QuoteJob({
                 name="validityDays"
                 min={1}
                 max={365}
-                defaultValue={flash?.values.validityDays ?? 30}
+                defaultValue={flash?.values.validityDays ?? job.validityDays ?? 30}
               />
             </Field>
           </div>
@@ -176,7 +204,7 @@ export default async function QuoteJob({
             <input
               type="checkbox"
               name="exceptionFlag"
-              defaultChecked={flash?.values.exceptionFlag ?? false}
+              defaultChecked={flash?.values.exceptionFlag ?? job.exceptionFlag}
               className="h-4 w-4 rounded border-line"
             />
             Flag as an exception
@@ -195,7 +223,7 @@ export default async function QuoteJob({
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: LINE_ROWS }, (_, i) => (
+                {Array.from({ length: lineRows }, (_, i) => (
                   <tr key={i}>
                     <td>
                       <Input
@@ -252,7 +280,7 @@ export default async function QuoteJob({
                 name="exclusions"
                 rows={6}
                 placeholder={"Removal and refitting of existing covers.\nAny repair found beyond the stated scope."}
-                defaultValue={flash?.values.exclusions ?? ""}
+                defaultValue={flash?.values.exclusions ?? existingExclusions}
               />
             </Field>
           </SectionCard>
@@ -262,14 +290,16 @@ export default async function QuoteJob({
                 name="notes"
                 rows={6}
                 placeholder={"Quantities are estimated; final quantity invoiced on the weighbridge ticket."}
-                defaultValue={flash?.values.notes ?? ""}
+                defaultValue={flash?.values.notes ?? existingNotes}
               />
             </Field>
           </SectionCard>
         </div>
 
         <div className="flex items-center gap-3">
-          <SubmitButton className="btn-primary btn-lg" pendingText="Sending…">Send quote</SubmitButton>
+          <SubmitButton className="btn-primary btn-lg" pendingText="Sending…">
+            {isRevision ? "Send revised quote" : "Send quote"}
+          </SubmitButton>
           <Link href={`/jobs/${job.id}`} className="btn-ghost">
             Cancel
           </Link>

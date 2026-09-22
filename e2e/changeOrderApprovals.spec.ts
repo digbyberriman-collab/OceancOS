@@ -109,4 +109,56 @@ test.describe("change order approval chain", () => {
     await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
     await expect(page.getByText("REJECTED", { exact: true }).first()).toBeVisible();
   });
+
+  test("a revised change order can actually be edited, and resubmitting restarts the chain (ACTION_PLAN.md G3.9)", async ({ page }) => {
+    test.slow();
+
+    // Build and reject a fresh chain, so this test doesn't disturb seeded data.
+    await signIn(page, PM);
+    await page.goto("/change-orders/new");
+    const title = `Revise-and-edit regression ${Date.now()}`;
+    await page.getByLabel("Title").fill(title);
+    await page.getByLabel("Description").fill("Confirms Revise leads to an actual edit, not a dead end.");
+    await page.getByLabel("Reason for Change").fill("Verifying G3.9's fix.");
+    await page.getByLabel("Estimated Cost (EUR)").fill("5000");
+    await page.getByRole("button", { name: /create draft/i }).click();
+    await page.waitForURL((url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
+    const coUrl = page.url();
+    await page.getByRole("button", { name: /submit for review/i }).click();
+
+    await signOut(page);
+    await signIn(page, CAPTAIN);
+    await page.goto(coUrl);
+    await decide(page, "REJECTED");
+
+    // "Revise" (REJECTED → DRAFT) used to be a dead end: every field was
+    // frozen from creation, so there was nothing to actually revise.
+    await signOut(page);
+    await signIn(page, PM);
+    await page.goto(coUrl);
+    await page.getByRole("button", { name: "Revise", exact: true }).click();
+    await expect(page.getByText("DRAFT", { exact: true }).first()).toBeVisible();
+
+    await page.getByRole("link", { name: /edit details/i }).click();
+    await page.waitForURL(/\/edit$/);
+    await expect(page.getByLabel("Title")).toHaveValue(title);
+    const revisedTitle = `${title} (revised)`;
+    await page.getByLabel("Title").fill(revisedTitle);
+    await page.getByLabel("Estimated Cost (EUR)").fill("7500");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await page.waitForURL(coUrl);
+
+    await expect(page.getByRole("heading", { name: revisedTitle })).toBeVisible();
+    await expect(page.getByText("€7,500").first()).toBeVisible();
+
+    // Resubmitting must genuinely restart the chain: the captain's earlier
+    // rejection cannot still be sitting there blocking (or worse, silently
+    // not blocking) the next review.
+    await page.getByRole("button", { name: /submit for review/i }).click();
+    await signOut(page);
+    await signIn(page, TECH);
+    await page.goto(coUrl);
+    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+    await expect(page.getByText(/waiting on captain/i)).toBeVisible();
+  });
 });

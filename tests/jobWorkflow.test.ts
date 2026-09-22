@@ -13,6 +13,7 @@ import {
   expiryFrom,
   isExpired,
   jobActions,
+  jobActionSide,
 } from "@/lib/jobs/workflow";
 import { JOB_STATUSES, JOB_STATUS_LABELS } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
@@ -33,9 +34,16 @@ describe("job transition map", () => {
     }
   });
 
-  it("never transitions a status to itself", () => {
+  it("never transitions a status to itself, except QUOTE_SENT revising itself", () => {
+    // The one intentional self-loop: revising or re-issuing an already-sent
+    // quote (ACTION_PLAN.md G3.9) is still "the job is QUOTE_SENT" before
+    // and after, since issueQuote deletes and recreates the lines either way.
     for (const [from, targets] of Object.entries(JOB_LEGAL_TRANSITIONS)) {
-      expect(targets, `${from} → ${from}`).not.toContain(from);
+      if (from === "QUOTE_SENT") {
+        expect(targets, `${from} → ${from}`).toContain(from);
+      } else {
+        expect(targets, `${from} → ${from}`).not.toContain(from);
+      }
     }
   });
 
@@ -68,6 +76,15 @@ describe("job transition map", () => {
   it("routes a deficiency back to works accepted once resolved", () => {
     expect(canTransitionJob("YARD_COMPLETED", "MINOR_DEFICIENCY")).toBe(true);
     expect(canTransitionJob("MINOR_DEFICIENCY", "WORKS_ACCEPTED")).toBe(true);
+  });
+
+  it("lets the yard hand rectified work back from a deficiency (ACTION_PLAN.md G3.9)", () => {
+    expect(canTransitionJob("MINOR_DEFICIENCY", "YARD_COMPLETED")).toBe(true);
+  });
+
+  it("lets a quote be revised or re-issued, not only issued once (ACTION_PLAN.md G3.9)", () => {
+    expect(canTransitionJob("QUOTE_SENT", "QUOTE_SENT")).toBe(true);
+    expect(canTransitionJob("EXPIRED", "QUOTE_SENT")).toBe(true);
   });
 
   it("refuses to skip the yard countersign", () => {
@@ -199,9 +216,40 @@ describe("offered actions", () => {
     expect(jobActions("YARD_COMPLETED").find((a) => a.to === "WORKS_ACCEPTED")?.side).toBe("client");
   });
 
+  it("never offers QUOTE_SENT as a plain button — issuing or revising needs the line-item form", () => {
+    for (const status of JOB_STATUSES) {
+      expect(jobActions(status).map((a) => a.to)).not.toContain("QUOTE_SENT");
+    }
+  });
+
+  it("labels the deficiency-rectified edge differently from a first completion", () => {
+    expect(jobActions("MINOR_DEFICIENCY").find((a) => a.to === "YARD_COMPLETED")?.label).toBe(
+      "Deficiency rectified"
+    );
+    expect(jobActions("ACCEPTED").find((a) => a.to === "YARD_COMPLETED")?.label).not.toBe(
+      "Deficiency rectified"
+    );
+  });
+
   it("requires the accept permission to accept, and countersign to countersign", () => {
     expect(JOB_TRANSITION_PERMISSION.CLIENT_ACCEPTED).toBe(PERMISSIONS.JOB_ACCEPT);
     expect(JOB_TRANSITION_PERMISSION.ACCEPTED).toBe(PERMISSIONS.JOB_COUNTERSIGN);
+  });
+});
+
+describe("jobActionSide", () => {
+  it("agrees with the side jobActions itself reports", () => {
+    for (const status of JOB_STATUSES) {
+      for (const action of jobActions(status)) {
+        expect(jobActionSide(action.to)).toBe(action.side);
+      }
+    }
+  });
+
+  it("puts a client-raised deficiency and cancellation on the client side", () => {
+    expect(jobActionSide("MINOR_DEFICIENCY")).toBe("client");
+    expect(jobActionSide("CANCELLED_WORKS")).toBe("client");
+    expect(jobActionSide("WORKS_ACCEPTED")).toBe("client");
   });
 });
 

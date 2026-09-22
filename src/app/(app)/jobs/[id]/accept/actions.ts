@@ -11,7 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { sendEmail } from "@/lib/email";
 import { listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";
-import { assertTransitionJob } from "@/lib/jobs/workflow";
+import { assertTransitionJob, isExpired } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { forbidden, notFound } from "@/lib/errors";
 import { toNumber } from "@/lib/utils";
@@ -239,7 +239,11 @@ export async function confirmAcceptance(formData: FormData) {
       channel: challenge!.channel,
       ip,
       userAgent: requestHeaders.get("user-agent"),
-      wasExpired: job.status === "EXPIRED",
+      // Derived from expiresAt, not the stored status: nothing in the app
+      // ever sweeps a lapsed QUOTE_SENT row to EXPIRED (ACTION_PLAN.md
+      // G3.9), so `job.status === "EXPIRED"` recorded false on every single
+      // acceptance, including ones signed months after the quote lapsed.
+      wasExpired: isExpired(job),
     },
   });
 

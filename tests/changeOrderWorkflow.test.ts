@@ -83,6 +83,13 @@ describe("change order legal transitions", () => {
     expect(canTransitionChangeOrder("REJECTED", "DRAFT")).toBe(true);
   });
 
+  it("lets a change order sent back for more information be revised too (ACTION_PLAN.md G3.9)", () => {
+    // Before this, MORE_INFO had no route back to an editable state at all —
+    // only REJECTED did, so an approver's question could only be answered
+    // with a free-text comment, never by actually changing the figures.
+    expect(canTransitionChangeOrder("MORE_INFO", "DRAFT")).toBe(true);
+  });
+
   it("lets an approval decision resolve the chain from any status a pending row is valid in", () => {
     // decideChangeOrderApproval accepts a decision while status is SUBMITTED,
     // UNDER_REVIEW or MORE_INFO (G2.2) — a decision completing or rejecting

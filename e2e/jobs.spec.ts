@@ -336,6 +336,53 @@ test.describe("the commercial loop", () => {
     await page.goto(`${page.url()}/accept`);
     await expect(page.getByText(/not an authoriser/i)).toBeVisible();
   });
+
+  test("a sent quote can be revised, keeping the request's thread and code (ACTION_PLAN.md G3.9)", async ({
+    page,
+  }) => {
+    const title = `Bow thruster seal replacement ${Date.now()}`;
+
+    await signIn(page, PM);
+    await page.goto("/jobs/new");
+    await page.getByLabel("Job title").fill(title);
+    await page.getByLabel("Job description").fill("Replace the bow thruster shaft seal and pressure-test.");
+    await page.getByLabel(/designated authoriser/i).selectOption({ label: "Cara Captain" });
+    await page.getByRole("button", { name: /send request/i }).click();
+    await page.waitForURL((url) => /^\/jobs\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
+    const jobUrl = page.url();
+
+    await signOut(page);
+    await signIn(page, YARD);
+    await page.goto(`${jobUrl}/quote`);
+    await page.getByLabel("Job code").fill("D.0500.10");
+    await page.getByLabel("Line 1 description").fill("Skilled worker — mechanic");
+    await page.getByLabel("Line 1 quantity").fill("4");
+    await page.getByLabel("Line 1 unit price").fill("75");
+    await page.getByRole("button", { name: /send quote/i }).click();
+    await page.waitForURL(/\/jobs\/[^/]+$/);
+    // 4 × 75 = 300
+    await expect(page.getByText("€300").first()).toBeVisible();
+
+    // Before G3.9, a mispriced or lapsed quote had no way back except
+    // cancel-and-recreate under a new job code, fragmenting the record.
+    // "Revise quote" reaches the same job at the same code instead.
+    await page.getByRole("link", { name: /revise quote/i }).click();
+    await page.waitForURL(/\/quote$/);
+    expect(page.url()).toContain(jobUrl);
+
+    // The existing line is pre-filled, not a blank form.
+    await expect(page.getByLabel("Line 1 description")).toHaveValue("Skilled worker — mechanic");
+    await expect(page.getByLabel("Job code")).toHaveValue("D.0500.10");
+
+    await page.getByLabel("Line 1 quantity").fill("6");
+    await page.getByRole("button", { name: /send revised quote/i }).click();
+    await page.waitForURL(jobUrl);
+
+    // 6 × 75 = 450 — the revised figure, not the original.
+    await expect(page.getByText("€450").first()).toBeVisible();
+    await expect(page.getByText("Quote sent", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("revised", { exact: false }).first()).toBeVisible();
+  });
 });
 
 test.describe("exports", () => {

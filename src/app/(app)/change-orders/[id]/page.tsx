@@ -159,6 +159,21 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             </DefGrid>
           </SectionCard>
 
+          {/* Amend, while it's still editable */}
+          {hasPermission(user, PERMISSIONS.CO_EDIT) &&
+            (co.status === "DRAFT" || co.status === "MORE_INFO") && (
+              <SectionCard title="Amend">
+                <p className="mb-3 text-sm text-muted">
+                  {co.status === "MORE_INFO"
+                    ? "An approver asked for more information — edit the figures below rather than only replying in a comment."
+                    : "Change any field before submitting for review."}
+                </p>
+                <Link href={`/change-orders/${co.id}/edit`} className="btn w-full justify-center">
+                  Edit details
+                </Link>
+              </SectionCard>
+            )}
+
           {/* Workflow actions */}
           {allowedTransitions.length > 0 && (
             <SectionCard title="Workflow Actions">

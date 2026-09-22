@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -73,6 +74,68 @@ export async function createChangeOrder(formData: FormData) {
   redirect(`/change-orders/${co.id}`);
 }
 
+/**
+ * Amend a change order while it is DRAFT or MORE_INFO.
+ *
+ * "Request more information" and "Revise" (REJECTED/MORE_INFO → DRAFT) both
+ * existed as transitions with no way to actually act on them — the title,
+ * description, cost estimate and every other field were frozen from
+ * creation, so an approver's question could only be answered with a
+ * free-text comment (ACTION_PLAN.md G3.9). This is that missing edit.
+ */
+export async function updateChangeOrder(formData: FormData) {
+  const user = await requireUser();
+  assertPermission(user, PERMISSIONS.CO_EDIT);
+
+  const id = String(formData.get("id") ?? "");
+  const co = await prisma.changeOrder.findUnique({ where: { id } });
+  if (!co) throw notFound("That change order");
+
+  await requireProjectAccess(user.id, co.projectId);
+
+  if (co.status !== "DRAFT" && co.status !== "MORE_INFO") {
+    throw conflict(
+      `This change order is now ${co.status.replace(/_/g, " ").toLowerCase()}, so it can no longer be edited.`
+    );
+  }
+
+  const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
+  }
+  const data = parsed.data;
+
+  const normalise = (v: unknown): unknown => (v instanceof Prisma.Decimal ? v.toNumber() : v ?? null);
+  const changed = (Object.keys(data) as (keyof typeof data)[]).filter(
+    (key) => normalise(data[key]) !== normalise((co as unknown as Record<string, unknown>)[key])
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await tx.changeOrder.update({ where: { id }, data: { ...data, updatedById: user.id } });
+    if (changed.length) {
+      await tx.changeOrderHistory.create({
+        data: {
+          changeOrderId: id,
+          actorId: user.id,
+          event: "EDITED",
+          details: `Changed: ${changed.join(", ")}`,
+        },
+      });
+    }
+  });
+
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    resource: "ChangeOrder",
+    resourceId: id,
+    details: { changed },
+  });
+
+  revalidatePath(`/change-orders/${id}`);
+  redirect(`/change-orders/${id}`);
+}
+
 export async function transitionChangeOrder(id: string, toStatus: string, comment?: string) {
   const user = await requireUser();
   const co = await prisma.changeOrder.findUnique({
@@ -112,12 +175,13 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
       },
     });
 
-    // "Revise" (REJECTED → DRAFT) used to leave every approval row exactly
-    // as the rejection left it — the rejecting stage stayed REJECTED
-    // forever, permanently unable to block a resubmission from completing
-    // the chain without them. A revision is a fresh review: reset every row
-    // to PENDING so it is genuinely re-decided.
-    if (co.status === "REJECTED" && target === "DRAFT") {
+    // "Revise" (REJECTED → DRAFT, or MORE_INFO → DRAFT) used to leave every
+    // approval row exactly as the prior decision left it — a rejecting
+    // stage stayed REJECTED forever, permanently unable to block a
+    // resubmission from completing the chain without them. A revision is a
+    // fresh review: reset every row to PENDING so it is genuinely
+    // re-decided, whichever status the change order is revised from.
+    if ((co.status === "REJECTED" || co.status === "MORE_INFO") && target === "DRAFT") {
       await tx.changeOrderApproval.updateMany({
         where: { changeOrderId: id },
         data: { decision: "PENDING", decidedById: null, decidedAt: null, comment: null },

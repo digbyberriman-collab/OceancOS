@@ -16,6 +16,7 @@ import {
   JOB_TRANSITIONS_REQUIRING_CEREMONY,
   assertTransitionJob,
   expiryFrom,
+  jobActionSide,
 } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
@@ -23,6 +24,7 @@ import { forbidden, invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
 import { setFormFlash } from "@/lib/formFlash";
 import type { UploadedFile } from "@/components/ui/FileDrop";
+import { toNumber } from "@/lib/utils";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -322,6 +324,26 @@ export async function issueQuote(formData: FormData) {
 
   assertTransitionJob(job.status as JobStatus, "QUOTE_SENT");
 
+  // A revision (QUOTE_SENT/EXPIRED → QUOTE_SENT, ACTION_PLAN.md G3.9)
+  // deletes and recreates every line and note below, same as a first
+  // issue — so the superseded figures are snapshotted onto the history
+  // row first. Read outside the transaction: this is a nice-to-have audit
+  // trail, not a value the transition's own correctness depends on.
+  const isRevision = job.status !== "NEW_REQUEST";
+  const superseded = isRevision
+    ? {
+        code: job.code,
+        total: toNumber(job.total),
+        validityDays: job.validityDays,
+        lines: (await prisma.jobLine.findMany({ where: { jobId }, orderBy: { sort: "asc" } })).map((l) => ({
+          description: l.description,
+          quantity: toNumber(l.quantity),
+          unit: l.unit,
+          unitPrice: toNumber(l.unitPrice),
+        })),
+      }
+    : null;
+
   await prisma.$transaction([
     prisma.jobLine.deleteMany({ where: { jobId } }),
     prisma.jobNote.deleteMany({ where: { jobId } }),
@@ -352,10 +374,10 @@ export async function issueQuote(formData: FormData) {
       data: {
         jobId,
         actorId: user.id,
-        event: "QUOTED",
+        event: isRevision ? "REVISED" : "QUOTED",
         fromStatus: job.status,
         toStatus: "QUOTE_SENT",
-        details: { total: total.toNumber(), validityDays },
+        details: { total: total.toNumber(), validityDays, ...(superseded ? { superseded } : {}) },
       },
     }),
     prisma.comment.create({
@@ -365,7 +387,7 @@ export async function issueQuote(formData: FormData) {
         resourceId: jobId,
         jobId,
         kind: "SYSTEM",
-        body: `Quote delivered: ${total.toFixed(2)} ${job.currency}${
+        body: `${isRevision ? "Quote revised" : "Quote delivered"}: ${total.toFixed(2)} ${job.currency}${
           validityDays ? `, valid ${validityDays} days` : ""
         }.`,
       },
@@ -377,7 +399,7 @@ export async function issueQuote(formData: FormData) {
     action: "UPDATE",
     resource: "Job",
     resourceId: jobId,
-    details: { event: "QUOTED", code, total, validityDays },
+    details: { event: isRevision ? "REVISED" : "QUOTED", code, total, validityDays },
   });
 
   if (job.designatedAuthoriserId) {
@@ -385,7 +407,7 @@ export async function issueQuote(formData: FormData) {
       userIds: [job.designatedAuthoriserId],
       kind: "APPROVAL_REQUIRED",
       priority: "HIGH",
-      title: `Quote ready to authorise: ${code} — ${job.title}`,
+      title: `${isRevision ? "Revised quote" : "Quote"} ready to authorise: ${code} — ${job.title}`,
       resource: "Job",
       resourceId: jobId,
     });
@@ -418,6 +440,15 @@ export async function transitionJob(formData: FormData) {
   assertPermission(user, JOB_TRANSITION_PERMISSION[to]);
   assertTransitionJob(job.status as JobStatus, to);
 
+  // progressPct is the input to the project's headline work-progress figure
+  // (lib/metrics/project.ts) — YARD_COMPLETED used to force it to 100
+  // regardless of what had actually been reported, and WORKS_ACCEPTED
+  // carried no check at all, so a job could read "works accepted" at 0%
+  // (ACTION_PLAN.md G3.9). Both now require the figure to already be there.
+  if ((to === "YARD_COMPLETED" || to === "WORKS_ACCEPTED") && job.progressPct !== 100) {
+    throw invalid("Report 100% progress before completing this job.");
+  }
+
   const now = new Date();
   const extra: Record<string, unknown> = { updatedById: user.id };
 
@@ -427,7 +458,6 @@ export async function transitionJob(formData: FormData) {
   }
   if (to === "YARD_COMPLETED") {
     extra.yardCompletedAt = now;
-    extra.progressPct = 100;
   }
   if (to === "WORKS_ACCEPTED") {
     extra.worksAcceptedAt = now;
@@ -474,17 +504,38 @@ export async function transitionJob(formData: FormData) {
     details: { from: job.status, to, reason },
   });
 
-  const watchers = [job.createdById, job.designatedAuthoriserId].filter(
-    (id): id is string => !!id && id !== user.id
-  );
-  if (watchers.length) {
-    await notify({
-      userIds: Array.from(new Set(watchers)),
-      kind: "STATUS_CHANGE",
-      title: `${job.code} — ${systemMessage(to, null)}`,
-      resource: "Job",
-      resourceId: jobId,
-    });
+  // The audience is whichever side did *not* just act — a `side: "client"`
+  // action (a deficiency, a cancellation, works acceptance) is client-raised
+  // and the yard needs to hear about it, not the two vessel-side fields this
+  // used to notify regardless of direction (ACTION_PLAN.md G3.9): before
+  // this, the yard was never told about a reported deficiency or that works
+  // had been accepted and its warranty clock had started.
+  if (jobActionSide(to) === "yard") {
+    const watchers = [job.createdById, job.designatedAuthoriserId].filter(
+      (id): id is string => !!id && id !== user.id
+    );
+    if (watchers.length) {
+      await notify({
+        userIds: Array.from(new Set(watchers)),
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — ${systemMessage(to, null)}`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
+  } else {
+    const yardUserIds = (await usersWithPermissionOnProject(job.project, PERMISSIONS.JOB_ISSUE_QUOTE)).filter(
+      (id) => id !== user.id
+    );
+    if (yardUserIds.length) {
+      await notify({
+        userIds: yardUserIds,
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — ${systemMessage(to, null)}`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
   }
 
   revalidatePath(`/jobs/${jobId}`);
@@ -517,6 +568,16 @@ export async function setJobProgress(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   const job = await loadJob(user.id, jobId);
 
+  // progressPct feeds the project's headline work-progress figure
+  // (lib/metrics/project.ts) — the control was already hidden outside
+  // ACCEPTED/MINOR_DEFICIENCY, but the action itself wrote unconditionally,
+  // so a trade lead (who holds JOB_PROGRESS and nothing else job-workflow)
+  // could move the figure on a job that was cancelled, unpriced, or already
+  // closed out, just by posting the form directly (ACTION_PLAN.md G3.9).
+  if (job.status !== "ACCEPTED" && job.status !== "MINOR_DEFICIENCY") {
+    throw invalid("Progress can only be reported while a job is accepted or has an open deficiency.");
+  }
+
   const raw = Number(formData.get("progressPct") ?? 0);
   const progressPct = Math.min(100, Math.max(0, Math.round(raw)));
 
@@ -542,6 +603,22 @@ export async function setJobProgress(formData: FormData) {
     resourceId: jobId,
     details: { progressPct },
   });
+
+  // Nobody on the vessel side was told a progress change happened at all.
+  if (progressPct !== job.progressPct) {
+    const watchers = [job.createdById, job.designatedAuthoriserId].filter(
+      (id): id is string => !!id && id !== user.id
+    );
+    if (watchers.length) {
+      await notify({
+        userIds: Array.from(new Set(watchers)),
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — progress now ${progressPct}%`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");

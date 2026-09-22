@@ -39,7 +39,11 @@ export const CO_LEGAL_TRANSITIONS: Record<ChangeOrderStatus, ChangeOrderStatus[]
   DRAFT: ["SUBMITTED", "CANCELLED"],
   SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "APPROVED", "REJECTED", "CANCELLED"],
   UNDER_REVIEW: ["MORE_INFO", "APPROVED", "REJECTED"],
-  MORE_INFO: ["UNDER_REVIEW", "APPROVED", "REJECTED", "CANCELLED"],
+  // MORE_INFO → DRAFT ("Revise", ACTION_PLAN.md G3.9): an approver asking a
+  // question used to have no route back to an editable state at all — only
+  // REJECTED did. Paired with `updateChangeOrder`, this is the edit loop the
+  // MORE_INFO edge was always meant to support.
+  MORE_INFO: ["UNDER_REVIEW", "APPROVED", "REJECTED", "CANCELLED", "DRAFT"],
   APPROVED: ["IN_PROGRESS", "CANCELLED"],
   IN_PROGRESS: ["COMPLETED", "CANCELLED"],
   COMPLETED: ["CLOSED"],

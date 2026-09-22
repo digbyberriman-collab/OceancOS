@@ -24,12 +24,20 @@ export const JOB_TERMINAL_STATUSES: JobStatus[] = [
  */
 export const JOB_LEGAL_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   NEW_REQUEST: ["QUOTE_SENT", "CANCELLED_QUOTE"],
-  QUOTE_SENT: ["CLIENT_ACCEPTED", "EXPIRED", "CANCELLED_QUOTE"],
-  EXPIRED: ["CLIENT_ACCEPTED", "CANCELLED_QUOTE"],
+  // QUOTE_SENT → QUOTE_SENT and EXPIRED → QUOTE_SENT ("Revise quote",
+  // ACTION_PLAN.md G3.9): without these, a mispriced or lapsed quote had no
+  // way back except cancel-and-recreate under a new job code, which loses
+  // the thread, the attachments and the history of the original.
+  QUOTE_SENT: ["QUOTE_SENT", "CLIENT_ACCEPTED", "EXPIRED", "CANCELLED_QUOTE"],
+  EXPIRED: ["QUOTE_SENT", "CLIENT_ACCEPTED", "CANCELLED_QUOTE"],
   CLIENT_ACCEPTED: ["ACCEPTED", "CANCELLED_QUOTE"],
   ACCEPTED: ["YARD_COMPLETED", "CANCELLED_WORKS"],
   YARD_COMPLETED: ["WORKS_ACCEPTED", "MINOR_DEFICIENCY"],
-  MINOR_DEFICIENCY: ["WORKS_ACCEPTED", "CANCELLED_WORKS"],
+  // MINOR_DEFICIENCY → YARD_COMPLETED ("Deficiency rectified") is the yard's
+  // only way to hand rectified work back — without it, a deficiency was a
+  // dead end: accept the works with the defect outstanding, or cancel works
+  // already done.
+  MINOR_DEFICIENCY: ["YARD_COMPLETED", "WORKS_ACCEPTED", "CANCELLED_WORKS"],
   WORKS_ACCEPTED: ["CLOSED"],
   CANCELLED_QUOTE: [],
   CANCELLED_WORKS: [],
@@ -169,11 +177,31 @@ const ACTIONS: Record<JobStatus, Omit<JobAction, "to">> = {
  * EXPIRED is excluded: it is reached by the clock, not by anyone pressing a
  * button. Accept is excluded here too because it runs through the two-step
  * confirmation and emailed code in Phase 2 rather than a plain transition.
+ * QUOTE_SENT is excluded because issuing or revising a quote needs the full
+ * line-item form at /jobs/[id]/quote, not a bare status flip — that form is
+ * offered separately, keyed off `canQuote` rather than this list.
  */
-const NOT_OFFERED: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED"];
+const NOT_OFFERED: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED", "QUOTE_SENT"];
+
+/**
+ * Per-edge label overrides, for the one target status two different sources
+ * mean something different by: YARD_COMPLETED said from ACCEPTED is "the
+ * yard finished the work", said from MINOR_DEFICIENCY it is "the yard fixed
+ * what was flagged" — worth a different label even though it's the same
+ * permission and the same target status.
+ */
+function actionLabel(from: JobStatus, to: JobStatus): string {
+  if (from === "MINOR_DEFICIENCY" && to === "YARD_COMPLETED") return "Deficiency rectified";
+  return ACTIONS[to].label;
+}
 
 export function jobActions(from: JobStatus): JobAction[] {
   return (JOB_LEGAL_TRANSITIONS[from] ?? [])
     .filter((to) => !NOT_OFFERED.includes(to))
-    .map((to) => ({ to, ...ACTIONS[to] }));
+    .map((to) => ({ to, ...ACTIONS[to], label: actionLabel(from, to) }));
+}
+
+/** The audience side of a plain status transition — see `transitionJob`. */
+export function jobActionSide(to: JobStatus): "client" | "yard" {
+  return ACTIONS[to].side;
 }
