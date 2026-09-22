@@ -4,6 +4,12 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Upload, File as FileIcon, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Selecting a folder's worth of drawings used to fire every upload at once —
+// dozens of simultaneous PUTs racing the same connection pool and the same
+// per-tab bandwidth (ACTION_PLAN.md G4.8, performance [uploads], Medium).
+// Queued past this limit instead; each finished upload pulls the next one in.
+const MAX_CONCURRENT_UPLOADS = 3;
+
 export type UploadedFile = {
   key: string;
   filename: string;
@@ -120,6 +126,23 @@ export function FileDrop({
     [patch, projectId, resource, resourceId]
   );
 
+  // A dropped folder can select dozens of files at once; only this many
+  // upload in parallel; the rest wait in `queue` and each finished slot pulls
+  // the next one in.
+  const queue = useRef<Item[]>([]);
+  const active = useRef(0);
+
+  const drain = useCallback(() => {
+    while (active.current < MAX_CONCURRENT_UPLOADS && queue.current.length > 0) {
+      const item = queue.current.shift()!;
+      active.current++;
+      void upload(item).finally(() => {
+        active.current--;
+        drain();
+      });
+    }
+  }, [upload]);
+
   const add = useCallback(
     (files: FileList | null) => {
       if (!files?.length) return;
@@ -142,9 +165,10 @@ export function FileDrop({
         );
       }
       setItems((prev) => [...prev, ...next]);
-      next.filter((i) => i.status === "pending").forEach(upload);
+      queue.current.push(...next.filter((i) => i.status === "pending"));
+      drain();
     },
-    [maxBytes, upload]
+    [maxBytes, drain]
   );
 
   const remove = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));

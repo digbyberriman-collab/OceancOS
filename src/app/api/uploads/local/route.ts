@@ -3,12 +3,13 @@ import { getCurrentUser } from "@/lib/auth";
 import { accessibleProjectIds } from "@/lib/project";
 import { hasPermission, PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import {
-  getObject,
+  getObjectStream,
   isSafeObjectKey,
   maxUploadBytes,
   parseObjectKey,
-  putObject,
+  putObjectStream,
   storageDriverName,
+  UploadTooLargeError,
   verifyLocalUploadToken,
 } from "@/lib/storage";
 
@@ -61,13 +62,28 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Upload not authorised" }, { status: 403 });
   }
 
-  const body = Buffer.from(await request.arrayBuffer());
-  if (body.byteLength > maxUploadBytes()) {
+  // Reject on the declared size before touching the body at all — no point
+  // streaming megabytes to disk only to discover it's over the limit at the
+  // end (ACTION_PLAN.md G4.8). A caller that lies about Content-Length is
+  // still caught mid-stream by putObjectStream's own running count.
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxUploadBytes()) {
     return NextResponse.json({ error: "File is too large" }, { status: 413 });
   }
 
-  await putObject(key, body, request.headers.get("content-type") ?? "application/octet-stream");
-  return NextResponse.json({ key, size: body.byteLength });
+  if (!request.body) {
+    return NextResponse.json({ error: "No file data" }, { status: 400 });
+  }
+
+  try {
+    const size = await putObjectStream(key, request.body, maxUploadBytes());
+    return NextResponse.json({ key, size });
+  } catch (err) {
+    if (err instanceof UploadTooLargeError) {
+      return NextResponse.json({ error: "File is too large" }, { status: 413 });
+    }
+    throw err;
+  }
 }
 
 /**
@@ -110,15 +126,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await getObject(key);
-  if (!body) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const object = await getObjectStream(key);
+  if (!object) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return new NextResponse(new Uint8Array(body), {
+  return new NextResponse(object.stream, {
     headers: {
       // The key carries no type information, so let the browser sniff safely.
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `inline; filename="${key.split("/").pop()}"`,
       "Cache-Control": "private, max-age=300",
+      "Content-Length": String(object.size),
     },
   });
 }

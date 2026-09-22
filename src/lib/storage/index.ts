@@ -11,9 +11,12 @@
 // Uploads go straight from the browser to storage using a presigned PUT, so
 // large drawings never pass through the Next.js server.
 
-import { createHash } from "node:crypto";
-import { mkdir, writeFile, readFile, unlink, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { isSafeObjectKey } from "./keys";
 
 export * from "./keys";
@@ -266,6 +269,86 @@ export async function getObject(key: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/** Thrown by `putObjectStream` when the body exceeds `maxBytes`. */
+export class UploadTooLargeError extends Error {
+  constructor() {
+    super("Upload exceeds the maximum allowed size.");
+    this.name = "UploadTooLargeError";
+  }
+}
+
+/**
+ * Store a request body as it streams in, instead of buffering the whole
+ * file in memory first (ACTION_PLAN.md G4.8, performance [uploads], High —
+ * a handful of concurrent large uploads could hold their entire body in
+ * memory at once via `Buffer.from(await request.arrayBuffer())`).
+ *
+ * Only the local driver needs this: S3 uploads go straight from the browser
+ * to the bucket via a presigned URL and never pass through this server.
+ * Writes to a temp file first and renames into place, so a failed or
+ * oversized upload never leaves a partial file at `key`.
+ *
+ * Returns the number of bytes written.
+ */
+export async function putObjectStream(
+  key: string,
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number
+): Promise<number> {
+  if (!isSafeObjectKey(key)) throw new Error("Unsafe object key");
+  if (storageDriverName() !== "local") {
+    throw new Error("putObjectStream is only implemented for the local driver");
+  }
+
+  const path = localPath(key);
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${randomUUID()}.part`;
+
+  let written = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      written += chunk.byteLength;
+      if (written > maxBytes) {
+        callback(new UploadTooLargeError());
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(Readable.fromWeb(body as never), limiter, createWriteStream(tempPath));
+    await rename(tempPath, path);
+    return written;
+  } catch (err) {
+    await unlink(tempPath).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Stream an object back instead of reading it fully into memory first
+ * (ACTION_PLAN.md G4.8). Returns null when it is not there.
+ */
+export async function getObjectStream(
+  key: string
+): Promise<{ stream: ReadableStream<Uint8Array>; size: number } | null> {
+  if (!isSafeObjectKey(key)) throw new Error("Unsafe object key");
+  if (storageDriverName() !== "local") {
+    throw new Error("getObjectStream is only implemented for the local driver");
+  }
+
+  const path = localPath(key);
+  let size: number;
+  try {
+    size = (await stat(path)).size;
+  } catch {
+    return null;
+  }
+
+  return { stream: Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>, size };
 }
 
 export async function deleteObject(key: string): Promise<void> {
