@@ -98,6 +98,34 @@ test.describe("quotes list", () => {
     // Finance can view jobs but cannot raise requests.
     await expect(page.getByRole("link", { name: /new quote request/i })).toHaveCount(0);
   });
+
+  test("a rejected request keeps what was typed, not a blank form (ACTION_PLAN.md G3.6)", async ({
+    page,
+  }) => {
+    await signIn(page, PM);
+    await page.goto("/jobs/new");
+    const title = `Preserved on failure ${Date.now()}`;
+    await page.getByLabel("Job title").fill(title);
+    await page.getByLabel("Job description").fill("Description long enough to pass validation.");
+    await page.getByLabel("Your job reference").fill("MY-REF-001");
+    // No authoriser chosen. The select is `required`, mirroring the
+    // server's own check (ACTION_PLAN.md G3.6) — bypass that client-side
+    // gate directly, the way a request forged outside the browser would,
+    // so this exercises the server rejecting it rather than the browser.
+    await page.getByLabel(/designated authoriser/i).evaluate((el) => el.removeAttribute("required"));
+    await page.getByRole("button", { name: /send request/i }).click();
+
+    await expect(page).toHaveURL(/\/jobs\/new$/);
+    await expect(page.getByLabel("Job title")).toHaveValue(title);
+    await expect(page.getByLabel("Job description")).toHaveValue(
+      "Description long enough to pass validation."
+    );
+    await expect(page.getByLabel("Your job reference")).toHaveValue("MY-REF-001");
+
+    // A later, unrelated visit to the same form starts blank again.
+    await page.goto("/jobs/new");
+    await expect(page.getByLabel("Job title")).toHaveValue("");
+  });
 });
 
 test.describe("quote detail", () => {
@@ -123,6 +151,19 @@ test.describe("quote detail", () => {
     await expect(page.getByText(/sea chest valves are included/i)).toBeVisible();
     await expect(page.getByText(/Agreed at the daily meeting/i)).toBeVisible();
     await expect(page.getByText("minute", { exact: true })).toBeVisible();
+  });
+
+  test("a whitespace-only comment is refused, not silently dropped (ACTION_PLAN.md G3.6)", async ({
+    page,
+  }) => {
+    await signIn(page, PM);
+    await page.goto("/jobs?view=accepted");
+    await page.getByRole("link", { name: /Valve overhauling/ }).click();
+    await page.waitForURL(/\/jobs\/[^/]+$/);
+
+    await page.getByLabel(/add a comment/i).fill("   ");
+    await page.getByRole("button", { name: /send message/i }).click();
+    await expect(page.getByText(/write something before posting/i)).toBeVisible();
   });
 
   test("stars a job for this user only", async ({ page }) => {
@@ -232,6 +273,56 @@ test.describe("the commercial loop", () => {
     await page.getByLabel(/complete \(%\)/i).fill("45");
     await page.getByRole("button", { name: /^save$/i }).click();
     await expect(page.getByText("45%").first()).toBeVisible();
+  });
+
+  test("a rejected quote keeps every line, and cites the row that's actually wrong (ACTION_PLAN.md G3.6)", async ({
+    page,
+  }) => {
+    const title = `Quote form preservation ${Date.now()}`;
+
+    await signIn(page, PM);
+    await page.goto("/jobs/new");
+    await page.getByLabel("Job title").fill(title);
+    await page.getByLabel("Job description").fill("Enough detail to pass the description minimum.");
+    await page.getByLabel(/designated authoriser/i).selectOption({ label: "Cara Captain" });
+    await page.getByRole("button", { name: /send request/i }).click();
+    await page.waitForURL((url) => /^\/jobs\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
+    const jobUrl = page.url();
+
+    await signOut(page);
+    await signIn(page, YARD);
+    await page.goto(`${jobUrl}/quote`);
+
+    await page.getByLabel("Job code").fill("D.0400.30");
+    await page.getByLabel("Line 1 description").fill("Skilled worker — rigger");
+    await page.getByLabel("Line 1 quantity").fill("4");
+    await page.getByLabel("Line 1 unit price").fill("55");
+    // Row 2 stays blank — the filter that skips it is exactly what used to
+    // throw off the row number reported for row 3.
+    await page.getByLabel("Line 3 description").fill("Materials");
+    // A negative quantity is what LineSchema actually rejects — bypass the
+    // client-side min="0" mirror the same way a forged request would, so
+    // this exercises the server's own check rather than the browser's.
+    await page.getByLabel("Line 3 quantity").evaluate((el) => el.removeAttribute("min"));
+    await page.getByLabel("Line 3 quantity").fill("-2");
+    await page.getByLabel("Line 3 unit price").fill("10");
+    await page.getByLabel("One per line", { exact: false }).first().fill("Painting is out of scope.");
+    await page.getByRole("button", { name: /send quote/i }).click();
+
+    await expect(page).toHaveURL(`${jobUrl}/quote`);
+    await expect(page.getByText(/line 3 is incomplete/i)).toBeVisible();
+
+    // Every row survives, not just the one that failed — blank row 2 included.
+    await expect(page.getByLabel("Job code")).toHaveValue("D.0400.30");
+    await expect(page.getByLabel("Line 1 description")).toHaveValue("Skilled worker — rigger");
+    await expect(page.getByLabel("Line 1 quantity")).toHaveValue("4");
+    await expect(page.getByLabel("Line 1 unit price")).toHaveValue("55");
+    await expect(page.getByLabel("Line 2 description")).toHaveValue("");
+    await expect(page.getByLabel("Line 3 description")).toHaveValue("Materials");
+    await expect(page.getByLabel("Line 3 quantity")).toHaveValue("-2");
+    await expect(page.getByLabel("One per line", { exact: false }).first()).toHaveValue(
+      "Painting is out of scope."
+    );
   });
 
   test("refuses to let a non-authoriser accept", async ({ page }) => {

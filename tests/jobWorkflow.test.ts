@@ -16,6 +16,7 @@ import {
 } from "@/lib/jobs/workflow";
 import { JOB_STATUSES, JOB_STATUS_LABELS } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
+import { isActionError } from "@/lib/errors";
 
 describe("job transition map", () => {
   it("covers every status", () => {
@@ -80,7 +81,17 @@ describe("job transition map", () => {
 
   it("refuses to reopen a cancelled quote", () => {
     expect(canTransitionJob("CANCELLED_QUOTE", "QUOTE_SENT")).toBe(false);
-    expect(() => assertTransitionJob("CANCELLED_QUOTE", "QUOTE_SENT")).toThrow(/Illegal transition/);
+    expect(() => assertTransitionJob("CANCELLED_QUOTE", "QUOTE_SENT")).toThrow(/can no longer move/);
+  });
+
+  it("throws an ActionError of kind conflict, not a bare Error (ACTION_PLAN.md G3.6)", () => {
+    try {
+      assertTransitionJob("CANCELLED_QUOTE", "QUOTE_SENT");
+      expect.unreachable();
+    } catch (e) {
+      expect(isActionError(e)).toBe(true);
+      expect((e as { kind?: string }).kind).toBe("conflict");
+    }
   });
 
   it("cannot cancel a quote once work is accepted; that is cancelling works", () => {

@@ -35,7 +35,11 @@ test.describe("authentication", () => {
     await page.getByLabel(/email/i).fill(PM.email);
     await page.getByLabel(/password/i).fill("not-the-password");
     await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/err=/);
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByText(/invalid email or password/i)).toBeVisible();
+    // The email survives the failure (ACTION_PLAN.md G3.6) — retyping a
+    // whole login over a wrong password is exactly the friction this closes.
+    await expect(page.getByLabel(/email/i)).toHaveValue(PM.email);
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/login/);
   });

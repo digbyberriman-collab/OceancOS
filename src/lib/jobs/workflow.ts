@@ -7,7 +7,8 @@
 // screen can never disagree.
 
 import { PERMISSIONS, type PermissionKey } from "@/lib/rbac";
-import type { JobStatus } from "@/lib/enums";
+import { JOB_STATUS_LABELS, type JobStatus } from "@/lib/enums";
+import { conflict } from "@/lib/errors";
 
 export const JOB_TERMINAL_STATUSES: JobStatus[] = [
   "CANCELLED_QUOTE",
@@ -54,9 +55,20 @@ export function canTransitionJob(from: JobStatus, to: JobStatus): boolean {
   return JOB_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * `ActionError`, not a bare `Error` (ACTION_PLAN.md G3.6, AUDIT_REPORT.md
+ * T3's "two incompatible failure conventions"). A caller hits this only when
+ * the job moved between the page being rendered and the button being
+ * clicked — someone else acted first, or a double-submit landed after the
+ * first one already succeeded — so `conflict()` names it for what it is
+ * rather than leaving the boundary's generic "something went wrong" for a
+ * situation the message can actually explain.
+ */
 export function assertTransitionJob(from: JobStatus, to: JobStatus) {
   if (!canTransitionJob(from, to)) {
-    throw new Error(`Illegal transition ${from} → ${to}`);
+    throw conflict(
+      `This job is now ${JOB_STATUS_LABELS[from] ?? from}, so it can no longer move to ${JOB_STATUS_LABELS[to] ?? to}. Reload to see its current state.`
+    );
   }
 }
 

@@ -58,7 +58,7 @@ export default async function NewCrewRequest() {
             <Input name="title" required minLength={3} maxLength={200} placeholder="Brief description of the request…" />
           </Field>
           <Field label="Description">
-            <Textarea name="description" required placeholder="Full details, context, and what resolution looks like…" />
+            <Textarea name="description" required minLength={3} placeholder="Full details, context, and what resolution looks like…" />
           </Field>
         </div>
 

@@ -9,15 +9,13 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { FileDrop } from "@/components/ui/FileDrop";
-import { createJobRequest } from "../actions";
+import { createJobRequest, type JobRequestFlash } from "../actions";
+import { readFormFlash } from "@/lib/formFlash";
+import { FlashCleanup } from "@/components/ui/FlashCleanup";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewJobRequest({
-  searchParams,
-}: {
-  searchParams: { err?: string };
-}) {
+export default async function NewJobRequest() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_REQUEST)) {
     return <EmptyState title="Forbidden" hint="You cannot raise quote requests." />;
@@ -25,6 +23,8 @@ export default async function NewJobRequest({
 
   const project = await getActiveProject(user.id);
   if (!project) return <EmptyState title="No project" hint="You have no project assigned." />;
+
+  const flash = readFormFlash<JobRequestFlash>("jobRequest");
 
   const [sections, authorisers, openChangeOrders] = await Promise.all([
     prisma.jobSection.findMany({ where: { projectId: project.id }, orderBy: { sort: "asc" } }),
@@ -68,14 +68,17 @@ export default async function NewJobRequest({
         subtitle="Describe the work you want the yard to price."
       />
 
-      {searchParams.err && (
-        <div
-          role="alert"
-          className="mb-5 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/10 px-3.5 py-3 text-sm text-bad"
-        >
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>{searchParams.err}</span>
-        </div>
+      {flash && (
+        <>
+          <FlashCleanup name="jobRequest" />
+          <div
+            role="alert"
+            className="mb-5 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/10 px-3.5 py-3 text-sm text-bad"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span>{flash.error}</span>
+          </div>
+        </>
       )}
 
       <div className="max-w-3xl">
@@ -86,10 +89,10 @@ export default async function NewJobRequest({
                 label="Your job reference"
                 hint="Optional. Your own tracking number, if you use one."
               >
-                <Input name="clientRef" placeholder="MY-2026-031" />
+                <Input name="clientRef" maxLength={64} placeholder="MY-2026-031" defaultValue={flash?.values.clientRef ?? ""} />
               </Field>
               <Field label="Section" hint="Where the work belongs in the yard's code system.">
-                <Select name="sectionId" defaultValue="">
+                <Select name="sectionId" defaultValue={flash?.values.sectionId ?? ""}>
                   <option value="">Not sure — let the yard decide</option>
                   {sections.map((section) => (
                     <option key={section.id} value={section.id}>
@@ -101,7 +104,14 @@ export default async function NewJobRequest({
             </div>
 
             <Field label="Job title">
-              <Input name="title" required minLength={3} placeholder="A short, descriptive title" />
+              <Input
+                name="title"
+                required
+                minLength={3}
+                maxLength={200}
+                placeholder="A short, descriptive title"
+                defaultValue={flash?.values.title ?? ""}
+              />
             </Field>
 
             <Field
@@ -114,6 +124,7 @@ export default async function NewJobRequest({
                 minLength={10}
                 rows={7}
                 placeholder="Describe the work in detail…"
+                defaultValue={flash?.values.description ?? ""}
               />
             </Field>
 
@@ -122,7 +133,7 @@ export default async function NewJobRequest({
                 label="Designated authoriser"
                 hint="Who may accept the quote. Ask the project manager if a name is missing."
               >
-                <Select name="designatedAuthoriserId" required defaultValue="">
+                <Select name="designatedAuthoriserId" required defaultValue={flash?.values.designatedAuthoriserId ?? ""}>
                   <option value="" disabled>
                     Choose a person
                   </option>
@@ -138,7 +149,7 @@ export default async function NewJobRequest({
                 label="Authorised by change order"
                 hint="Optional. Links this work to the internal approval that authorised it."
               >
-                <Select name="linkedChangeOrderId" defaultValue="">
+                <Select name="linkedChangeOrderId" defaultValue={flash?.values.linkedChangeOrderId ?? ""}>
                   <option value="">None</option>
                   {openChangeOrders.map((co) => (
                     <option key={co.id} value={co.id}>
@@ -159,6 +170,7 @@ export default async function NewJobRequest({
                 resourceId="new"
                 maxBytes={10 * 1024 * 1024}
                 hint="Photos, technical documents or drawings, up to 10 MB each"
+                initialFiles={flash?.attachments}
               />
             </Field>
 

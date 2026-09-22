@@ -162,7 +162,12 @@ export async function addCrewRequestComment(formData: FormData) {
 
   const id = String(formData.get("id"));
   const body = String(formData.get("body") ?? "").trim();
-  if (!id || !body) return;
+  if (!id) return;
+  // A `required` textarea is satisfied by a single space, which used to
+  // trim to "" and silently no-op — no error, no revalidate, the box still
+  // showing what was typed with no way to tell whether it posted
+  // (ACTION_PLAN.md G3.6, forms-validation's [VALIDATION-MESSAGES]).
+  if (!body) throw invalid("Write something before posting.");
 
   // Same situation as addChangeOrderComment — see the note there.
   const cr = await prisma.crewRequest.findUnique({ where: { id }, select: { projectId: true } });

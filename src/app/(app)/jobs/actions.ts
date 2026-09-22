@@ -21,6 +21,8 @@ import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
+import { setFormFlash } from "@/lib/formFlash";
+import type { UploadedFile } from "@/components/ui/FileDrop";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -46,6 +48,36 @@ const RequestSchema = z.object({
   linkedChangeOrderId: z.string().optional().nullable(),
 });
 
+export type JobRequestFlash = {
+  error: string;
+  values: {
+    clientRef: string;
+    title: string;
+    description: string;
+    designatedAuthoriserId: string;
+    sectionId: string;
+    linkedChangeOrderId: string;
+  };
+  /** So FileDrop can re-hydrate rather than orphan what was already
+   * uploaded to storage before this failure — ACTION_PLAN.md G3.6. */
+  attachments: UploadedFile[];
+};
+
+/** The repeating hidden `attachments` field FileDrop posts, parsed back out. */
+function parseAttachments(formData: FormData): UploadedFile[] {
+  return formData
+    .getAll("attachments")
+    .map(String)
+    .map((entry) => {
+      try {
+        return JSON.parse(entry) as UploadedFile;
+      } catch {
+        return null;
+      }
+    })
+    .filter((f): f is UploadedFile => !!f && typeof f.key === "string");
+}
+
 /**
  * Raise a request with the yard.
  *
@@ -59,6 +91,23 @@ export async function createJobRequest(formData: FormData) {
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before creating a job.");
 
+  const rawValues: JobRequestFlash["values"] = {
+    clientRef: String(formData.get("clientRef") ?? ""),
+    title: String(formData.get("title") ?? ""),
+    description: String(formData.get("description") ?? ""),
+    designatedAuthoriserId: String(formData.get("designatedAuthoriserId") ?? ""),
+    sectionId: String(formData.get("sectionId") ?? ""),
+    linkedChangeOrderId: String(formData.get("linkedChangeOrderId") ?? ""),
+  };
+  const back = (error: string): never => {
+    setFormFlash("jobRequest", {
+      error,
+      values: rawValues,
+      attachments: parseAttachments(formData),
+    } satisfies JobRequestFlash);
+    redirect("/jobs/new");
+  };
+
   const parsed = RequestSchema.safeParse({
     clientRef: formData.get("clientRef") || null,
     title: formData.get("title"),
@@ -67,10 +116,8 @@ export async function createJobRequest(formData: FormData) {
     sectionId: formData.get("sectionId") || null,
     linkedChangeOrderId: formData.get("linkedChangeOrderId") || null,
   });
-  if (!parsed.success) {
-    redirect(`/jobs/new?err=${encodeURIComponent(parsed.error.errors[0].message)}`);
-  }
-  const data = parsed.data;
+  if (!parsed.success) back(parsed.error.errors[0].message);
+  const data = parsed.data!;
 
   // The authoriser must actually hold the accept permission, or the quote
   // would arrive addressed to someone who cannot sign it.
@@ -81,9 +128,7 @@ export async function createJobRequest(formData: FormData) {
   const canAccept = authoriser?.roles.some((r) =>
     r.role.permissions.some((p) => p.permission.key === PERMISSIONS.JOB_ACCEPT)
   );
-  if (!authoriser || !canAccept) {
-    redirect(`/jobs/new?err=${encodeURIComponent("That person cannot authorise quotes.")}`);
-  }
+  if (!authoriser || !canAccept) back("That person cannot authorise quotes.");
 
   // A request has no yard code yet, so it takes a placeholder in the section's
   // request group, which the yard replaces when it issues the quote.
@@ -152,6 +197,20 @@ const LineSchema = z.object({
   unitPrice: z.coerce.number(),
 });
 
+export type IssueQuoteFlash = {
+  error: string;
+  values: {
+    code: string;
+    contractType: string;
+    pricingBasis: string;
+    validityDays: string;
+    exceptionFlag: boolean;
+    exclusions: string;
+    notes: string;
+    lines: { description: string; quantity: string; unit: string; unitPrice: string }[];
+  };
+};
+
 /**
  * Price a request and send the quote.
  *
@@ -165,8 +224,35 @@ export async function issueQuote(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   const job = await loadJob(user.id, jobId);
 
-  const back = (message: string) =>
-    redirect(`/jobs/${jobId}/quote?err=${encodeURIComponent(message)}`);
+  // Lines arrive as parallel arrays from the repeating fieldset. Read once,
+  // up front, so both `back()` (preserving exactly what was on screen,
+  // blank rows included) and the parsing below work from the same values.
+  const descriptions = formData.getAll("lineDescription").map(String);
+  const quantities = formData.getAll("lineQuantity").map(String);
+  const units = formData.getAll("lineUnit").map(String);
+  const prices = formData.getAll("lineUnitPrice").map(String);
+
+  const back = (error: string): never => {
+    setFormFlash(`quote-${jobId}`, {
+      error,
+      values: {
+        code: String(formData.get("code") ?? ""),
+        contractType: String(formData.get("contractType") ?? ""),
+        pricingBasis: String(formData.get("pricingBasis") ?? ""),
+        validityDays: String(formData.get("validityDays") ?? ""),
+        exceptionFlag: formData.get("exceptionFlag") === "on",
+        exclusions: String(formData.get("exclusions") ?? ""),
+        notes: String(formData.get("notes") ?? ""),
+        lines: descriptions.map((description, i) => ({
+          description,
+          quantity: quantities[i] ?? "",
+          unit: units[i] ?? "",
+          unitPrice: prices[i] ?? "",
+        })),
+      },
+    } satisfies IssueQuoteFlash);
+    redirect(`/jobs/${jobId}/quote`);
+  };
 
   const code = normaliseJobCode(String(formData.get("code") ?? ""));
   if (!isValidJobCode(code)) {
@@ -186,26 +272,26 @@ export async function issueQuote(formData: FormData) {
 
   const validityDays = Number(formData.get("validityDays") ?? 0) || null;
 
-  // Lines arrive as parallel arrays from the repeating fieldset.
-  const descriptions = formData.getAll("lineDescription").map(String);
-  const quantities = formData.getAll("lineQuantity").map(String);
-  const units = formData.getAll("lineUnit").map(String);
-  const prices = formData.getAll("lineUnitPrice").map(String);
-
+  // `row` carries the 1-based position the yard actually sees (Line 1…6)
+  // through the filter, rather than being assigned after it — the previous
+  // version numbered the *filtered* list, so a bad line past any blank rows
+  // cited a number matching nothing on screen (forms-validation's
+  // "Quote line errors cite the wrong row number").
   const lines = descriptions
     .map((description, i) => ({
+      row: i + 1,
       description: description.trim(),
       quantity: quantities[i],
       unit: units[i] || "UN",
       unitPrice: prices[i],
     }))
     .filter((line) => line.description.length > 0)
-    .map((line, sort) => {
+    .map((line) => {
       const parsed = LineSchema.safeParse(line);
-      if (!parsed.success) back(`Line ${sort + 1} is incomplete.`);
-      const value = parsed.success ? parsed.data : null!;
+      if (!parsed.success) back(`Line ${line.row} is incomplete.`);
+      const value = parsed.data!;
       return {
-        sort,
+        sort: line.row - 1,
         description: value.description,
         quantity: value.quantity,
         unit: value.unit,
@@ -470,8 +556,14 @@ export async function addJobComment(formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   const asMinute = formData.get("kind") === "MINUTE";
 
+  // Checked before the DB round trips below, not after (ACTION_PLAN.md
+  // G3.6, forms-validation's [VALIDATION-MESSAGES]) — a `required` textarea
+  // is satisfied by a single space, which used to trim to "" and silently
+  // no-op: no error, no revalidate, the textarea still showing what was
+  // typed with no way to tell whether it posted.
+  if (!body) throw invalid("Write something before posting.");
+
   await loadJob(user.id, jobId);
-  if (!body) return;
 
   if (asMinute) assertPermission(user, PERMISSIONS.MINUTES_RECORD);
 

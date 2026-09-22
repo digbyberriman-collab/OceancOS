@@ -325,7 +325,12 @@ export async function addChangeOrderComment(formData: FormData) {
 
   const id = String(formData.get("id") ?? "");
   const body = String(formData.get("body") ?? "").trim();
-  if (!id || !body) return;
+  if (!id) return;
+  // A `required` textarea is satisfied by a single space, which used to
+  // trim to "" and silently no-op — no error, no revalidate, the box still
+  // showing what was typed with no way to tell whether it posted
+  // (ACTION_PLAN.md G3.6, forms-validation's [VALIDATION-MESSAGES]).
+  if (!body) throw invalid("Write something before posting.");
 
   // No CO_COMMENT permission key exists — CO_VIEW plus project access is
   // the check available without inventing one (a role-grant decision, not

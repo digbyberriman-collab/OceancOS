@@ -10,7 +10,9 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { toDateInputValue } from "@/lib/projectDates";
 import { projectTiming } from "@/lib/metrics/project";
 import { fmtDate } from "@/lib/utils";
-import { updateProjectAction } from "./actions";
+import { updateProjectAction, type ProjectFormFlash } from "./actions";
+import { readFormFlash } from "@/lib/formFlash";
+import { FlashCleanup } from "@/components/ui/FlashCleanup";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,7 @@ const CURRENCIES = ["EUR", "GBP", "USD", "AED"];
 export default async function AdminProjectsPage({
   searchParams,
 }: {
-  searchParams: { id?: string; err?: string; saved?: string };
+  searchParams: { id?: string; saved?: string };
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.PROJ_EDIT)) {
@@ -42,6 +44,7 @@ export default async function AdminProjectsPage({
   }
 
   const selected = projects.find((p) => p.id === searchParams.id) ?? projects[0];
+  const flash = readFormFlash<ProjectFormFlash>(`project-${selected.id}`);
   const timing = projectTiming({
     arrivalDate: selected.arrivalDate,
     departureDate: selected.departureDate,
@@ -55,7 +58,8 @@ export default async function AdminProjectsPage({
         subtitle="Project codes and yard periods. These dates drive the timing cards and the progress against the clock."
       />
 
-      {searchParams.saved && !searchParams.err && (
+      {flash && <FlashCleanup name={`project-${selected.id}`} />}
+      {searchParams.saved && !flash && (
         <div
           role="status"
           className="mb-5 flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok/10 px-3.5 py-3 text-sm text-ok"
@@ -64,13 +68,13 @@ export default async function AdminProjectsPage({
           <span>Project saved.</span>
         </div>
       )}
-      {searchParams.err && (
+      {flash && (
         <div
           role="alert"
           className="mb-5 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/10 px-3.5 py-3 text-sm text-bad"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>{searchParams.err}</span>
+          <span>{flash.error}</span>
         </div>
       )}
 
@@ -107,13 +111,17 @@ export default async function AdminProjectsPage({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project code" hint="Shown in the header switcher">
-                <Input name="code" defaultValue={selected.code ?? ""} placeholder="R-00721" />
+                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721" />
               </Field>
               <Field label="Yard">
-                <Input name="yardName" defaultValue={selected.yardName ?? ""} placeholder="MB92 La Ciotat" />
+                <Input
+                  name="yardName"
+                  defaultValue={flash?.values.yardName ?? selected.yardName ?? ""}
+                  placeholder="MB92 La Ciotat"
+                />
               </Field>
               <Field label="Currency">
-                <Select name="currency" defaultValue={selected.currency}>
+                <Select name="currency" defaultValue={flash?.values.currency ?? selected.currency}>
                   {CURRENCIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -127,16 +135,32 @@ export default async function AdminProjectsPage({
               <h3 className="eyebrow mb-3">Yard period</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Arrival">
-                  <Input type="date" name="arrivalDate" defaultValue={toDateInputValue(selected.arrivalDate)} />
+                  <Input
+                    type="date"
+                    name="arrivalDate"
+                    defaultValue={flash?.values.arrivalDate ?? toDateInputValue(selected.arrivalDate)}
+                  />
                 </Field>
                 <Field label="Haul out">
-                  <Input type="date" name="haulOutDate" defaultValue={toDateInputValue(selected.haulOutDate)} />
+                  <Input
+                    type="date"
+                    name="haulOutDate"
+                    defaultValue={flash?.values.haulOutDate ?? toDateInputValue(selected.haulOutDate)}
+                  />
                 </Field>
                 <Field label="Sea trials">
-                  <Input type="date" name="seaTrialsDate" defaultValue={toDateInputValue(selected.seaTrialsDate)} />
+                  <Input
+                    type="date"
+                    name="seaTrialsDate"
+                    defaultValue={flash?.values.seaTrialsDate ?? toDateInputValue(selected.seaTrialsDate)}
+                  />
                 </Field>
                 <Field label="Departure">
-                  <Input type="date" name="departureDate" defaultValue={toDateInputValue(selected.departureDate)} />
+                  <Input
+                    type="date"
+                    name="departureDate"
+                    defaultValue={flash?.values.departureDate ?? toDateInputValue(selected.departureDate)}
+                  />
                 </Field>
               </div>
             </div>

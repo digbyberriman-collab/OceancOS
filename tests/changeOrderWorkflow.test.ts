@@ -13,6 +13,7 @@ import {
 } from "@/lib/workflow/changeOrder";
 import { CHANGE_ORDER_STATUSES, CO_APPROVAL_STAGES } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
+import { isActionError } from "@/lib/errors";
 
 describe("change order legal transitions", () => {
   it("covers every status", () => {
@@ -60,7 +61,17 @@ describe("change order legal transitions", () => {
 
   it("rejects reopening a closed change order", () => {
     expect(canTransitionChangeOrder("CLOSED", "DRAFT")).toBe(false);
-    expect(() => assertTransitionChangeOrder("CLOSED", "DRAFT")).toThrow(/Illegal transition/);
+    expect(() => assertTransitionChangeOrder("CLOSED", "DRAFT")).toThrow(/can no longer move/);
+  });
+
+  it("throws an ActionError of kind conflict, not a bare Error (ACTION_PLAN.md G3.6)", () => {
+    try {
+      assertTransitionChangeOrder("CLOSED", "DRAFT");
+      expect.unreachable();
+    } catch (e) {
+      expect(isActionError(e)).toBe(true);
+      expect((e as { kind?: string }).kind).toBe("conflict");
+    }
   });
 
   it("rejects skipping review", () => {

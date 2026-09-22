@@ -9,6 +9,7 @@ import {
 } from "@/lib/workflow/crewRequest";
 import { CREW_REQUEST_STATUSES } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
+import { isActionError } from "@/lib/errors";
 
 describe("crew request legal transitions", () => {
   it("covers every status", () => {
@@ -40,7 +41,17 @@ describe("crew request legal transitions", () => {
 
   it("rejects reopening from anywhere but REJECTED", () => {
     expect(canTransitionCrewRequest("CLOSED", "NEW")).toBe(false);
-    expect(() => assertTransitionCrewRequest("CLOSED", "NEW")).toThrow(/Illegal transition/);
+    expect(() => assertTransitionCrewRequest("CLOSED", "NEW")).toThrow(/can no longer move/);
+  });
+
+  it("throws an ActionError of kind conflict, not a bare Error (ACTION_PLAN.md G3.6)", () => {
+    try {
+      assertTransitionCrewRequest("CLOSED", "NEW");
+      expect.unreachable();
+    } catch (e) {
+      expect(isActionError(e)).toBe(true);
+      expect((e as { kind?: string }).kind).toBe("conflict");
+    }
   });
 
   it("lets a rejected request be reopened", () => {

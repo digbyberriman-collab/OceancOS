@@ -7,6 +7,7 @@
 
 import { PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import { conflict } from "@/lib/errors";
 
 /** Permission required to decide each approval stage. */
 export const CO_STAGE_PERMISSION: Record<CoApprovalStage, PermissionKey> = {
@@ -54,9 +55,18 @@ export function canTransitionChangeOrder(from: ChangeOrderStatus, to: ChangeOrde
   return CO_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * `ActionError`, not a bare `Error` (ACTION_PLAN.md G3.6, AUDIT_REPORT.md
+ * T3's "two incompatible failure conventions"). Reached only when the
+ * change order moved between render and click — someone else acted first,
+ * or a double-submit landed after the first one already succeeded.
+ */
 export function assertTransitionChangeOrder(from: ChangeOrderStatus, to: ChangeOrderStatus) {
   if (!canTransitionChangeOrder(from, to)) {
-    throw new Error(`Illegal transition ${from} → ${to}`);
+    const label = (s: ChangeOrderStatus) => s.replace(/_/g, " ").toLowerCase();
+    throw conflict(
+      `This change order is now ${label(from)}, so it can no longer move to ${label(to)}. Reload to see its current state.`
+    );
   }
 }
 

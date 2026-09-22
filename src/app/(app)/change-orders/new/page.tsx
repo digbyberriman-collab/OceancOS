@@ -57,6 +57,7 @@ export default async function NewChangeOrderPage() {
             <Textarea
               name="description"
               required
+              minLength={5}
               placeholder="What is changing and why?"
             />
           </Field>
@@ -64,6 +65,7 @@ export default async function NewChangeOrderPage() {
             <Textarea
               name="reason"
               required
+              minLength={3}
               placeholder="Underlying cause or driver…"
             />
           </Field>

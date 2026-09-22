@@ -9,34 +9,51 @@ import { Field, Input } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { readFormFlash, setFormFlash } from "@/lib/formFlash";
+import { FlashCleanup } from "@/components/ui/FlashCleanup";
 
+type LoginFlash = { error: string; email: string };
+
+/**
+ * Three distinct failure messages, not one "invalid" — the [VALIDATION-MESSAGES]
+ * finding this closes: a malformed address is not a credential signal and
+ * reads badly reported as one; an inactive account leaves a former crew
+ * member no way to understand why they can't get in. Not distinguishing
+ * wrong-password from unknown-user stays deliberate (a security property,
+ * not an oversight) — both still land on "credentials".
+ */
 async function login(formData: FormData) {
   "use server";
-  const parsed = LoginSchema.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
-  if (!parsed.success) redirect("/login?err=invalid");
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
-  if (!user || !user.active) redirect("/login?err=invalid");
-  const ok = await verifyPassword(parsed.data.password, user.passwordHash);
-  if (!ok) redirect("/login?err=invalid");
-  await createSession(user.id);
-  await recordAudit({ actorId: user.id, action: "LOGIN", resource: "User", resourceId: user.id });
+  const email = String(formData.get("email") ?? "");
+  const back = (error: string): never => {
+    setFormFlash("login", { error, email } satisfies LoginFlash);
+    redirect("/login");
+  };
+
+  const parsed = LoginSchema.safeParse({ email, password: formData.get("password") });
+  if (!parsed.success) back("That doesn't look like a valid email address.");
+  const user = await prisma.user.findUnique({ where: { email: parsed.data!.email } });
+  if (!user || !user.active) back("Invalid email or password. Please check your details and try again.");
+  const ok = await verifyPassword(parsed.data!.password, user!.passwordHash);
+  if (!ok) back("Invalid email or password. Please check your details and try again.");
+  await createSession(user!.id);
+  await recordAudit({ actorId: user!.id, action: "LOGIN", resource: "User", resourceId: user!.id });
   redirect("/dashboard");
 }
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { err?: string; reset?: string };
+  searchParams: { reset?: string };
 }) {
   if (await getCurrentUser()) redirect("/dashboard");
-  const hasError = Boolean(searchParams.err);
+  const flash = readFormFlash<LoginFlash>("login");
+  const hasError = Boolean(flash?.error);
   const justReset = Boolean(searchParams.reset);
 
   return (
     <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_1fr]">
+      {flash && <FlashCleanup name="login" />}
       {/* Brand / marketing panel (desktop only) */}
       <BrandPanel />
 
@@ -77,9 +94,7 @@ export default async function LoginPage({
                 className="mb-5 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/10 px-3.5 py-3 text-sm text-bad animate-fade-in"
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>
-                  Invalid email or password. Please check your details and try again.
-                </span>
+                <span>{flash?.error}</span>
               </div>
             )}
 
@@ -93,6 +108,7 @@ export default async function LoginPage({
                   inputMode="email"
                   spellCheck={false}
                   placeholder="you@example.com"
+                  defaultValue={flash?.email ?? ""}
                 />
               </Field>
               <Field label="Password">

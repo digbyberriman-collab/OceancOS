@@ -14,6 +14,7 @@
 
 import { PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import type { CrewRequestStatus } from "@/lib/enums";
+import { conflict } from "@/lib/errors";
 
 /** Every transition the server will accept, keyed by current status. */
 export const CR_LEGAL_TRANSITIONS: Record<CrewRequestStatus, CrewRequestStatus[]> = {
@@ -35,9 +36,18 @@ export function canTransitionCrewRequest(from: CrewRequestStatus, to: CrewReques
   return CR_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * `ActionError`, not a bare `Error` (ACTION_PLAN.md G3.6, AUDIT_REPORT.md
+ * T3's "two incompatible failure conventions"). Reached only when the
+ * request moved between render and click — someone else acted first, or a
+ * double-submit landed after the first one already succeeded.
+ */
 export function assertTransitionCrewRequest(from: CrewRequestStatus, to: CrewRequestStatus) {
   if (!canTransitionCrewRequest(from, to)) {
-    throw new Error(`Illegal transition ${from} → ${to}`);
+    const label = (s: CrewRequestStatus) => s.replace(/_/g, " ").toLowerCase();
+    throw conflict(
+      `This request is now ${label(from)}, so it can no longer move to ${label(to)}. Reload to see its current state.`
+    );
   }
 }
 
