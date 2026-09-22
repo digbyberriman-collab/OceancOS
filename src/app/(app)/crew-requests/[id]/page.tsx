@@ -12,6 +12,8 @@ import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { transitionCrewRequest, assignCrewRequest, addCrewRequestComment } from "../actions";
 import { ArrowLeft, MessageSquare, AlertTriangle } from "lucide-react";
 import { accessibleProjectIds } from "@/lib/project";
+import { crewRequestActions } from "@/lib/workflow/crewRequest";
+import type { CrewRequestStatus } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -39,17 +41,12 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
   });
   const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-  const transitions: Record<string, { to: string; label: string; tone?: "danger" }[]> = {
-    NEW: [{ to: "TRIAGED", label: "Triage" }, { to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    TRIAGED: [{ to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    ASSIGNED: [{ to: "IN_PROGRESS", label: "Start Work" }, { to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    IN_PROGRESS: [{ to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    BLOCKED: [{ to: "IN_PROGRESS", label: "Resume Work" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    AWAITING_APPROVAL: [{ to: "IN_PROGRESS", label: "Back to Work" }, { to: "COMPLETED", label: "Complete" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    COMPLETED: [{ to: "CLOSED", label: "Close" }],
-    REJECTED: [{ to: "NEW", label: "Reopen" }],
-    CLOSED: [],
-  };
+  // Filtered by permission — the static map this replaced rendered every
+  // button to every viewer regardless of whether they held anything at all
+  // (part of AUDIT_REPORT.md's Critical C6).
+  const allowedTransitions = crewRequestActions(cr.status as CrewRequestStatus).filter((t) =>
+    hasPermission(user, t.permission)
+  );
 
   const now = new Date();
   const isOverdue =
@@ -142,10 +139,10 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           </SectionCard>
 
           {/* Workflow actions */}
-          {(transitions[cr.status] ?? []).length > 0 && (
+          {allowedTransitions.length > 0 && (
             <SectionCard title="Workflow Actions">
               <div className="flex flex-wrap gap-2">
-                {(transitions[cr.status] ?? []).map((t) => (
+                {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionCrewRequest(cr.id, t.to); }}>
                     <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}

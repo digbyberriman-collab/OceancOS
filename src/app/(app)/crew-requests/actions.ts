@@ -3,14 +3,19 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
-import { conflict, invalid, notFound } from "@/lib/errors";
+import { invalid, notFound } from "@/lib/errors";
 import { applyTransition } from "@/lib/workflow/transition";
 import { getActiveProject, requireProjectAccess } from "@/lib/project";
+import {
+  CR_TRANSITION_PERMISSION,
+  assertTransitionCrewRequest,
+} from "@/lib/workflow/crewRequest";
+import type { CrewRequestStatus } from "@/lib/enums";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -62,31 +67,16 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
   const cr = await prisma.crewRequest.findUnique({ where: { id } });
   if (!cr) throw notFound("That crew request");
 
-  // No project check existed here at all before this — see the identical
-  // note on transitionChangeOrder. (The per-status permission coverage
-  // below is its own separate gap, C6, fixed in G2.4.)
+  // Previously missing entirely — see the identical note on
+  // transitionChangeOrder.
   await requireProjectAccess(user.id, cr.projectId);
 
   const target = CrewRequestStatusSchema.parse(toStatus);
 
-  // permission rules
-  if (target === "TRIAGED" || target === "ASSIGNED") assertPermission(user, PERMISSIONS.CR_TRIAGE);
-  else if (target === "COMPLETED" || target === "CLOSED") assertPermission(user, PERMISSIONS.CR_COMPLETE);
-
-  const legal: Record<string, string[]> = {
-    NEW: ["TRIAGED", "ASSIGNED", "REJECTED"],
-    TRIAGED: ["ASSIGNED", "REJECTED"],
-    ASSIGNED: ["IN_PROGRESS", "BLOCKED", "AWAITING_APPROVAL", "COMPLETED", "REJECTED"],
-    IN_PROGRESS: ["BLOCKED", "AWAITING_APPROVAL", "COMPLETED"],
-    BLOCKED: ["IN_PROGRESS", "REJECTED"],
-    AWAITING_APPROVAL: ["IN_PROGRESS", "COMPLETED", "REJECTED"],
-    COMPLETED: ["CLOSED"],
-    REJECTED: ["NEW"],
-    CLOSED: [],
-  };
-  if (!legal[cr.status]?.includes(target)) {
-    throw conflict(`A request at ${cr.status} cannot move to ${target}.`);
-  }
+  // An exhaustive map, not an if/else chain a target can fall through
+  // unchecked — the shape of C6. See lib/workflow/crewRequest.ts.
+  assertPermission(user, CR_TRANSITION_PERMISSION[target]);
+  assertTransitionCrewRequest(cr.status as CrewRequestStatus, target);
 
   // Conditional on the status this function read — see applyTransition.
   await applyTransition(prisma.crewRequest, {
@@ -115,6 +105,21 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
   revalidatePath("/crew-requests");
 }
 
+/**
+ * Change who owns a crew request.
+ *
+ * Deliberately never touches `status` — it used to jump straight to
+ * ASSIGNED (or TRIAGED, clearing the assignee) with no check that the move
+ * was legal from wherever the request actually was, bypassing the map
+ * `transitionCrewRequest` obeys entirely. `CLOSED` is declared terminal in
+ * that map; this could still reopen it, silently, with no history row and
+ * an audit entry that recorded only the new assignee, not the status jump.
+ * (AUDIT_REPORT.md: "Assigning bypasses the transition map and reopens
+ * closed requests.") The audit's own "better" fix, taken here: assignment
+ * changes who owns the request; an explicit transition — through
+ * transitionCrewRequest, which does obey the map — changes what state it's
+ * in. The two are independent now, so there is nothing left to bypass.
+ */
 export async function assignCrewRequest(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_ASSIGN);
@@ -122,8 +127,7 @@ export async function assignCrewRequest(formData: FormData) {
 
   // CR_ASSIGN is a role permission, not proof this request is one the
   // caller's role scope reaches — without this, a project-scoped user could
-  // assign any crew request platform-wide by id. (This function's separate
-  // bypass of the legal-transition map is G2.4's, not touched here.)
+  // assign any crew request platform-wide by id.
   const cr = await prisma.crewRequest.findUnique({ where: { id }, select: { projectId: true } });
   if (!cr) throw notFound("That crew request");
   await requireProjectAccess(user.id, cr.projectId);
@@ -131,7 +135,7 @@ export async function assignCrewRequest(formData: FormData) {
   const assignedToId = String(formData.get("assignedToId") || "") || null;
   await prisma.crewRequest.update({
     where: { id },
-    data: { assignedToId, status: assignedToId ? "ASSIGNED" : "TRIAGED", updatedById: user.id },
+    data: { assignedToId, updatedById: user.id },
   });
   await recordAudit({
     actorId: user.id,
