@@ -45,3 +45,31 @@ Found by: orchestrator, during G1.1
 
 Related to the above and to the existing docs finding that `npm run test:e2e` cannot work from a
 clean clone as documented. Fold into G6.3.
+
+---
+
+### [TESTS] — `npm run qa`'s crew-request check assumed the first row is representative
+Severity: Low
+Location: `scripts/qa.ts:41-44`
+Found by: orchestrator, during G2.4
+
+Description:
+
+`prisma.crewRequest.findFirst()` carries no `orderBy`, so which row comes back is
+whatever the database happens to return first — not guaranteed stable, and in
+practice shifts as soon as anything else (an e2e run, a manual walkthrough)
+creates an unassigned crew request ahead of the seeded assigned one. The check
+"crew request is assigned" then fails on a database that is otherwise completely
+healthy.
+
+Reproduced: `npm run db:reset && npm run qa` → 17/17. Run the e2e suite (which
+creates several unassigned crew requests as fixtures — e2e/transitions.spec.ts,
+e2e/crewRequestWorkflow.spec.ts) and re-run `npm run qa` against the same
+database → fails.
+
+Fixed alongside G2.4 rather than logged-only, since it blocks this pass's own
+verification signal from here on: `npm run qa` is run after every gate, and
+every gate's e2e tests add more unassigned fixtures. Query for an assigned row
+directly (`findFirst({ where: { assignedToId: { not: null } } })`) instead of
+assuming the first row returned has the property being checked. Committed
+separately from G2.4's functional changes — this is test tooling, not app code.
