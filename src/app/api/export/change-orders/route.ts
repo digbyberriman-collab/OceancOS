@@ -9,7 +9,7 @@ import { toNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-type Row = Awaited<ReturnType<typeof loadRows>>[number];
+type Row = NonNullable<Awaited<ReturnType<typeof loadRows>>>[number];
 
 /**
  * Pinned to one project when the caller has one active; otherwise every
@@ -19,12 +19,17 @@ type Row = Awaited<ReturnType<typeof loadRows>>[number];
  * project meant exporting everyone else's change orders too. See
  * AUDIT_REPORT.md §6 and `projectScope`'s own docstring.
  */
+const EXPORT_CAP = 10_000;
+
+/** `null` when the result would exceed EXPORT_CAP — too many to build a workbook from safely. */
 async function loadRows(userId: string, projectId?: string) {
-  return prisma.changeOrder.findMany({
+  const rows = await prisma.changeOrder.findMany({
     where: { archivedAt: null, ...(projectId ? { projectId } : await projectScope(userId)) },
     include: { project: { include: { vessel: true } } },
     orderBy: { number: "asc" },
+    take: EXPORT_CAP + 1,
   });
+  return rows.length > EXPORT_CAP ? null : rows;
 }
 
 /**
@@ -42,6 +47,12 @@ export async function GET(request: Request) {
   const format = new URL(request.url).searchParams.get("format") === "csv" ? "csv" : "xlsx";
   const project = await getActiveProject(user.id);
   const rows = await loadRows(user.id, project?.id);
+  if (rows === null) {
+    return NextResponse.json(
+      { error: `There are more than ${EXPORT_CAP.toLocaleString()} change orders in scope — too many to export in one file.` },
+      { status: 413 }
+    );
+  }
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const sheet: Sheet<Row> = {

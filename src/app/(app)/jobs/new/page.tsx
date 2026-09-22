@@ -41,6 +41,7 @@ export default async function NewJobRequest() {
       },
       select: { id: true, name: true, email: true },
       orderBy: { name: "asc" },
+      take: 200,
     }),
     prisma.changeOrder.findMany({
       where: {
@@ -49,6 +50,7 @@ export default async function NewJobRequest() {
       },
       select: { id: true, number: true, title: true },
       orderBy: { number: "asc" },
+      take: 200,
     }),
   ]);
 

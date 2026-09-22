@@ -132,7 +132,7 @@ export default async function SchedulePage() {
   const scope = await projectScope(user.id);
   const [tasks, milestones] = await Promise.all([
     prisma.scheduleTask.findMany({ where: scope, orderBy: { startDate: "asc" }, take: 200 }),
-    prisma.milestone.findMany({ where: scope, orderBy: { date: "asc" } }),
+    prisma.milestone.findMany({ where: scope, orderBy: { date: "asc" }, take: 200 }),
   ]);
 
   return (

@@ -20,10 +20,18 @@ export default async function FinancialsPage() {
       />
     );
   }
+  // `take` here is a safety backstop, not a real page size (ACTION_PLAN.md
+  // G4.1): unlike Job or Comment, Budget rows are one per project × category,
+  // not one per user action, so a real portfolio is in the tens to low
+  // hundreds — 2,000 is far beyond that. The portfolio totals below sum this
+  // same fetch, including `forecast`'s per-row fallback logic that Prisma's
+  // `aggregate` can't express without raw SQL, so keeping this unbounded in
+  // practice (while still bounded in principle) is the correct tradeoff here.
   const budgets = await prisma.budget.findMany({
     where: await projectScope(user.id),
     include: { category: true, project: { include: { vessel: true } } },
     orderBy: [{ project: { name: "asc" } }, { category: { name: "asc" } }],
+    take: 2000,
   });
   const totals = budgets.reduce(
     (s, b) => {

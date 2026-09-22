@@ -16,8 +16,15 @@ export default async function SuppliersPage({
   if (searchParams.q) {
     where.name = { contains: searchParams.q, mode: "insensitive" };
   }
-  const suppliers = await prisma.supplier.findMany({ where, orderBy: { name: "asc" } });
+  // Rows are capped (ACTION_PLAN.md G4.1 — this was an unbounded read of
+  // every supplier on every render); the header count comes from a separate
+  // `count()` rather than the capped array's length, so it stays accurate.
+  const [suppliers, totalCount] = await Promise.all([
+    prisma.supplier.findMany({ where, orderBy: { name: "asc" }, take: 300 }),
+    prisma.supplier.count({ where }),
+  ]);
   const isFiltered = !!searchParams.q;
+  const truncated = totalCount > suppliers.length;
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -27,7 +34,7 @@ export default async function SuppliersPage({
         subtitle="Linked to purchase orders and invoices."
       />
 
-      <FilterBar resetHref="/suppliers" resultCount={suppliers.length} resultLabel="supplier">
+      <FilterBar resetHref="/suppliers" resultCount={totalCount} resultLabel="supplier">
         <FilterField label="Search" flex>
           <input
             name="q"
@@ -38,7 +45,7 @@ export default async function SuppliersPage({
         </FilterField>
       </FilterBar>
 
-      {suppliers.length === 0 ? (
+      {totalCount === 0 ? (
         <EmptyState
           icon={<Factory size={20} />}
           title={isFiltered ? "No suppliers match this search" : "No suppliers"}
@@ -54,7 +61,8 @@ export default async function SuppliersPage({
           <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-ink-850/40">
             <Factory size={13} className="text-marine shrink-0" />
             <span className="text-[11px] uppercase tracking-wider text-muted font-semibold">
-              {suppliers.length} supplier{suppliers.length !== 1 ? "s" : ""}
+              {totalCount} supplier{totalCount !== 1 ? "s" : ""}
+              {truncated && <span className="text-faint normal-case font-normal"> · showing the first {suppliers.length}, search to narrow</span>}
             </span>
           </div>
 

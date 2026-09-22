@@ -26,12 +26,22 @@ export async function GET(request: Request) {
   const project = await getActiveProject(user.id);
   if (!project) return NextResponse.json({ error: "No active project" }, { status: 404 });
 
-  const rows = (
-    await prisma.job.findMany({
-      where: { projectId: project.id, archivedAt: null },
-      include: { section: true },
-    })
-  ).sort((a, b) => compareJobCodes(a.code, b.code));
+  // A cap, not a page size — exports build the whole workbook in memory
+  // (ACTION_PLAN.md G4.1), so a genuinely oversized result set is refused
+  // with a clear error rather than attempted and risking an OOM.
+  const EXPORT_CAP = 10_000;
+  const fetched = await prisma.job.findMany({
+    where: { projectId: project.id, archivedAt: null },
+    include: { section: true },
+    take: EXPORT_CAP + 1,
+  });
+  if (fetched.length > EXPORT_CAP) {
+    return NextResponse.json(
+      { error: `This project has more than ${EXPORT_CAP.toLocaleString()} jobs — too many to export in one file.` },
+      { status: 413 }
+    );
+  }
+  const rows = fetched.sort((a, b) => compareJobCodes(a.code, b.code));
 
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
   type Row = (typeof rows)[number];

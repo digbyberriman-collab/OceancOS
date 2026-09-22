@@ -35,10 +35,14 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
   const projectIds = await accessibleProjectIds(user.id);
   if (!projectIds.includes(cr.projectId)) return notFound();
 
+  // Doubles as the assignee picker's option list (below), so this genuinely
+  // needs every active user, not just the ones referenced on this request —
+  // `take` is a safety cap, not a real page size (ACTION_PLAN.md G4.1).
   const users = await prisma.user.findMany({
     where: { active: true },
     select: { id: true, name: true, email: true },
     orderBy: { name: "asc" },
+    take: 500,
   });
   const userMap = new Map(users.map((u) => [u.id, u.name]));
 

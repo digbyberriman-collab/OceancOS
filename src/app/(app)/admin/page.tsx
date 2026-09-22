@@ -22,10 +22,11 @@ export default async function AdminPage() {
         roles: { select: { role: { select: { key: true } } } },
       },
       orderBy: { name: "asc" },
+      take: 500,
     }),
-    prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
-    prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" } }),
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
+    prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, take: 200 }),
+    prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" }, take: 200 }),
+    prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }),
     hasPermission(user, PERMISSIONS.AUDIT_VIEW)
       ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 })
       : [],
