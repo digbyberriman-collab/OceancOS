@@ -1,13 +1,33 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { accessibleProjectIds } from "@/lib/project";
+import { hasPermission, PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import {
   getObject,
   isSafeObjectKey,
   maxUploadBytes,
+  parseObjectKey,
   putObject,
   storageDriverName,
   verifyLocalUploadToken,
 } from "@/lib/storage";
+
+/**
+ * The view permission a key's `resource` segment requires to be read back.
+ *
+ * Only "Job" is ever actually minted today (the one live caller is
+ * jobs/new/page.tsx's FileDrop) — everything else is a scaffold with no
+ * upload path wired up yet. An unrecognised resource is refused rather than
+ * allowed, so a future upload path is secure by default until someone adds
+ * it here deliberately.
+ */
+const RESOURCE_VIEW_PERMISSION: Record<string, PermissionKey> = {
+  Job: PERMISSIONS.JOB_VIEW,
+  ChangeOrder: PERMISSIONS.CO_VIEW,
+  CrewRequest: PERMISSIONS.CR_VIEW,
+  Document: PERMISSIONS.DOC_VIEW,
+  Drawing: PERMISSIONS.DRW_VIEW,
+};
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +70,19 @@ export async function PUT(request: Request) {
   return NextResponse.json({ key, size: body.byteLength });
 }
 
+/**
+ * Serve an uploaded file back.
+ *
+ * Before this checked only that a session existed — AUDIT_REPORT.md's
+ * Critical C3: any signed-in user, CONTRACTOR, SUPPLIER and GUEST
+ * included, could download any stored file by object key, since keys are
+ * structured and `projectId`/`resourceId` appear in ordinary URLs. Now
+ * resolves the key back to the project and resource it was minted for
+ * (parseObjectKey — sound to trust because buildObjectKey is only ever
+ * called after /api/uploads/sign has already checked project access) and
+ * requires both: the caller must be able to reach that project, and must
+ * hold the view permission the resource type requires.
+ */
 export async function GET(request: Request) {
   const guard = localOnly();
   if (guard) return guard;
@@ -60,6 +93,21 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("key") ?? "";
   if (!isSafeObjectKey(key)) {
     return NextResponse.json({ error: "Invalid key" }, { status: 400 });
+  }
+
+  const target = parseObjectKey(key);
+  if (!target) {
+    return NextResponse.json({ error: "Invalid key" }, { status: 400 });
+  }
+
+  const permKey = RESOURCE_VIEW_PERMISSION[target.resource];
+  if (!permKey || !hasPermission(user, permKey)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const projectIds = await accessibleProjectIds(user.id);
+  if (!projectIds.includes(target.projectId)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await getObject(key);

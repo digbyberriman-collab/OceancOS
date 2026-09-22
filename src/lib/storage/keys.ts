@@ -98,6 +98,30 @@ export function isSafeObjectKey(key: string): boolean {
   return /^[\w./\-]+$/.test(key);
 }
 
+/**
+ * The inverse of buildObjectKey: recover the project and resource an object
+ * key was minted for, straight from its structure — no database round trip.
+ *
+ * This is what the download route authorises against (AUDIT_REPORT.md's
+ * Critical C3 — "any signed-in user can download any stored file by object
+ * key", because the route checked a session existed and nothing else). It's
+ * sound to trust: `buildObjectKey` is only ever called from
+ * `/api/uploads/sign`, which mints a key for a project only after checking
+ * `listProjectsForUser` includes it — so a syntactically valid key's
+ * project segment reflects a real authorisation decision made at sign
+ * time, not a value the client chose. Call `isSafeObjectKey` first; this
+ * assumes it.
+ */
+export function parseObjectKey(
+  key: string
+): { projectId: string; resource: string; resourceId: string } | null {
+  const parts = key.split("/");
+  if (parts.length !== 5 || parts[0] !== "projects") return null;
+  const [, projectId, resource, resourceId] = parts;
+  if (!projectId || !resource || !resourceId) return null;
+  return { projectId, resource, resourceId };
+}
+
 function slug(value: string): string {
   const cleaned = value.replace(/[^\w\-]+/g, "-").replace(/-{2,}/g, "-");
   return cleaned || "unknown";
