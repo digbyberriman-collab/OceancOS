@@ -41,16 +41,26 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) return notFound();
 
+  // approvals is never unbounded by nature (one row per stage, at most
+  // seven) — only history and comments accumulate for the life of the
+  // change order (ACTION_PLAN.md G4.5).
+  const HISTORY_CAP = 20;
+  const COMMENTS_CAP = 50;
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
     include: {
       project: { include: { vessel: true } },
       approvals: { orderBy: { order: "asc" } },
-      history: { orderBy: { createdAt: "desc" } },
-      comments: { orderBy: { createdAt: "asc" } },
+      history: { orderBy: { createdAt: "desc" }, take: HISTORY_CAP },
+      // Newest-first so `take` keeps the recent end, reversed below for the
+      // thread's oldest-first reading order.
+      comments: { orderBy: { createdAt: "desc" }, take: COMMENTS_CAP },
+      _count: { select: { history: true, comments: true } },
     },
   });
   if (!co) return notFound();
+
+  const comments = [...co.comments].reverse();
 
   const projectIds = await accessibleProjectIds(user.id);
   if (!projectIds.includes(co.projectId)) return notFound();
@@ -310,19 +320,24 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
         <SectionCard
           title="Comments"
           headerRight={
-            co.comments.length > 0 ? (
-              <span className="badge badge-muted tnum">{co.comments.length}</span>
+            co._count.comments > 0 ? (
+              <span className="badge badge-muted tnum">{co._count.comments}</span>
             ) : undefined
           }
         >
           <div className="space-y-3 mb-5 max-h-72 overflow-y-auto">
-            {co.comments.length === 0 && (
+            {co._count.comments === 0 && (
               <div className="flex items-center gap-2 text-sm text-muted py-2">
                 <MessageSquare size={14} />
                 No comments yet.
               </div>
             )}
-            {co.comments.map((c) => (
+            {co._count.comments > COMMENTS_CAP && (
+              <p className="text-xs text-faint">
+                Showing the {COMMENTS_CAP} most recent of {co._count.comments} comments.
+              </p>
+            )}
+            {comments.map((c) => (
               <div key={c.id} className="text-sm bg-ink-850/40 rounded-lg px-3 py-2.5 border border-line-soft">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-white text-xs">
@@ -343,7 +358,14 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
           </form>
         </SectionCard>
 
-        <SectionCard title="History">
+        <SectionCard
+          title="History"
+          headerRight={
+            co._count.history > HISTORY_CAP ? (
+              <span className="text-[11px] text-faint">most recent {HISTORY_CAP} of {co._count.history}</span>
+            ) : undefined
+          }
+        >
           <ul className="space-y-3 max-h-96 overflow-y-auto">
             {co.history.length === 0 && (
               <li className="flex items-center gap-2 text-sm text-muted py-2">

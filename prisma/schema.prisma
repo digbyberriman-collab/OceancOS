@@ -278,7 +278,9 @@ model ChangeOrderHistory {
   changeOrder   ChangeOrder @relation(fields: [changeOrderId], references: [id], onDelete: Cascade)
   actor         User        @relation(fields: [actorId], references: [id])
 
-  @@index([changeOrderId])
+  // Composite so the detail page's most-recent-N query (ACTION_PLAN.md
+  // G4.5) is a plain index scan rather than a scan then sort.
+  @@index([changeOrderId, createdAt])
   @@index([actorId])
 }
 
@@ -725,9 +727,13 @@ model Comment {
   author        User         @relation(fields: [authorId], references: [id])
   attachments   Attachment[]
 
-  @@index([jobId])
-  @@index([changeOrderId])
-  @@index([crewRequestId])
+  // Composite, not just [jobId] etc: the job/change-order/crew-request
+  // detail pages bound this to the most recent N (ACTION_PLAN.md G4.5), and
+  // without createdAt in the index that's an index scan on the FK followed
+  // by a sort, rather than a plain index scan in the order already wanted.
+  @@index([jobId, createdAt])
+  @@index([changeOrderId, createdAt])
+  @@index([crewRequestId, createdAt])
   @@index([authorId])
 }
 
@@ -754,7 +760,9 @@ model Attachment {
   comment       Comment?     @relation(fields: [commentId], references: [id], onDelete: Cascade)
   uploader      User         @relation(fields: [uploaderId], references: [id])
 
-  @@index([jobId])
+  // Composite on jobId: the job detail page bounds this to the most recent
+  // N too (ACTION_PLAN.md G4.5).
+  @@index([jobId, createdAt])
   @@index([commentId])
   @@index([changeOrderId])
   @@index([crewRequestId])
@@ -949,7 +957,9 @@ model JobHistory {
   job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   actor      User?    @relation(fields: [actorId], references: [id])
 
-  @@index([jobId])
+  // Composite so the job detail page's most-recent-N query (ACTION_PLAN.md
+  // G4.5) is a plain index scan rather than a scan then sort.
+  @@index([jobId, createdAt])
   @@index([actorId])
 }
 

@@ -45,6 +45,14 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_VIEW)) return notFound();
 
+  // Neither history nor comments has a natural ceiling — a contested
+  // variation accumulates a row per transition and a comment per exchange
+  // for the life of the job, and both were fetched whole on every view
+  // (ACTION_PLAN.md G4.5). Bounded to the most recent N, with the true
+  // totals in `_count` so the page can say when there's more.
+  const HISTORY_CAP = 20;
+  const COMMENTS_CAP = 50;
+  const ATTACHMENTS_CAP = 50;
   const job = await prisma.job.findUnique({
     where: { id: params.id },
     include: {
@@ -54,16 +62,23 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
       lines: { orderBy: { sort: "asc" } },
       notes: { orderBy: [{ kind: "asc" }, { sort: "asc" }] },
       variation: true,
-      history: { orderBy: { createdAt: "desc" } },
+      history: { orderBy: { createdAt: "desc" }, take: HISTORY_CAP },
+      // Fetched newest-first so `take` keeps the *recent* end of a long
+      // thread rather than the oldest, then reversed below for the
+      // chronological, oldest-first reading order the thread is rendered in.
       comments: {
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         include: { attachments: true },
+        take: COMMENTS_CAP,
       },
-      attachments: { orderBy: { createdAt: "desc" } },
+      attachments: { orderBy: { createdAt: "desc" }, take: ATTACHMENTS_CAP },
       favourites: { where: { userId: user.id } },
+      _count: { select: { history: true, comments: true, attachments: true } },
     },
   });
   if (!job) return notFound();
+
+  const comments = [...job.comments].reverse();
 
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
@@ -235,15 +250,20 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
           <SectionCard
             title="Attachments"
             headerRight={
-              job.attachments.length > 0 ? (
-                <span className="badge badge-muted tnum">{job.attachments.length}</span>
+              job._count.attachments > 0 ? (
+                <span className="badge badge-muted tnum">{job._count.attachments}</span>
               ) : undefined
             }
           >
-            {job.attachments.length === 0 ? (
+            {job._count.attachments === 0 ? (
               <p className="text-sm text-muted py-1">No files attached to this request.</p>
             ) : (
               <ul className="space-y-1.5">
+                {job._count.attachments > ATTACHMENTS_CAP && (
+                  <li className="text-xs text-faint pb-1">
+                    Showing the {ATTACHMENTS_CAP} most recent of {job._count.attachments}.
+                  </li>
+                )}
                 {job.attachments.map((file) => {
                   const href = hrefById.get(file.id);
                   return (
@@ -340,19 +360,24 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
           <SectionCard
             title="Comments"
             headerRight={
-              job.comments.length > 0 ? (
-                <span className="badge badge-muted tnum">{job.comments.length}</span>
+              job._count.comments > 0 ? (
+                <span className="badge badge-muted tnum">{job._count.comments}</span>
               ) : undefined
             }
           >
             <div className="mb-5 max-h-96 space-y-3 overflow-y-auto">
-              {job.comments.length === 0 && (
+              {job._count.comments === 0 && (
                 <div className="flex items-center gap-2 py-2 text-sm text-muted">
                   <MessageSquare size={14} />
                   No comments yet.
                 </div>
               )}
-              {job.comments.map((comment) => (
+              {job._count.comments > COMMENTS_CAP && (
+                <p className="text-xs text-faint">
+                  Showing the {COMMENTS_CAP} most recent of {job._count.comments} comments.
+                </p>
+              )}
+              {comments.map((comment) => (
                 <div
                   key={comment.id}
                   className={`rounded-lg border px-3 py-2.5 text-sm ${
@@ -568,7 +593,14 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
               </SectionCard>
             )}
 
-          <SectionCard title="History">
+          <SectionCard
+            title="History"
+            headerRight={
+              job._count.history > HISTORY_CAP ? (
+                <span className="text-[11px] text-faint">most recent {HISTORY_CAP} of {job._count.history}</span>
+              ) : undefined
+            }
+          >
             <ul className="max-h-72 space-y-2.5 overflow-y-auto text-sm">
               {job.history.map((entry) => (
                 <li key={entry.id} className="flex gap-2.5">
