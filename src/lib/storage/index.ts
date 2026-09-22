@@ -30,10 +30,36 @@ export type SignedUpload = {
 
 export type StorageDriverName = "s3" | "local";
 
+/**
+ * Which storage driver is active.
+ *
+ * Required in production, with no inferred fallback: AUDIT_REPORT.md's
+ * Critical C15/C14 (.env.example presented local-disk as the silent
+ * production default). Inferring from S3_BUCKET meant a deployment that
+ * simply forgot to configure a bucket ran on local disk with no error and
+ * no warning — and most deployment platforms treat local disk as
+ * ephemeral, so every upload would be lost on the next restart or
+ * redeploy, discovered only when someone goes looking for a file that is
+ * no longer there.
+ *
+ * Development, test and CI keep the inference: it is what lets the app run
+ * with no cloud credentials, which is the whole point of the local driver
+ * existing.
+ */
 export function storageDriverName(): StorageDriverName {
   const explicit = process.env.STORAGE_DRIVER;
   if (explicit === "s3" || explicit === "local") return explicit;
-  // Infer: if a bucket is configured, use it; otherwise fall back to local disk.
+  if (explicit) {
+    throw new Error(`STORAGE_DRIVER must be "s3" or "local" — got "${explicit}".`);
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "STORAGE_DRIVER must be set in production (\"s3\" or \"local\"). Refusing to infer it " +
+        "from whether S3_BUCKET happens to be set, which would silently run on local disk — " +
+        "ephemeral on most deployment platforms — if the bucket were ever left unconfigured."
+    );
+  }
+  // Outside production: infer, for a smooth local/dev/CI experience.
   return process.env.S3_BUCKET ? "s3" : "local";
 }
 
