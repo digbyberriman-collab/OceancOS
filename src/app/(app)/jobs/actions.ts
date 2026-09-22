@@ -434,15 +434,21 @@ export async function setJobProgress(formData: FormData) {
   const raw = Number(formData.get("progressPct") ?? 0);
   const progressPct = Math.min(100, Math.max(0, Math.round(raw)));
 
-  await prisma.job.update({ where: { id: jobId }, data: { progressPct, updatedById: user.id } });
-  await prisma.jobHistory.create({
-    data: {
-      jobId,
-      actorId: user.id,
-      event: "PROGRESS",
-      details: { from: job.progressPct, to: progressPct },
-    },
-  });
+  // One logical change, so one transaction (ACTION_PLAN.md G3.4) — a
+  // failure between the two writes used to leave progressPct changed with
+  // no history row explaining it, and progressPct drives the value-weighted
+  // group progress on the jobs list (lib/jobs/views.ts).
+  await prisma.$transaction([
+    prisma.job.update({ where: { id: jobId }, data: { progressPct, updatedById: user.id } }),
+    prisma.jobHistory.create({
+      data: {
+        jobId,
+        actorId: user.id,
+        event: "PROGRESS",
+        details: { from: job.progressPct, to: progressPct },
+      },
+    }),
+  ]);
   await recordAudit({
     actorId: user.id,
     action: "UPDATE",
@@ -469,18 +475,23 @@ export async function addJobComment(formData: FormData) {
 
   if (asMinute) assertPermission(user, PERMISSIONS.MINUTES_RECORD);
 
-  const comment = await prisma.comment.create({
-    data: {
-      authorId: user.id,
-      resource: "Job",
-      resourceId: jobId,
-      jobId,
-      kind: asMinute ? "MINUTE" : "MESSAGE",
-      body,
-    },
+  // One transaction (ACTION_PLAN.md G3.4) — a failure between the two
+  // writes used to post a comment whose attachments never landed: the
+  // files exist in storage but are referenced by nothing.
+  const comment = await prisma.$transaction(async (tx) => {
+    const created = await tx.comment.create({
+      data: {
+        authorId: user.id,
+        resource: "Job",
+        resourceId: jobId,
+        jobId,
+        kind: asMinute ? "MINUTE" : "MESSAGE",
+        body,
+      },
+    });
+    await attachUploads(formData, jobId, user.id, "Job", created.id, tx);
+    return created;
   });
-
-  await attachUploads(formData, jobId, user.id, "Job", comment.id);
 
   await recordAudit({
     actorId: user.id,
@@ -499,14 +510,23 @@ export async function toggleJobFavourite(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   await loadJob(user.id, jobId);
 
-  const existing = await prisma.jobFavourite.findUnique({
-    where: { userId_jobId: { userId: user.id, jobId } },
-  });
-
-  if (existing) {
-    await prisma.jobFavourite.delete({ where: { userId_jobId: { userId: user.id, jobId } } });
-  } else {
-    await prisma.jobFavourite.create({ data: { userId: user.id, jobId } });
+  // A single deleteMany, not read-then-delete-or-create (ACTION_PLAN.md
+  // G3.4) — two rapid clicks used to both read null and both create,
+  // the second violating the composite primary key with an unhandled
+  // crash. deleteMany's count tells us whether there was one to remove, in
+  // the same statement, so unfavouriting is idempotent under a double click.
+  // Favouriting still has a narrow window between two concurrent deleteMany
+  // calls that both see count 0 and both attempt create; rather than close
+  // it with more machinery for a "star this job" button, the resulting
+  // P2002 is caught and treated as the no-op it actually is — the desired
+  // end state (favourited) was already reached by the other request.
+  const removed = await prisma.jobFavourite.deleteMany({ where: { userId: user.id, jobId } });
+  if (removed.count === 0) {
+    try {
+      await prisma.jobFavourite.create({ data: { userId: user.id, jobId } });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
   }
 
   revalidatePath(`/jobs/${jobId}`);
@@ -517,14 +537,18 @@ export async function toggleJobFavourite(formData: FormData) {
  * Record uploads that the browser already sent to storage.
  *
  * FileDrop posts one hidden field per completed upload, so the server stores
- * metadata rather than bytes.
+ * metadata rather than bytes. Takes a client so a caller that also writes
+ * the parent row (addJobComment) can pass a transaction's `tx` and get one
+ * atomic write instead of two — ACTION_PLAN.md G3.4. Defaults to the
+ * top-level client for callers with nothing else to wrap it with.
  */
 async function attachUploads(
   formData: FormData,
   resourceId: string,
   uploaderId: string,
   resource: string,
-  commentId?: string
+  commentId?: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ) {
   const entries = formData.getAll("attachments").map(String).filter(Boolean);
   if (!entries.length) return;
@@ -546,7 +570,7 @@ async function attachUploads(
 
   if (!rows.length) return;
 
-  await prisma.attachment.createMany({
+  await client.attachment.createMany({
     data: rows.map((row) => ({
       uploaderId,
       filename: row.filename,

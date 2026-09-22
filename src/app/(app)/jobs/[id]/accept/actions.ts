@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -82,20 +83,23 @@ export async function requestAcceptanceCode(formData: FormData) {
     data: { consumedAt: new Date() },
   });
 
+  // The id is generated here, not by Prisma's default, so the hash — which
+  // binds to it — can be computed up front and the row inserted complete in
+  // one statement (ACTION_PLAN.md G3.4). The previous create-then-update
+  // left a row with codeHash: "" between the two statements; a failure
+  // there emailed nothing but still redirected the user to a challenge
+  // asking for a code that was never sent.
   const code = generateAcceptanceCode();
+  const challengeId = randomUUID();
   const challenge = await prisma.acceptanceChallenge.create({
     data: {
+      id: challengeId,
       jobId,
       userId: user.id,
-      codeHash: "",
+      codeHash: hashAcceptanceCode(challengeId, code),
       quoteHash: quoteFingerprint(job),
       expiresAt: challengeExpiry(),
     },
-  });
-  // The hash binds to the challenge id, so it is written once that id exists.
-  await prisma.acceptanceChallenge.update({
-    where: { id: challenge.id },
-    data: { codeHash: hashAcceptanceCode(challenge.id, code) },
   });
 
   const { subject, text } = acceptanceEmail({
