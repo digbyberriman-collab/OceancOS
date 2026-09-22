@@ -53,9 +53,19 @@ export const LoginSchema = z.object({
   password: z.string().min(1),
 });
 
+// Previously unused — decideChangeOrderApproval cast the raw form value
+// instead of parsing it. Also previously offered `changeOrderApprovalId`
+// (dead: the form only ever posts `approvalId`) and `DELEGATED` (dead: no
+// code path handles it, and ChangeOrderApproval.decision's schema comment
+// listing it was aspirational, not enforced). See AUDIT_REPORT.md G2.2.
 export const ApprovalDecisionSchema = z.object({
-  approvalId: z.string().min(1).optional(),
-  changeOrderApprovalId: z.string().min(1).optional(),
-  decision: z.enum(["APPROVED", "REJECTED", "MORE_INFO", "DELEGATED"]),
-  comment: z.string().optional().nullable(),
+  approvalId: z.string().min(1),
+  decision: z.enum(["APPROVED", "REJECTED", "MORE_INFO"]),
+  // An untouched textarea posts "", which the DB should hold as NULL, not a
+  // stored empty string that then renders identically to no comment anyway.
+  comment: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((v) => (v ? v : null)),
 });

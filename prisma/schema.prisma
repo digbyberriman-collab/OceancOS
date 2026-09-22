@@ -189,7 +189,7 @@ model ChangeOrderApproval {
   id            String   @id @default(cuid())
   changeOrderId String
   stage         String   // CAPTAIN|OWNERS_REP|YARD|FINANCE|TECH_MANAGER|CLASS|FLAG
-  decision      String   @default("PENDING") // PENDING|APPROVED|REJECTED|MORE_INFO|DELEGATED
+  decision      String   @default("PENDING") // PENDING|APPROVED|REJECTED|MORE_INFO
   decidedById   String?
   decidedAt     DateTime?
   comment       String?

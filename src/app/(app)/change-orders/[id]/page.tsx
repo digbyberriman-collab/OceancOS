@@ -18,6 +18,8 @@ import {
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
+  CO_STATUSES_AWAITING_DECISION,
+  canDecideApproval,
   changeOrderActions,
 } from "@/lib/workflow/changeOrder";
 import {
@@ -188,9 +190,14 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
           <ol className="space-y-4">
             {co.approvals.map((a, i) => {
               const canDecide =
+                hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
+                CO_STATUSES_AWAITING_DECISION.includes(co.status as ChangeOrderStatus) &&
+                canDecideApproval(a, co.approvals);
+              const waitingOnEarlierStage =
                 a.decision === "PENDING" &&
                 hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
-                ["UNDER_REVIEW", "SUBMITTED", "MORE_INFO"].includes(co.status);
+                CO_STATUSES_AWAITING_DECISION.includes(co.status as ChangeOrderStatus) &&
+                !canDecideApproval(a, co.approvals);
 
               const decisionIcon =
                 a.decision === "APPROVED" ? (
@@ -269,6 +276,16 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
                         </button>
                       </div>
                     </form>
+                  )}
+                  {waitingOnEarlierStage && (
+                    <p className="text-xs text-faint mt-2">
+                      Waiting on{" "}
+                      {co.approvals
+                        .filter((s) => s.required && s.order < a.order && s.decision === "PENDING")
+                        .map((s) => s.stage.replace(/_/g, " "))
+                        .join(", ")}
+                      .
+                    </p>
                   )}
                 </li>
               );
