@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDateTime, fmtMoney } from "@/lib/utils";
 import {
@@ -87,11 +88,7 @@ export default async function LogisticsPage() {
 
       {items.length === 0 ? (
         <div className="animate-fade-up">
-          <EmptyState
-            icon={<PackageOpen className="h-5 w-5" />}
-            title="No logistics items yet"
-            hint="Create one to schedule access, transport or deliveries."
-          />
+          <ComingSoon icon={<PackageOpen className="h-5 w-5" />} title="No logistics items yet" />
         </div>
       ) : (
         <div

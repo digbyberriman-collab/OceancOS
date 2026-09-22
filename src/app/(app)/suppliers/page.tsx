@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Factory, Mail, Phone } from "lucide-react";
 
@@ -46,15 +47,15 @@ export default async function SuppliersPage({
       </FilterBar>
 
       {totalCount === 0 ? (
-        <EmptyState
-          icon={<Factory size={20} />}
-          title={isFiltered ? "No suppliers match this search" : "No suppliers"}
-          hint={
-            isFiltered
-              ? "Try a different name, or reset to see all suppliers."
-              : "Add a supplier to link them to purchase orders and invoices."
-          }
-        />
+        isFiltered ? (
+          <EmptyState
+            icon={<Factory size={20} />}
+            title="No suppliers match this search"
+            hint="Try a different name, or reset to see all suppliers."
+          />
+        ) : (
+          <ComingSoon icon={<Factory size={20} />} title="No suppliers" />
+        )
       ) : (
         <div className="surface overflow-hidden">
           {/* Header strip */}

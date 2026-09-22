@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { Badge } from "@/components/ui/Badge";
 import { CalendarDays, CheckCircle2, Clock3, MapPin } from "lucide-react";
 
@@ -35,11 +36,7 @@ export default async function MeetingsPage() {
       />
 
       {meetings.length === 0 ? (
-        <EmptyState
-          icon={<CalendarDays size={20} />}
-          title="No meetings yet"
-          hint="Meetings with agenda items and action tracking will appear here."
-        />
+        <ComingSoon icon={<CalendarDays size={20} />} title="No meetings yet" />
       ) : (
         <>
           {/* Summary strip */}

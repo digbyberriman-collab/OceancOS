@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
 import { ShieldAlert } from "lucide-react";
@@ -62,11 +63,7 @@ export default async function RisksPage() {
       />
 
       {totalCount === 0 ? (
-        <EmptyState
-          icon={<ShieldAlert size={20} />}
-          title="No risks logged"
-          hint="Add risks to track likelihood, impact and mitigation status."
-        />
+        <ComingSoon icon={<ShieldAlert size={20} />} title="No risks logged" />
       ) : (
         <>
           {/* Severity summary cards */}

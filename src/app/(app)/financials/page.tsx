@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { aggregateCurrency, fmtMoney, toNumber } from "@/lib/utils";
 import { BudgetBar } from "@/components/data/BudgetBar";
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from "lucide-react";
@@ -164,11 +165,7 @@ export default async function FinancialsPage() {
 
       {/* ── Budget lines table ── */}
       {budgets.length === 0 ? (
-        <EmptyState
-          icon={<DollarSign className="h-5 w-5" />}
-          title="No budget lines"
-          hint="Seed sample data or create budgets via Admin."
-        />
+        <ComingSoon icon={<DollarSign className="h-5 w-5" />} title="No budget lines" />
       ) : (
         <div className="surface overflow-hidden animate-fade-up" style={{ animationDelay: "140ms" }}>
           {/* Table section header */}

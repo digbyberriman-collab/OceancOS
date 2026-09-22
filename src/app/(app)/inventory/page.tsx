@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney } from "@/lib/utils";
 import {
@@ -192,15 +193,15 @@ export default async function InventoryPage({
       {/* ── Table or empty state ── */}
       {items.length === 0 ? (
         <div className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-          <EmptyState
-            icon={<Layers className="h-5 w-5" />}
-            title="No inventory items"
-            hint={
-              searchParams.q || searchParams.category || searchParams.status
-                ? "No items match your current filters."
-                : "Seed sample data or import from Excel to populate inventory."
-            }
-          />
+          {searchParams.q || searchParams.category || searchParams.status ? (
+            <EmptyState
+              icon={<Layers className="h-5 w-5" />}
+              title="No inventory items"
+              hint="No items match your current filters."
+            />
+          ) : (
+            <ComingSoon icon={<Layers className="h-5 w-5" />} title="No inventory items" />
+          )}
         </div>
       ) : (
         <div

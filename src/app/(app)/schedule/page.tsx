@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
 import {
@@ -159,11 +160,7 @@ export default async function SchedulePage() {
         </div>
 
         {milestones.length === 0 ? (
-          <EmptyState
-            icon={<MilestoneIcon className="h-5 w-5" />}
-            title="No milestones yet"
-            hint="Milestones will appear here once they're added to a project."
-          />
+          <ComingSoon icon={<MilestoneIcon className="h-5 w-5" />} title="No milestones yet" />
         ) : (
           <ol className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {milestones.map((m, idx) => {
@@ -236,11 +233,7 @@ export default async function SchedulePage() {
         </div>
 
         {tasks.length === 0 ? (
-          <EmptyState
-            icon={<ClipboardList className="h-5 w-5" />}
-            title="No tasks scheduled"
-            hint="Schedule tasks will appear here once created against a project."
-          />
+          <ComingSoon icon={<ClipboardList className="h-5 w-5" />} title="No tasks scheduled" />
         ) : (
           <div className="surface overflow-hidden">
             <div className="overflow-x-auto">

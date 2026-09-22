@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
@@ -68,15 +69,15 @@ export default async function DrawingsPage({
       </FilterBar>
 
       {drawings.length === 0 ? (
-        <EmptyState
-          icon={<Ruler size={20} />}
-          title={isFiltered ? "No drawings match this search" : "No drawings uploaded yet"}
-          hint={
-            isFiltered
-              ? "Try a different number or title, or reset to see all drawings."
-              : "Upload a PDF or DWG to start the approval chain."
-          }
-        />
+        isFiltered ? (
+          <EmptyState
+            icon={<Ruler size={20} />}
+            title="No drawings match this search"
+            hint="Try a different number or title, or reset to see all drawings."
+          />
+        ) : (
+          <ComingSoon icon={<Ruler size={20} />} title="No drawings uploaded yet" />
+        )
       ) : (
         <>
           {/* Summary stat cards */}

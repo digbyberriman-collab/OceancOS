@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
@@ -62,15 +63,15 @@ export default async function DocumentsPage({
       </FilterBar>
 
       {visible.length === 0 ? (
-        <EmptyState
-          icon={<FileText size={20} />}
-          title={isFiltered ? "No documents match this search" : "No documents"}
-          hint={
-            isFiltered
-              ? "Try a different name, or reset to see all documents."
-              : "Upload contracts, certs, manuals, RAMs, minutes."
-          }
-        />
+        isFiltered ? (
+          <EmptyState
+            icon={<FileText size={20} />}
+            title="No documents match this search"
+            hint="Try a different name, or reset to see all documents."
+          />
+        ) : (
+          <ComingSoon icon={<FileText size={20} />} title="No documents" />
+        )
       ) : (
         <>
           {/* Summary stat strip */}

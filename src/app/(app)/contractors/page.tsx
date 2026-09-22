@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Building2, AlertTriangle, Mail } from "lucide-react";
@@ -54,15 +55,15 @@ export default async function ContractorsPage({
       </FilterBar>
 
       {totalCount === 0 ? (
-        <EmptyState
-          icon={<Building2 size={20} />}
-          title={isFiltered ? "No contractors match this search" : "No contractors"}
-          hint={
-            isFiltered
-              ? "Try a different name, or reset to see all contractors."
-              : "Add a contractor to track scope, value and insurance."
-          }
-        />
+        isFiltered ? (
+          <EmptyState
+            icon={<Building2 size={20} />}
+            title="No contractors match this search"
+            hint="Try a different name, or reset to see all contractors."
+          />
+        ) : (
+          <ComingSoon icon={<Building2 size={20} />} title="No contractors" />
+        )
       ) : (
         <>
           {/* Summary stat strip */}
