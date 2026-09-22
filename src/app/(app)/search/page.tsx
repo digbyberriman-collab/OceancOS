@@ -8,9 +8,37 @@ import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
+// Below this, the seven `ILIKE '%x%'` scans below match nearly every row in
+// every table regardless of the trigram indexes G4.6 added — a one-character
+// term is the worst case a leading wildcard can hit, not a useful search
+// (ACTION_PLAN.md G4.6, performance [QUERY]).
+const MIN_QUERY_LENGTH = 2;
+
 export default async function SearchPage({ searchParams }: { searchParams: { q?: string } }) {
   const user = await requireUser();
   const q = (searchParams.q ?? "").trim();
+
+  if (q && q.length < MIN_QUERY_LENGTH) {
+    return (
+      <div className="animate-fade-up space-y-5">
+        <PageHeader eyebrow="System" title="Search results" subtitle={`"${q}" is too short to search on.`} />
+        <div className="surface p-4">
+          <form className="flex gap-2">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+              <input name="q" defaultValue={q} className="input-base pl-9" autoFocus />
+            </div>
+            <button type="submit" className="btn btn-primary px-5">Search</button>
+          </form>
+        </div>
+        <EmptyState
+          icon={<SearchX size={20} />}
+          title="Type at least 2 characters"
+          hint="A single character would match almost everything in every table."
+        />
+      </div>
+    );
+  }
 
   if (!q) {
     return (
