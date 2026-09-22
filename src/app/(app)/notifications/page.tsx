@@ -56,7 +56,7 @@ export default async function NotificationsPage({
       <PageHeader
         eyebrow="System"
         title="Notifications"
-        subtitle="In-app inbox. Email fan-out enables when SMTP is configured."
+        subtitle="In-app inbox."
         actions={
           <form action={markAllRead}>
             <SubmitButton className="btn btn-ghost flex items-center gap-1.5">

@@ -53,7 +53,7 @@ export default async function DrawingsPage({
       <PageHeader
         eyebrow="Technical"
         title="Drawings & plan approvals"
-        subtitle="Versioned drawings with approval status. In-browser markup is planned."
+        subtitle="Versioned drawings with approval status."
       />
 
       <FilterBar resetHref="/drawings" resultCount={totalCount} resultLabel="drawing">

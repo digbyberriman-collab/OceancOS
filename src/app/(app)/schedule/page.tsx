@@ -141,7 +141,7 @@ export default async function SchedulePage() {
       <PageHeader
         eyebrow="Project Timeline"
         title="Schedule"
-        subtitle="Tasks, milestones and critical dates. Gantt view planned."
+        subtitle="Tasks, milestones and critical dates."
       />
 
       {/* ── Milestones timeline ── */}
