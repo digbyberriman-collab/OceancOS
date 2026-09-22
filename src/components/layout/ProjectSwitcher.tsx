@@ -56,7 +56,7 @@ export function ProjectSwitcher({
           name="projectId"
           defaultValue={active.id}
           onChange={() => formRef.current?.requestSubmit()}
-          className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-xs font-medium text-white focus:outline-none"
+          className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-xs font-medium text-white"
         >
           {projects.map((p) => (
             <option key={p.id} value={p.id} className="bg-ink-900 text-white">

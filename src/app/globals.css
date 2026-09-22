@@ -115,9 +115,16 @@
 
   /* Forms ----------------------------------------------------------------- */
   .input-base {
+    /* ACTION_PLAN.md G5.3: used to also set focus:outline-none, which — being
+       in the components layer — beat the base layer's sitewide :focus-visible
+       rule (a 2px solid marine outline, 9.29:1) and replaced it with nothing
+       but this ring, a translucent accent/30 that only reaches 1.50:1 against
+       the field's own focus background. Dropped, so the sitewide outline
+       applies here too; border-accent and bg-ink-950 stay as extra (not the
+       sole) focus feedback. */
     @apply w-full bg-ink-950/70 border border-line rounded-lg px-3 py-2 text-sm text-white
       placeholder:text-faint transition-all duration-150
-      focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 focus:bg-ink-950;
+      focus:border-accent focus:bg-ink-950;
   }
   .label-base {
     @apply block text-[11px] uppercase tracking-wider text-muted mb-1.5 font-medium;
