@@ -216,8 +216,8 @@ model ChangeOrder {
   vesselAreaId       String?
   status             String    @default("DRAFT") // DRAFT|SUBMITTED|UNDER_REVIEW|MORE_INFO|APPROVED|REJECTED|IN_PROGRESS|COMPLETED|CLOSED|CANCELLED
   priority           String    @default("MEDIUM")
-  estimatedCost      Float     @default(0)
-  approvedCost       Float?
+  estimatedCost      Decimal   @default(0) @db.Decimal(14, 2)
+  approvedCost       Decimal?  @db.Decimal(14, 2)
   scheduleImpactDays Int       @default(0)
   riskImpact         String?
   technicalImpact    String?
@@ -298,7 +298,7 @@ model CrewRequest {
   requestedById       String
   assignedToId        String?
   dueDate             DateTime?
-  costImpact          Float     @default(0)
+  costImpact          Decimal   @default(0) @db.Decimal(14, 2)
   scheduleImpactDays  Int       @default(0)
   safetyImpact        String?
   linkedChangeOrderId String?
@@ -343,7 +343,7 @@ model Approval {
   status             String    @default("PENDING")
   requesterId        String
   approverId         String?
-  costImpact         Float     @default(0)
+  costImpact         Decimal   @default(0) @db.Decimal(14, 2)
   scheduleImpactDays Int       @default(0)
   dueDate            DateTime?
   notes              String?
@@ -384,12 +384,12 @@ model Budget {
   projectId       String
   categoryId      String
   departmentCode  String?
-  originalAmount  Float          @default(0)
-  approvedChanges Float          @default(0)
-  pendingChanges  Float          @default(0)
-  committed       Float          @default(0)
-  actual          Float          @default(0)
-  forecastFinal   Float          @default(0)
+  originalAmount  Decimal        @default(0) @db.Decimal(14, 2)
+  approvedChanges Decimal        @default(0) @db.Decimal(14, 2)
+  pendingChanges  Decimal        @default(0) @db.Decimal(14, 2)
+  committed       Decimal        @default(0) @db.Decimal(14, 2)
+  actual          Decimal        @default(0) @db.Decimal(14, 2)
+  forecastFinal   Decimal        @default(0) @db.Decimal(14, 2)
   notes           String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -420,7 +420,7 @@ model PurchaseOrder {
   number      String    @unique
   supplierId  String
   projectId   String?
-  amount      Float
+  amount      Decimal   @db.Decimal(14, 2)
   status      String    @default("DRAFT") // DRAFT|SUBMITTED|APPROVED|REJECTED|RECEIVED|CLOSED
   description String?
   costCodeId  String?
@@ -443,7 +443,7 @@ model Invoice {
   number     String
   supplierId String
   poId       String?
-  amount     Float
+  amount     Decimal        @db.Decimal(14, 2)
   status     String         @default("RECEIVED") // RECEIVED|APPROVED|REJECTED|PAID
   dueDate    DateTime?
   createdAt  DateTime       @default(now())
@@ -508,7 +508,7 @@ model LogisticsItem {
   responsibleId String?
   status        String    @default("PLANNED")
   supplierId    String?
-  cost          Float     @default(0)
+  cost          Decimal   @default(0) @db.Decimal(14, 2)
   notes         String?
   createdAt     DateTime  @default(now())
   project       Project   @relation(fields: [projectId], references: [id])
@@ -537,7 +537,7 @@ model InventoryItem {
   warranty        String?
   certificate     String?
   maintenance     String?
-  replacementCost Float     @default(0)
+  replacementCost Decimal   @default(0) @db.Decimal(14, 2)
   status          String    @default("OK") // OK|LOW|REORDER|MISSING|FAULTY|RETIRED
   minStock        Int       @default(0)
   reorderTrigger  Int       @default(0)
@@ -614,7 +614,7 @@ model Contractor {
   contact            String?
   email              String?
   phone              String?
-  contractValue      Float     @default(0)
+  contractValue      Decimal   @default(0) @db.Decimal(14, 2)
   insuranceExpiresAt DateTime?
   notes              String?
   createdAt          DateTime  @default(now())
@@ -675,7 +675,7 @@ model Risk {
   ownerId            String?
   dueDate            DateTime?
   status             String    @default("OPEN") // OPEN|MITIGATED|ACCEPTED|CLOSED|ESCALATED
-  costImpact         Float     @default(0)
+  costImpact         Decimal   @default(0) @db.Decimal(14, 2)
   scheduleImpactDays Int       @default(0)
   safetyImpact       String?
   createdAt          DateTime  @default(now())
@@ -837,10 +837,10 @@ model Job {
   // NEW_REQUEST|QUOTE_SENT|CLIENT_ACCEPTED|ACCEPTED|EXPIRED|CANCELLED_QUOTE|
   // CANCELLED_WORKS|YARD_COMPLETED|WORKS_ACCEPTED|MINOR_DEFICIENCY|CLOSED
 
-  total       Float  @default(0)
-  currency    String @default("EUR")
+  total       Decimal @default(0) @db.Decimal(14, 2)
+  currency    String  @default("EUR")
   /// Yard-reported completion, 0–100.
-  progressPct Int    @default(0)
+  progressPct Int     @default(0)
 
   requestedAt      DateTime?
   quoteDeliveredAt DateTime?
@@ -898,17 +898,17 @@ model Job {
 }
 
 model JobLine {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   jobId       String
-  sort        Int    @default(0)
+  sort        Int     @default(0)
   description String
-  quantity    Float  @default(1)
-  unit        String @default("UN")
-  unitPrice   Float  @default(0)
+  quantity    Decimal @default(1) @db.Decimal(14, 3)
+  unit        String  @default("UN")
+  unitPrice   Decimal @default(0) @db.Decimal(14, 2)
   /// quantity × unitPrice, stored so a historic quote keeps the figure it was
   /// accepted at even if the arithmetic convention ever changes.
-  total       Float  @default(0)
-  job         Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  total       Decimal @default(0) @db.Decimal(14, 2)
+  job         Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
 }
@@ -926,15 +926,15 @@ model JobNote {
 
 /// Variation certificate detail, present only on a variation.
 model JobVariation {
-  id                 String  @id @default(cuid())
-  jobId              String  @unique
+  id                 String   @id @default(cuid())
+  jobId              String   @unique
   dueTo              String? // OWNER_REQUEST|YARD_FINDING|CLASS_REQUIREMENT|SURVEY_FINDING|OTHER
   affecting          String? // WORKS_SPECIFICATION|DELIVERY_DATE|CONTRACT_PRICE|OTHER
   deliveryAdjustment String?
-  priceAdjustment    Float?
+  priceAdjustment    Decimal? @db.Decimal(14, 2)
   /// Staged invoicing terms, e.g. 50% on signature and 50% on completion.
   invoicingTerms     Json?
-  job                Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job                Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
 }
 
 model JobHistory {

@@ -1,12 +1,28 @@
 import clsx, { type ClassValue } from "clsx";
+import { Prisma } from "@prisma/client";
 
 export function cn(...inputs: ClassValue[]) {
   return clsx(inputs);
 }
 
-export function fmtMoney(n: number | null | undefined, ccy = "EUR") {
-  if (n == null || Number.isNaN(n)) return "—";
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(n);
+/**
+ * Money columns are `Prisma.Decimal` (ACTION_PLAN.md G3.2 — exact decimal
+ * storage, not `double precision`). This is the one place that boundary is
+ * crossed back to a plain `number`, for display and for non-Prisma
+ * consumers (chart props, XLSX cells) that only need a number to render —
+ * arithmetic that feeds back into a stored total or a signed figure should
+ * use `Prisma.Decimal` directly instead, not this.
+ */
+export function toNumber(n: Prisma.Decimal | number | null | undefined): number {
+  if (n == null) return 0;
+  return n instanceof Prisma.Decimal ? n.toNumber() : n;
+}
+
+export function fmtMoney(n: Prisma.Decimal | number | null | undefined, ccy = "EUR") {
+  if (n == null) return "—";
+  const value = toNumber(n);
+  if (Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: ccy, maximumFractionDigits: 0 }).format(value);
 }
 
 export function fmtDate(d: Date | string | null | undefined) {

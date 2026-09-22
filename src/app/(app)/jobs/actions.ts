@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -210,14 +211,17 @@ export async function issueQuote(formData: FormData) {
         unit: value.unit,
         unitPrice: value.unitPrice,
         // Held rather than derived on read, so an accepted quote keeps the
-        // figure it was accepted at.
-        total: Math.round(value.quantity * value.unitPrice * 100) / 100,
+        // figure it was accepted at. Computed with Prisma.Decimal, not `*`
+        // and `Math.round`, per ACTION_PLAN.md G3.2 — the previous version
+        // rounded each line's product but summed the rounded floats, so the
+        // stored job total could disagree with the sum of its own lines.
+        total: new Prisma.Decimal(value.quantity).times(value.unitPrice).toDecimalPlaces(2),
       };
     });
 
   if (!lines.length) back("A quote needs at least one line.");
 
-  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  const total = lines.reduce((sum, line) => sum.plus(line.total), new Prisma.Decimal(0));
   const now = new Date();
   const expiresAt = expiryFrom(now, validityDays);
 
@@ -265,7 +269,7 @@ export async function issueQuote(formData: FormData) {
         event: "QUOTED",
         fromStatus: job.status,
         toStatus: "QUOTE_SENT",
-        details: { total, validityDays },
+        details: { total: total.toNumber(), validityDays },
       },
     }),
     prisma.comment.create({

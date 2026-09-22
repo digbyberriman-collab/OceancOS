@@ -150,7 +150,7 @@ export default async function LogisticsPage() {
 
                     {/* Cost — right-aligned tabular */}
                     <td className="text-right tnum text-white/80">
-                      {l.cost > 0 ? fmtMoney(l.cost) : <span className="text-faint">—</span>}
+                      {l.cost.greaterThan(0) ? fmtMoney(l.cost) : <span className="text-faint">—</span>}
                     </td>
 
                     {/* Notes */}

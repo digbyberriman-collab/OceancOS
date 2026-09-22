@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
-import { fmtMoney } from "@/lib/utils";
+import { fmtMoney, toNumber } from "@/lib/utils";
 import { BudgetBar } from "@/components/data/BudgetBar";
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from "lucide-react";
 
@@ -27,12 +27,14 @@ export default async function FinancialsPage() {
   });
   const totals = budgets.reduce(
     (s, b) => {
-      s.original += b.originalAmount;
-      s.approved += b.approvedChanges;
-      s.pending += b.pendingChanges;
-      s.committed += b.committed;
-      s.actual += b.actual;
-      s.forecast += b.forecastFinal || b.originalAmount + b.approvedChanges;
+      s.original += toNumber(b.originalAmount);
+      s.approved += toNumber(b.approvedChanges);
+      s.pending += toNumber(b.pendingChanges);
+      s.committed += toNumber(b.committed);
+      s.actual += toNumber(b.actual);
+      s.forecast += b.forecastFinal.isZero()
+        ? toNumber(b.originalAmount) + toNumber(b.approvedChanges)
+        : toNumber(b.forecastFinal);
       return s;
     },
     { original: 0, approved: 0, pending: 0, committed: 0, actual: 0, forecast: 0 }
@@ -170,8 +172,8 @@ export default async function FinancialsPage() {
               </thead>
               <tbody>
                 {budgets.map((b) => {
-                  const target = b.originalAmount + b.approvedChanges;
-                  const fc = b.forecastFinal || target;
+                  const target = toNumber(b.originalAmount) + toNumber(b.approvedChanges);
+                  const fc = b.forecastFinal.isZero() ? target : toNumber(b.forecastFinal);
                   const variance = fc - target;
                   const variancePositive = variance > 0;
                   const varianceNeutral = variance === 0;
@@ -205,7 +207,7 @@ export default async function FinancialsPage() {
                       </td>
                       <td className="py-3">
                         <BudgetBar
-                          actual={b.actual}
+                          actual={toNumber(b.actual)}
                           forecast={fc}
                           budget={target}
                         />

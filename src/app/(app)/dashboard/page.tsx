@@ -13,7 +13,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
-import { fmtDate, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { BudgetSummary } from "@/components/dashboard/BudgetSummary";
 import { Panel } from "@/components/dashboard/Panel";
@@ -63,11 +63,15 @@ export default async function DashboardPage() {
 
   // Budget rollup
   const budgets = await prisma.budget.findMany({ where: scope });
-  const original = budgets.reduce((s, b) => s + b.originalAmount, 0);
-  const approved = budgets.reduce((s, b) => s + b.approvedChanges, 0);
-  const pending = budgets.reduce((s, b) => s + b.pendingChanges, 0);
-  const actual = budgets.reduce((s, b) => s + b.actual, 0);
-  const forecast = budgets.reduce((s, b) => s + (b.forecastFinal || b.originalAmount + b.approvedChanges), 0);
+  const original = budgets.reduce((s, b) => s + toNumber(b.originalAmount), 0);
+  const approved = budgets.reduce((s, b) => s + toNumber(b.approvedChanges), 0);
+  const pending = budgets.reduce((s, b) => s + toNumber(b.pendingChanges), 0);
+  const actual = budgets.reduce((s, b) => s + toNumber(b.actual), 0);
+  const forecast = budgets.reduce(
+    (s, b) =>
+      s + (b.forecastFinal.isZero() ? toNumber(b.originalAmount) + toNumber(b.approvedChanges) : toNumber(b.forecastFinal)),
+    0
+  );
 
   const myApprovals = await prisma.changeOrderApproval.findMany({
     where: { decision: "PENDING", changeOrder: scope },
@@ -110,8 +114,8 @@ export default async function DashboardPage() {
   const committed = changeOrders.filter((co) => co.approvedCost != null);
   const workPct = committed.length
     ? Math.round(
-        committed.reduce((sum, co) => sum + (COMPLETION_BY_STATUS[co.status] ?? 0) * (co.approvedCost ?? 0), 0) /
-          Math.max(1, committed.reduce((sum, co) => sum + (co.approvedCost ?? 0), 0))
+        committed.reduce((sum, co) => sum + (COMPLETION_BY_STATUS[co.status] ?? 0) * toNumber(co.approvedCost), 0) /
+          Math.max(1, committed.reduce((sum, co) => sum + toNumber(co.approvedCost), 0))
       )
     : null;
 
@@ -133,7 +137,7 @@ export default async function DashboardPage() {
       points: cumulativeByDate(
         changeOrders
           .filter((co) => PENDING_STATUSES.includes(co.status))
-          .map((co) => ({ at: co.createdAt, amount: co.estimatedCost }))
+          .map((co) => ({ at: co.createdAt, amount: toNumber(co.estimatedCost) }))
       ),
     },
     {
@@ -143,7 +147,7 @@ export default async function DashboardPage() {
       points: cumulativeByDate(
         changeOrders
           .filter((co) => APPROVED_STATUSES.includes(co.status))
-          .map((co) => ({ at: co.createdAt, amount: co.approvedCost ?? co.estimatedCost }))
+          .map((co) => ({ at: co.createdAt, amount: toNumber(co.approvedCost ?? co.estimatedCost) }))
       ),
     },
   ];

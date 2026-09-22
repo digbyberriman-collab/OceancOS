@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Prisma } from "@prisma/client";
 import { Search, Star, FileSpreadsheet } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -68,7 +69,7 @@ export default async function JobsPage({
 
   const countByView = new Map(counts.map((c) => [c.key, c.count]));
   const groups = groupJobs(jobs, compareJobCodes);
-  const grandTotal = jobs.reduce((sum, j) => sum + j.total, 0);
+  const grandTotal = jobs.reduce((sum, j) => sum.plus(j.total), new Prisma.Decimal(0));
 
   const qs = (patch: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -291,7 +292,7 @@ export default async function JobsPage({
                             )}
                           </td>
                           <td className="whitespace-nowrap text-right font-medium text-white tnum">
-                            {job.total > 0 ? fmtMoney(job.total, project.currency) : "—"}
+                            {job.total.greaterThan(0) ? fmtMoney(job.total, project.currency) : "—"}
                           </td>
                           <td className="whitespace-nowrap text-right text-xs text-muted tnum">
                             {job.quoteDeliveredAt ? fmtDate(job.quoteDeliveredAt) : "—"}

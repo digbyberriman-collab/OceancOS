@@ -8,7 +8,7 @@ import { listProjectsForUser } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input } from "@/components/ui/Form";
-import { fmtDate, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { isExpired } from "@/lib/jobs/workflow";
 import { CHALLENGE_TTL_MINUTES, challengeProblem } from "@/lib/jobs/acceptance";
 import { confirmAcceptance, rejectQuote, requestAcceptanceCode } from "./actions";
@@ -147,7 +147,7 @@ export default async function AcceptQuote({
                     {job.lines.map((line) => (
                       <tr key={line.id}>
                         <td>{line.description}</td>
-                        <td className="text-right tnum">{line.quantity.toLocaleString("en-GB")}</td>
+                        <td className="text-right tnum">{toNumber(line.quantity).toLocaleString("en-GB")}</td>
                         <td className="text-muted">{line.unit}</td>
                         <td className="text-right tnum">{fmtMoney(line.unitPrice, currency)}</td>
                         <td className="text-right font-medium text-white tnum">

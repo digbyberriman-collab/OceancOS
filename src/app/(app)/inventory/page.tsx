@@ -285,7 +285,7 @@ export default async function InventoryPage({
 
                       {/* Replacement cost */}
                       <td className="text-right tnum text-white/70">
-                        {i.replacementCost > 0 ? (
+                        {i.replacementCost.greaterThan(0) ? (
                           fmtMoney(i.replacementCost)
                         ) : (
                           <span className="text-faint">—</span>

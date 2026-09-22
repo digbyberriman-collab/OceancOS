@@ -13,6 +13,7 @@ import { listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project
 import { assertTransitionJob } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { forbidden, notFound } from "@/lib/errors";
+import { toNumber } from "@/lib/utils";
 import {
   MAX_CHALLENGE_ATTEMPTS,
   acceptanceEmail,
@@ -106,7 +107,7 @@ export async function requestAcceptanceCode(formData: FormData) {
       style: "currency",
       currency: job.currency || job.project.currency,
       maximumFractionDigits: 0,
-    }).format(job.total),
+    }).format(toNumber(job.total)),
   });
   await sendEmail({ to: user.email, subject, text });
 
@@ -196,7 +197,7 @@ export async function confirmAcceptance(formData: FormData) {
         event: "CLIENT_ACCEPTED",
         fromStatus: job.status,
         toStatus: "CLIENT_ACCEPTED",
-        details: { quoteHash: challenge!.quoteHash, total: job.total, channel: challenge!.channel },
+        details: { quoteHash: challenge!.quoteHash, total: toNumber(job.total), channel: challenge!.channel },
       },
     }),
     prisma.comment.create({
@@ -219,7 +220,7 @@ export async function confirmAcceptance(formData: FormData) {
     resourceId: jobId,
     details: {
       event: "CLIENT_ACCEPTED",
-      total: job.total,
+      total: toNumber(job.total),
       currency: job.currency,
       quoteHash: challenge!.quoteHash,
       challengeId,

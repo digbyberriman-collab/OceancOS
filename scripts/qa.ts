@@ -30,7 +30,7 @@ async function main() {
 
   // 3. project + budget rollup makes sense
   const budgets = await prisma.budget.findMany();
-  const total = budgets.reduce((s, b) => s + b.originalAmount, 0);
+  const total = budgets.reduce((s, b) => s + b.originalAmount.toNumber(), 0);
   assert(total > 0, `total original budget > 0 (${total})`);
 
   // 4. change order with approval chain

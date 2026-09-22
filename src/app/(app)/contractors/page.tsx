@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
-import { fmtDate, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { Building2, AlertTriangle, Phone, Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function ContractorsPage() {
             <div className="stat-card">
               <div className="stat-label">Total contract value</div>
               <div className="stat-value text-marine text-lg">
-                {fmtMoney(items.reduce((sum, c) => sum + (c.contractValue ?? 0), 0))}
+                {fmtMoney(items.reduce((sum, c) => sum + toNumber(c.contractValue), 0))}
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
             </div>

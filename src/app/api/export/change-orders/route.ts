@@ -5,6 +5,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject, projectScope } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
 import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
+import { toNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -56,8 +57,8 @@ export async function GET(request: Request) {
       { header: "Department", type: "text", value: (r) => r.departmentCode ?? "", width: 16 },
       ...(showMoney
         ? ([
-            { header: "Estimated cost", type: "money", value: (r: Row) => r.estimatedCost, width: 16 },
-            { header: "Approved cost", type: "money", value: (r: Row) => r.approvedCost ?? null, width: 16 },
+            { header: "Estimated cost", type: "money", value: (r: Row) => toNumber(r.estimatedCost), width: 16 },
+            { header: "Approved cost", type: "money", value: (r: Row) => (r.approvedCost != null ? toNumber(r.approvedCost) : null), width: 16 },
           ] as const)
         : []),
       { header: "Schedule impact (days)", type: "number", value: (r) => r.scheduleImpactDays, width: 20 },

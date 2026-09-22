@@ -5,6 +5,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
 import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
+import { toNumber } from "@/lib/utils";
 import { compareJobCodes } from "@/lib/jobs/codes";
 import { CONTRACT_TYPE_LABELS, JOB_STATUS_LABELS, PRICING_BASIS_LABELS } from "@/lib/enums";
 import type { ContractType, JobStatus, PricingBasis } from "@/lib/enums";
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
       { header: "Accepted", type: "date", value: (r) => r.clientAcceptedAt, width: 13 },
       { header: "Cancelled", type: "date", value: (r) => r.cancelledAt, width: 13 },
       ...(showMoney
-        ? ([{ header: "Total", type: "money", value: (r: Row) => r.total, width: 14 }] as const)
+        ? ([{ header: "Total", type: "money", value: (r: Row) => toNumber(r.total), width: 14 }] as const)
         : []),
       {
         header: "Contract",

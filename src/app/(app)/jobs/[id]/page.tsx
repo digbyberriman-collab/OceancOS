@@ -19,7 +19,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { Field, Textarea } from "@/components/ui/Form";
-import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
 import { daysUntilExpiry, isExpired, jobActions } from "@/lib/jobs/workflow";
 import {
   CONTRACT_TYPE_LABELS,
@@ -192,7 +192,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                     {job.lines.map((line) => (
                       <tr key={line.id}>
                         <td>{line.description}</td>
-                        <td className="text-right tnum">{line.quantity.toLocaleString("en-GB")}</td>
+                        <td className="text-right tnum">{toNumber(line.quantity).toLocaleString("en-GB")}</td>
                         <td className="text-muted">{line.unit}</td>
                         <td className="text-right tnum">{fmtMoney(line.unitPrice, currency)}</td>
                         <td className="text-right font-medium text-white tnum">
