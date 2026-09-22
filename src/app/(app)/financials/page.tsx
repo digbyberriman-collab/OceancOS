@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
-import { fmtMoney, toNumber } from "@/lib/utils";
+import { aggregateCurrency, fmtMoney, toNumber } from "@/lib/utils";
 import { BudgetBar } from "@/components/data/BudgetBar";
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from "lucide-react";
 
@@ -40,6 +40,16 @@ export default async function FinancialsPage() {
     { original: 0, approved: 0, pending: 0, committed: 0, actual: 0, forecast: 0 }
   );
 
+  // The stat cards and the portfolio-total footer sum across every
+  // accessible project — only safe to label with one currency when every
+  // one of those projects actually shares it (ACTION_PLAN.md G3.10).
+  const portfolioCurrency = aggregateCurrency(budgets.map((b) => b.project.currency));
+  const mixedCurrencies = budgets.length > 0 && portfolioCurrency === null;
+
+  // A plain number that can't be labelled honestly reads as "Mixed" rather
+  // than silently picking a currency none of the underlying rows agree on.
+  const fmtTotal = (n: number) => (mixedCurrencies ? "Mixed" : fmtMoney(n, portfolioCurrency ?? undefined));
+
   const totalBaseline = totals.original + totals.approved;
   const overallVariance = totals.forecast - totalBaseline;
   const overBudget = overallVariance > 0;
@@ -54,34 +64,41 @@ export default async function FinancialsPage() {
         eyebrow="Project Finance"
         title="Financials"
         subtitle="Budgets, commitments, actuals and forecast across all active projects."
+        actions={
+          mixedCurrencies ? (
+            <span className="badge badge-warn text-xs" title="These projects use different currencies, so the totals above aren't added across them.">
+              Mixed currencies — totals not summed
+            </span>
+          ) : undefined
+        }
       />
 
       {/* ── Summary stat cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5 animate-fade-up" style={{ animationDelay: "60ms" }}>
         <div className="stat-card">
           <div className="stat-label">Original</div>
-          <div className="stat-value tnum">{fmtMoney(totals.original)}</div>
+          <div className="stat-value tnum">{fmtTotal(totals.original)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Approved Δ</div>
-          <div className="stat-value tnum">{fmtMoney(totals.approved)}</div>
+          <div className="stat-value tnum">{fmtTotal(totals.approved)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Pending Δ</div>
-          <div className="stat-value text-warn tnum">{fmtMoney(totals.pending)}</div>
+          <div className="stat-value text-warn tnum">{fmtTotal(totals.pending)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Committed</div>
-          <div className="stat-value tnum">{fmtMoney(totals.committed)}</div>
+          <div className="stat-value tnum">{fmtTotal(totals.committed)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Actual</div>
-          <div className="stat-value tnum">{fmtMoney(totals.actual)}</div>
+          <div className="stat-value tnum">{fmtTotal(totals.actual)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Forecast</div>
           <div className={`stat-value tnum ${overBudget ? "text-bad" : "text-ok"}`}>
-            {fmtMoney(totals.forecast)}
+            {fmtTotal(totals.forecast)}
           </div>
         </div>
       </div>
@@ -100,7 +117,7 @@ export default async function FinancialsPage() {
               <TrendingDown className="h-4 w-4 text-ok" aria-hidden />
             )}
             <span className={overBudget ? "text-bad" : "text-ok"}>
-              {overBudget ? "+" : "−"}{fmtMoney(Math.abs(overallVariance))} variance
+              {overBudget ? "+" : "−"}{fmtTotal(Math.abs(overallVariance))} variance
             </span>
           </div>
         </div>
@@ -185,13 +202,13 @@ export default async function FinancialsPage() {
                       </td>
                       <td className="text-white/90">{b.category.name}</td>
                       <td className="text-muted">{b.departmentCode ?? "—"}</td>
-                      <td className="text-right tnum text-white/80">{fmtMoney(b.originalAmount)}</td>
-                      <td className="text-right tnum text-white/80">{fmtMoney(b.approvedChanges)}</td>
-                      <td className="text-right tnum text-warn">{fmtMoney(b.pendingChanges)}</td>
-                      <td className="text-right tnum text-white/80">{fmtMoney(b.committed)}</td>
-                      <td className="text-right tnum text-white/80">{fmtMoney(b.actual)}</td>
+                      <td className="text-right tnum text-white/80">{fmtMoney(b.originalAmount, b.project.currency)}</td>
+                      <td className="text-right tnum text-white/80">{fmtMoney(b.approvedChanges, b.project.currency)}</td>
+                      <td className="text-right tnum text-warn">{fmtMoney(b.pendingChanges, b.project.currency)}</td>
+                      <td className="text-right tnum text-white/80">{fmtMoney(b.committed, b.project.currency)}</td>
+                      <td className="text-right tnum text-white/80">{fmtMoney(b.actual, b.project.currency)}</td>
                       <td className={`text-right tnum font-medium ${variancePositive ? "text-bad" : "text-ok"}`}>
-                        {fmtMoney(fc)}
+                        {fmtMoney(fc, b.project.currency)}
                       </td>
                       <td
                         className={`text-right tnum font-semibold tabular-nums ${
@@ -203,7 +220,7 @@ export default async function FinancialsPage() {
                         }`}
                       >
                         {variancePositive ? "+" : varianceNeutral ? "" : "−"}
-                        {fmtMoney(Math.abs(variance))}
+                        {fmtMoney(Math.abs(variance), b.project.currency)}
                       </td>
                       <td className="py-3">
                         <BudgetBar
@@ -227,26 +244,26 @@ export default async function FinancialsPage() {
                     Portfolio Total
                   </td>
                   <td className="px-3.5 py-2.5 text-right tnum text-sm font-semibold text-white/90">
-                    {fmtMoney(totals.original)}
+                    {fmtTotal(totals.original)}
                   </td>
                   <td className="px-3.5 py-2.5 text-right tnum text-sm font-semibold text-white/90">
-                    {fmtMoney(totals.approved)}
+                    {fmtTotal(totals.approved)}
                   </td>
                   <td className="px-3.5 py-2.5 text-right tnum text-sm font-semibold text-warn">
-                    {fmtMoney(totals.pending)}
+                    {fmtTotal(totals.pending)}
                   </td>
                   <td className="px-3.5 py-2.5 text-right tnum text-sm font-semibold text-white/90">
-                    {fmtMoney(totals.committed)}
+                    {fmtTotal(totals.committed)}
                   </td>
                   <td className="px-3.5 py-2.5 text-right tnum text-sm font-semibold text-white/90">
-                    {fmtMoney(totals.actual)}
+                    {fmtTotal(totals.actual)}
                   </td>
                   <td
                     className={`px-3.5 py-2.5 text-right tnum text-sm font-bold ${
                       overBudget ? "text-bad" : "text-ok"
                     }`}
                   >
-                    {fmtMoney(totals.forecast)}
+                    {fmtTotal(totals.forecast)}
                   </td>
                   <td
                     className={`px-3.5 py-2.5 text-right tnum text-sm font-bold ${
@@ -254,7 +271,7 @@ export default async function FinancialsPage() {
                     }`}
                   >
                     {overBudget ? "+" : overallVariance === 0 ? "" : "−"}
-                    {fmtMoney(Math.abs(overallVariance))}
+                    {fmtTotal(Math.abs(overallVariance))}
                   </td>
                   <td className="px-3.5 py-2.5" />
                 </tr>

@@ -42,6 +42,7 @@ export default async function ChangeOrdersPage({
 
   const cos = await prisma.changeOrder.findMany({
     where,
+    include: { project: { select: { currency: true } } },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
@@ -168,7 +169,7 @@ export default async function ChangeOrdersPage({
                       <PriorityBadge value={co.priority} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(co.approvedCost ?? co.estimatedCost)}
+                      {fmtMoney(co.approvedCost ?? co.estimatedCost, co.project.currency)}
                     </td>
                     <td className="text-right tnum">
                       {schedDays > 0 ? (

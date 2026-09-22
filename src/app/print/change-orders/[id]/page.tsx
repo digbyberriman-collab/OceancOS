@@ -89,8 +89,8 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
           <Row label="Department" value={co.departmentCode ?? "—"} />
           <Row label="Raised by" value={names.get(co.createdById) ?? "—"} />
           <Row label="Raised on" value={fmtDateTime(co.createdAt)} />
-          {canSeeMoney && <Row label="Estimated cost" value={fmtMoney(co.estimatedCost)} />}
-          {canSeeMoney && <Row label="Approved cost" value={fmtMoney(co.approvedCost)} />}
+          {canSeeMoney && <Row label="Estimated cost" value={fmtMoney(co.estimatedCost, co.project.currency)} />}
+          {canSeeMoney && <Row label="Approved cost" value={fmtMoney(co.approvedCost, co.project.currency)} />}
           <Row
             label="Schedule impact"
             value={co.scheduleImpactDays ? `${co.scheduleImpactDays} days` : "None"}

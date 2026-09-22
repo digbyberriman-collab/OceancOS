@@ -108,10 +108,10 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
               </DefRow>
               <DefRow label="Department">{co.departmentCode ?? "—"}</DefRow>
               <DefRow label="Estimated Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost)}</span>
+                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost, co.project.currency)}</span>
               </DefRow>
               <DefRow label="Approved Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost)}</span>
+                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost, co.project.currency)}</span>
               </DefRow>
               <DefRow label="Schedule Impact">
                 {co.scheduleImpactDays ? (

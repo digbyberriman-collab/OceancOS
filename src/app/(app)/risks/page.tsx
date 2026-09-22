@@ -30,6 +30,7 @@ export default async function RisksPage() {
   }
   const risks = await prisma.risk.findMany({
     where: await projectScope(user.id),
+    include: { project: { select: { currency: true } } },
     orderBy: [{ rating: "desc" }, { createdAt: "desc" }],
   });
 
@@ -138,7 +139,7 @@ export default async function RisksPage() {
                           <StatusBadge value={r.status} />
                         </td>
                         <td className="text-right tnum text-xs text-muted">
-                          {fmtMoney(r.costImpact)}
+                          {fmtMoney(r.costImpact, r.project.currency)}
                         </td>
                         <td className="text-right tnum text-xs text-muted">
                           {r.scheduleImpactDays != null ? `${r.scheduleImpactDays}d` : "—"}

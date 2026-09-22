@@ -77,6 +77,7 @@ export default async function InventoryPage({
 
   const items = await prisma.inventoryItem.findMany({
     where,
+    include: { project: { select: { currency: true } } },
     orderBy: { name: "asc" },
     take: 500,
   });
@@ -286,7 +287,7 @@ export default async function InventoryPage({
                       {/* Replacement cost */}
                       <td className="text-right tnum text-white/70">
                         {i.replacementCost.greaterThan(0) ? (
-                          fmtMoney(i.replacementCost)
+                          fmtMoney(i.replacementCost, i.project?.currency)
                         ) : (
                           <span className="text-faint">—</span>
                         )}

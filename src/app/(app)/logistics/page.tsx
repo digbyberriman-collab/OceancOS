@@ -71,6 +71,7 @@ export default async function LogisticsPage() {
   }
   const items = await prisma.logisticsItem.findMany({
     where: await projectScope(user.id),
+    include: { project: { select: { currency: true } } },
     orderBy: [{ whenAt: "asc" }],
     take: 200,
   });
@@ -150,7 +151,7 @@ export default async function LogisticsPage() {
 
                     {/* Cost — right-aligned tabular */}
                     <td className="text-right tnum text-white/80">
-                      {l.cost.greaterThan(0) ? fmtMoney(l.cost) : <span className="text-faint">—</span>}
+                      {l.cost.greaterThan(0) ? fmtMoney(l.cost, l.project.currency) : <span className="text-faint">—</span>}
                     </td>
 
                     {/* Notes */}

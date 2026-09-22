@@ -13,7 +13,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
-import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
+import { aggregateCurrency, fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { BudgetSummary } from "@/components/dashboard/BudgetSummary";
 import { Panel } from "@/components/dashboard/Panel";
@@ -61,7 +61,10 @@ export default async function DashboardPage() {
     ]);
 
   // Budget rollup
-  const budgets = await prisma.budget.findMany({ where: scope });
+  const budgets = await prisma.budget.findMany({
+    where: scope,
+    include: { project: { select: { currency: true } } },
+  });
   const original = budgets.reduce((s, b) => s + toNumber(b.originalAmount), 0);
   const approved = budgets.reduce((s, b) => s + toNumber(b.approvedChanges), 0);
   const pending = budgets.reduce((s, b) => s + toNumber(b.pendingChanges), 0);
@@ -71,10 +74,15 @@ export default async function DashboardPage() {
       s + (b.forecastFinal.isZero() ? toNumber(b.originalAmount) + toNumber(b.approvedChanges) : toNumber(b.forecastFinal)),
     0
   );
+  // Only safe to label this rollup with one currency when every accessible
+  // project actually shares it (ACTION_PLAN.md G3.10) — same reasoning as
+  // /financials, which this widget links to.
+  const budgetCurrency = aggregateCurrency(budgets.map((b) => b.project.currency));
+  const mixedBudgetCurrencies = budgets.length > 0 && budgetCurrency === null;
 
   const myApprovals = await prisma.changeOrderApproval.findMany({
     where: { decision: "PENDING", changeOrder: scope },
-    include: { changeOrder: true },
+    include: { changeOrder: { include: { project: { select: { currency: true } } } } },
     take: 5,
   });
 
@@ -196,6 +204,8 @@ export default async function DashboardPage() {
               pending={pending}
               actual={actual}
               forecast={forecast}
+              currency={budgetCurrency ?? undefined}
+              mixed={mixedBudgetCurrencies}
             />
           ) : (
             <p className="text-sm text-muted">You don&apos;t have access to financial data.</p>
@@ -296,7 +306,7 @@ export default async function DashboardPage() {
                         </Link>
                       </td>
                       <td className="text-right tnum text-white">
-                        {fmtMoney(a.changeOrder.estimatedCost)}
+                        {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
                       </td>
                       <td>
                         <StatusBadge value={a.changeOrder.status} />

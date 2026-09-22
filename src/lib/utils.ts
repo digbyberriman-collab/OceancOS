@@ -37,6 +37,18 @@ export function fmtDateTime(d: Date | string | null | undefined) {
   return dt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * The currency to label a sum of amounts drawn from more than one project in,
+ * or `null` when they don't share one — summing GBP and USD budget lines into
+ * a single "€" figure would be wrong, not just mislabelled, and there's no
+ * conversion rate in this app to make it right (ACTION_PLAN.md G3.10).
+ * Callers render an explicit "mixed currencies" state rather than guessing.
+ */
+export function aggregateCurrency(currencies: (string | null | undefined)[]): string | null {
+  const distinct = new Set(currencies.filter((c): c is string => !!c));
+  return distinct.size === 1 ? [...distinct][0] : null;
+}
+
 export function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;

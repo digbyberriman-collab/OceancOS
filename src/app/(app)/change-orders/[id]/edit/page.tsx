@@ -22,7 +22,7 @@ export default async function EditChangeOrderPage({ params }: { params: { id: st
 
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
-    include: { project: { select: { vesselId: true } } },
+    include: { project: { select: { vesselId: true, currency: true } } },
   });
   if (!co) return notFound();
 
@@ -137,7 +137,7 @@ export default async function EditChangeOrderPage({ params }: { params: { id: st
         <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
           <div className="eyebrow mb-1">Cost &amp; Schedule</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Estimated Cost (EUR)">
+            <Field label={`Estimated Cost (${co.project.currency})`}>
               <Input
                 type="number"
                 name="estimatedCost"

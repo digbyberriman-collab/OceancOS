@@ -113,7 +113,7 @@ export default async function NewCrewRequest() {
         <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
           <div className="eyebrow mb-1">Impact</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Cost Impact (EUR)">
+            <Field label={`Cost Impact (${project.currency})`}>
               <Input type="number" name="costImpact" min={0} step="0.01" defaultValue={0} />
             </Field>
             <Field label="Schedule Impact (days)">

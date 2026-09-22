@@ -112,7 +112,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
                 </span>
               </DefRow>
               <DefRow label="Cost Impact">
-                <span className="tnum font-medium">{fmtMoney(cr.costImpact)}</span>
+                <span className="tnum font-medium">{fmtMoney(cr.costImpact, cr.project.currency)}</span>
               </DefRow>
               <DefRow label="Schedule Impact">
                 {cr.scheduleImpactDays ? (

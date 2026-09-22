@@ -40,7 +40,7 @@ export default async function ApprovalsPage() {
           stage: { in: myStages as string[] },
           changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
         },
-        include: { changeOrder: true },
+        include: { changeOrder: { include: { project: { select: { currency: true } } } } },
         orderBy: { createdAt: "asc" },
       })
     : [];
@@ -52,7 +52,7 @@ export default async function ApprovalsPage() {
       stage: { notIn: myStages as string[] },
       changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
     },
-    include: { changeOrder: true },
+    include: { changeOrder: { include: { project: { select: { currency: true } } } } },
     orderBy: { createdAt: "asc" },
     take: 50,
   });
@@ -128,7 +128,7 @@ export default async function ApprovalsPage() {
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
+                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
                     </td>
                     <td className="text-right tnum">
                       {a.changeOrder.scheduleImpactDays ? (
@@ -202,7 +202,7 @@ export default async function ApprovalsPage() {
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
+                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
                     </td>
                     <td className="text-right tnum text-muted text-xs">
                       {fmtDate(a.createdAt)}
