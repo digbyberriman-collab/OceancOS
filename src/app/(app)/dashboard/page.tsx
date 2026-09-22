@@ -37,7 +37,7 @@ export default async function DashboardPage() {
   // log), so it stays unscoped here.
   const scope = await projectScope(user.id);
 
-  const [coOpen, coPending, crOpen, crOverdue, approvalsPending, milestonesUpcoming, risksOpen, recent] =
+  const [coOpen, coPending, crOpen, crOverdue, milestonesUpcoming, risksOpen, recent] =
     await Promise.all([
       prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
       prisma.changeOrder.count({
@@ -47,7 +47,6 @@ export default async function DashboardPage() {
       prisma.crewRequest.count({
         where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
       }),
-      prisma.approval.count({ where: { ...scope, status: "PENDING" } }),
       prisma.milestone.findMany({
         where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
         orderBy: { date: "asc" },
@@ -165,7 +164,7 @@ export default async function DashboardPage() {
         <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
         <StatCard
           label="Awaiting approval"
-          value={coPending + approvalsPending}
+          value={coPending}
           href="/approvals"
           tone="warn"
           icon={ClipboardCheck}

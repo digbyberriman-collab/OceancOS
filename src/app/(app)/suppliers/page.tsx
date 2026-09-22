@@ -1,13 +1,23 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Factory, Mail, Phone } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function SuppliersPage() {
+export default async function SuppliersPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   await requireUser();
-  const suppliers = await prisma.supplier.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } });
+  const where: any = { archivedAt: null };
+  if (searchParams.q) {
+    where.name = { contains: searchParams.q, mode: "insensitive" };
+  }
+  const suppliers = await prisma.supplier.findMany({ where, orderBy: { name: "asc" } });
+  const isFiltered = !!searchParams.q;
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -17,11 +27,26 @@ export default async function SuppliersPage() {
         subtitle="Linked to purchase orders and invoices."
       />
 
+      <FilterBar resetHref="/suppliers" resultCount={suppliers.length} resultLabel="supplier">
+        <FilterField label="Search" flex>
+          <input
+            name="q"
+            defaultValue={searchParams.q}
+            className="input-base"
+            placeholder="Supplier name…"
+          />
+        </FilterField>
+      </FilterBar>
+
       {suppliers.length === 0 ? (
         <EmptyState
           icon={<Factory size={20} />}
-          title="No suppliers"
-          hint="Add a supplier to link them to purchase orders and invoices."
+          title={isFiltered ? "No suppliers match this search" : "No suppliers"}
+          hint={
+            isFiltered
+              ? "Try a different name, or reset to see all suppliers."
+              : "Add a supplier to link them to purchase orders and invoices."
+          }
         />
       ) : (
         <div className="surface overflow-hidden">

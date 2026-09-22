@@ -5,22 +5,32 @@ import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
+import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { FolderOpen, AlertTriangle, FileText } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function DocumentsPage() {
+export default async function DocumentsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.DOC_VIEW)) {
     return <EmptyState title="Forbidden" hint="Documents are restricted." />;
   }
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
+  if (searchParams.q) {
+    where.name = { contains: searchParams.q, mode: "insensitive" };
+  }
   const docs = await prisma.document.findMany({
-    where: { archivedAt: null, ...(await projectScope(user.id)) },
+    where,
     orderBy: { createdAt: "desc" },
     take: 500,
   });
   const showConfidential = hasPermission(user, PERMISSIONS.DOC_VIEW_CONFIDENTIAL);
   const visible = showConfidential ? docs : docs.filter((d) => !["CONTRACT", "INVOICE", "PO"].includes(d.type));
+  const isFiltered = !!searchParams.q;
 
   const now = new Date();
   const expiredCount = visible.filter((d) => d.expiresAt && d.expiresAt < now).length;
@@ -40,11 +50,26 @@ export default async function DocumentsPage() {
         subtitle="Versioned files with expiry, owner and audit trail."
       />
 
+      <FilterBar resetHref="/documents" resultCount={visible.length} resultLabel="document">
+        <FilterField label="Search" flex>
+          <input
+            name="q"
+            defaultValue={searchParams.q}
+            className="input-base"
+            placeholder="Document name…"
+          />
+        </FilterField>
+      </FilterBar>
+
       {visible.length === 0 ? (
         <EmptyState
           icon={<FileText size={20} />}
-          title="No documents"
-          hint="Upload contracts, certs, manuals, RAMs, minutes."
+          title={isFiltered ? "No documents match this search" : "No documents"}
+          hint={
+            isFiltered
+              ? "Try a different name, or reset to see all documents."
+              : "Upload contracts, certs, manuals, RAMs, minutes."
+          }
         />
       ) : (
         <>

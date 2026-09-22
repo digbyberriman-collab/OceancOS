@@ -3,16 +3,26 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
+import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Building2, AlertTriangle, Phone, Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContractorsPage() {
+export default async function ContractorsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CON_VIEW)) {
     return <EmptyState title="Forbidden" hint="Contractor records are restricted." />;
   }
-  const items = await prisma.contractor.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } });
+  const where: any = { archivedAt: null };
+  if (searchParams.q) {
+    where.name = { contains: searchParams.q, mode: "insensitive" };
+  }
+  const items = await prisma.contractor.findMany({ where, orderBy: { name: "asc" } });
+  const isFiltered = !!searchParams.q;
 
   const now = new Date();
   const expiredInsurance = items.filter((c) => c.insuranceExpiresAt && c.insuranceExpiresAt < now).length;
@@ -25,11 +35,26 @@ export default async function ContractorsPage() {
         subtitle="Companies, contacts, contract values and insurance status."
       />
 
+      <FilterBar resetHref="/contractors" resultCount={items.length} resultLabel="contractor">
+        <FilterField label="Search" flex>
+          <input
+            name="q"
+            defaultValue={searchParams.q}
+            className="input-base"
+            placeholder="Contractor name…"
+          />
+        </FilterField>
+      </FilterBar>
+
       {items.length === 0 ? (
         <EmptyState
           icon={<Building2 size={20} />}
-          title="No contractors"
-          hint="Add a contractor to track scope, value and insurance."
+          title={isFiltered ? "No contractors match this search" : "No contractors"}
+          hint={
+            isFiltered
+              ? "Try a different name, or reset to see all contractors."
+              : "Add a contractor to track scope, value and insurance."
+          }
         />
       ) : (
         <>

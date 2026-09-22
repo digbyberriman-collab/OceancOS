@@ -5,20 +5,33 @@ import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDate } from "@/lib/utils";
+import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { FileStack, GitBranch, Ruler } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function DrawingsPage() {
+export default async function DrawingsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.DRW_VIEW)) {
     return <EmptyState title="Forbidden" hint="Drawings are restricted." />;
   }
+  const where: any = { ...(await projectScope(user.id)) };
+  if (searchParams.q) {
+    where.OR = [
+      { number: { contains: searchParams.q, mode: "insensitive" } },
+      { title: { contains: searchParams.q, mode: "insensitive" } },
+    ];
+  }
   const drawings = await prisma.drawing.findMany({
-    where: await projectScope(user.id),
+    where,
     include: { revisions: { orderBy: { createdAt: "desc" } } },
     orderBy: { number: "asc" },
   });
+  const isFiltered = !!searchParams.q;
 
   // Group by status for summary counts
   const approved = drawings.filter((d) => d.status === "APPROVED").length;
@@ -33,11 +46,26 @@ export default async function DrawingsPage() {
         subtitle="Versioned drawings with approval status. In-browser markup is planned."
       />
 
+      <FilterBar resetHref="/drawings" resultCount={drawings.length} resultLabel="drawing">
+        <FilterField label="Search" flex>
+          <input
+            name="q"
+            defaultValue={searchParams.q}
+            className="input-base"
+            placeholder="Number, title…"
+          />
+        </FilterField>
+      </FilterBar>
+
       {drawings.length === 0 ? (
         <EmptyState
           icon={<Ruler size={20} />}
-          title="No drawings uploaded yet"
-          hint="Upload a PDF or DWG to start the approval chain."
+          title={isFiltered ? "No drawings match this search" : "No drawings uploaded yet"}
+          hint={
+            isFiltered
+              ? "Try a different number or title, or reset to see all drawings."
+              : "Upload a PDF or DWG to start the approval chain."
+          }
         />
       ) : (
         <>

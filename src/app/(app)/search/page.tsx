@@ -18,7 +18,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
         <PageHeader
           eyebrow="System"
           title="Search"
-          subtitle="Find anything — change orders, drawings, documents, suppliers, crew requests."
+          subtitle="Find anything — change orders, quotes, drawings, documents, suppliers, crew requests."
         />
         <div className="surface p-5">
           <form className="flex gap-2">
@@ -34,7 +34,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
             <button type="submit" className="btn btn-primary px-5">Search</button>
           </form>
           <p className="text-xs text-faint mt-3">
-            Searches change orders, crew requests, drawings, documents, suppliers, contractors and inventory.
+            Searches change orders, crew requests, quotes &amp; requests, drawings, documents, suppliers, contractors and inventory.
           </p>
         </div>
       </div>
@@ -46,7 +46,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   // not tied to one project — so scope is applied to every other model but
   // those two.
   const scope = await projectScope(user.id);
-  const [cos, crs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
+  const [cos, crs, jobs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
     hasPermission(user, PERMISSIONS.CO_VIEW)
       ? prisma.changeOrder.findMany({
           where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
@@ -56,6 +56,12 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
     hasPermission(user, PERMISSIONS.CR_VIEW)
       ? prisma.crewRequest.findMany({
           where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          take: 20,
+        })
+      : [],
+    hasPermission(user, PERMISSIONS.JOB_VIEW)
+      ? prisma.job.findMany({
+          where: { ...scope, archivedAt: null, OR: [{ title: { contains: like, mode: "insensitive" } }, { code: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }, { clientRef: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
@@ -77,14 +83,16 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
       : [],
   ]);
 
+  const qs = encodeURIComponent(q);
   const sections: { label: string; items: { href: string; label: string }[] }[] = [
     { label: "Change orders", items: cos.map((x) => ({ href: `/change-orders/${x.id}`, label: `${x.number} — ${x.title}` })) },
     { label: "Crew requests", items: crs.map((x) => ({ href: `/crew-requests/${x.id}`, label: `${x.number} — ${x.title}` })) },
-    { label: "Drawings", items: drawings.map((x) => ({ href: `/drawings`, label: `${x.number} — ${x.title}` })) },
-    { label: "Documents", items: docs.map((x) => ({ href: `/documents`, label: x.name })) },
-    { label: "Suppliers", items: suppliers.map((x) => ({ href: `/suppliers`, label: x.name })) },
-    { label: "Contractors", items: contractors.map((x) => ({ href: `/contractors`, label: x.name })) },
-    { label: "Inventory", items: inv.map((x) => ({ href: `/inventory`, label: x.name })) },
+    { label: "Quotes & requests", items: jobs.map((x) => ({ href: `/jobs/${x.id}`, label: `${x.code} — ${x.title}` })) },
+    { label: "Drawings", items: drawings.map((x) => ({ href: `/drawings?q=${qs}`, label: `${x.number} — ${x.title}` })) },
+    { label: "Documents", items: docs.map((x) => ({ href: `/documents?q=${qs}`, label: x.name })) },
+    { label: "Suppliers", items: suppliers.map((x) => ({ href: `/suppliers?q=${qs}`, label: x.name })) },
+    { label: "Contractors", items: contractors.map((x) => ({ href: `/contractors?q=${qs}`, label: x.name })) },
+    { label: "Inventory", items: inv.map((x) => ({ href: `/inventory?q=${qs}`, label: x.name })) },
   ].filter((s) => s.items.length > 0);
 
   const totalResults = sections.reduce((n, s) => n + s.items.length, 0);

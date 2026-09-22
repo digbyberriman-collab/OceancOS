@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Paperclip,
   Star,
-  Printer,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -20,7 +19,9 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { Field, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
-import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
+import { PdfButton } from "@/components/ui/PdfButton";
+import { fmtBytes, fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
+import { downloadUrl } from "@/lib/storage";
 import { daysUntilExpiry, isExpired, jobActions } from "@/lib/jobs/workflow";
 import {
   CONTRACT_TYPE_LABELS,
@@ -109,6 +110,20 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
     ? (job.variation?.invoicingTerms as InvoicingTerm[])
     : [];
 
+  // Every Attachment (job-level and per-comment) resolves to a download URL up
+  // front, since generating one is async (a signed GET on the S3 driver).
+  const allAttachments = [...job.attachments, ...job.comments.flatMap((c) => c.attachments)];
+  const hrefById = new Map<string, string | null>(
+    await Promise.all(
+      allAttachments.map(
+        async (a): Promise<[string, string | null]> => [
+          a.id,
+          a.url ?? (a.storageKey ? await downloadUrl(a.storageKey) : null),
+        ]
+      )
+    )
+  );
+
   return (
     <div className="animate-fade-up">
       <div className="mb-6">
@@ -137,10 +152,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                   {isFavourite ? "Favourited" : "Favourite"}
                 </SubmitButton>
               </form>
-              <a href={`/api/export/jobs/${job.id}`} className="btn" target="_blank" rel="noopener">
-                <Printer size={14} />
-                PDF
-              </a>
+              <PdfButton href={`/api/export/jobs/${job.id}`} />
             </>
           }
         />
@@ -216,6 +228,43 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
               <p className="text-sm text-muted">
                 Not yet priced. The yard adds the lines when it issues the quote.
               </p>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Attachments"
+            headerRight={
+              job.attachments.length > 0 ? (
+                <span className="badge badge-muted tnum">{job.attachments.length}</span>
+              ) : undefined
+            }
+          >
+            {job.attachments.length === 0 ? (
+              <p className="text-sm text-muted py-1">No files attached to this request.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {job.attachments.map((file) => {
+                  const href = hrefById.get(file.id);
+                  return (
+                    <li key={file.id} className="flex items-center gap-2 text-sm">
+                      <Paperclip size={13} className="text-faint shrink-0" />
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-accent hover:text-accent-bright transition-colors truncate"
+                        >
+                          {file.filename}
+                        </a>
+                      ) : (
+                        <span className="truncate">{file.filename}</span>
+                      )}
+                      <span className="ml-auto shrink-0 text-xs text-faint tnum">{fmtBytes(file.size)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </SectionCard>
 
@@ -322,12 +371,26 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                   <div className="whitespace-pre-wrap leading-relaxed">{comment.body}</div>
                   {comment.attachments.length > 0 && (
                     <ul className="mt-2 space-y-1">
-                      {comment.attachments.map((file) => (
-                        <li key={file.id} className="flex items-center gap-1.5 text-xs text-muted">
-                          <Paperclip size={11} />
-                          {file.filename}
-                        </li>
-                      ))}
+                      {comment.attachments.map((file) => {
+                        const href = hrefById.get(file.id);
+                        return (
+                          <li key={file.id} className="flex items-center gap-1.5 text-xs text-muted">
+                            <Paperclip size={11} />
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener"
+                                className="text-accent hover:text-accent-bright transition-colors"
+                              >
+                                {file.filename}
+                              </a>
+                            ) : (
+                              file.filename
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

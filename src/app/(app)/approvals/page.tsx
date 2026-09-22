@@ -8,7 +8,7 @@ import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
-import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
@@ -57,14 +57,7 @@ export default async function ApprovalsPage() {
     take: 50,
   });
 
-  // Generic approvals queue (purchase orders, drawings, schedule changes etc.)
-  const otherApprovals = await prisma.approval.findMany({
-    where: { ...scope, status: "PENDING" },
-    orderBy: { createdAt: "asc" },
-    take: 50,
-  });
-
-  const totalPending = myCoApprovals.length + otherCoApprovals.length + otherApprovals.length;
+  const totalPending = myCoApprovals.length + otherCoApprovals.length;
 
   return (
     <div className="animate-fade-up">
@@ -213,66 +206,6 @@ export default async function ApprovalsPage() {
                     </td>
                     <td className="text-right tnum text-muted text-xs">
                       {fmtDate(a.createdAt)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </SectionCard>
-      </section>
-
-      {/* ── Other approvals ── */}
-      <section>
-        <SectionCard
-          title="Other Approvals (POs, Drawings, Schedule, Access…)"
-          headerRight={
-            otherApprovals.length > 0 ? (
-              <span className="badge badge-muted tnum">{otherApprovals.length}</span>
-            ) : undefined
-          }
-          noPad={otherApprovals.length > 0}
-        >
-          {otherApprovals.length === 0 ? (
-            <div className="flex items-center gap-3 py-2">
-              <div className="h-8 w-8 rounded-lg bg-ok/10 border border-ok/30 grid place-items-center shrink-0">
-                <ClipboardCheck size={16} className="text-ok" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white">No other approvals pending</p>
-                <p className="text-xs text-muted">Purchase orders, drawings, and other items will appear here.</p>
-              </div>
-            </div>
-          ) : (
-            <table className="table-base">
-              <thead>
-                <tr>
-                  <th>Resource</th>
-                  <th>Stage</th>
-                  <th className="text-right">Cost&nbsp;Δ</th>
-                  <th className="text-right">Schedule&nbsp;Δ</th>
-                  <th className="text-right">Due</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {otherApprovals.map((a) => (
-                  <tr key={a.id}>
-                    <td className="font-medium">{a.resource}</td>
-                    <td>
-                      <Badge tone="muted">{a.stage}</Badge>
-                    </td>
-                    <td className="text-right tnum">{fmtMoney(a.costImpact)}</td>
-                    <td className="text-right tnum">
-                      {a.scheduleImpactDays ? (
-                        <span className="text-warn">+{a.scheduleImpactDays}d</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="text-right tnum text-xs text-muted">{fmtDate(a.dueDate)}</td>
-                    <td className="text-muted text-xs max-w-xs">
-                      <span className="line-clamp-1">{a.notes ?? "—"}</span>
                     </td>
                   </tr>
                 ))}

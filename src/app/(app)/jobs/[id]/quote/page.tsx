@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, Paperclip } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -11,6 +11,8 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRICING_BASES, PRICING_BASIS_LABELS } from "@/lib/enums";
 import { DEFAULT_JOB_CODE_PATTERN } from "@/lib/jobs/codes";
+import { fmtBytes } from "@/lib/utils";
+import { downloadUrl } from "@/lib/storage";
 import { issueQuote, type IssueQuoteFlash } from "../../actions";
 import { readFormFlash } from "@/lib/formFlash";
 import { FlashCleanup } from "@/components/ui/FlashCleanup";
@@ -32,9 +34,13 @@ export default async function QuoteJob({
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },
-    include: { project: true, section: true },
+    include: { project: true, section: true, attachments: { orderBy: { createdAt: "desc" } } },
   });
   if (!job) return notFound();
+
+  const attachmentHrefs = await Promise.all(
+    job.attachments.map(async (a) => a.url ?? (a.storageKey ? await downloadUrl(a.storageKey) : null))
+  );
 
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
@@ -91,6 +97,37 @@ export default async function QuoteJob({
         <SectionCard title="The request">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted">{job.description}</p>
         </SectionCard>
+
+        {job.attachments.length > 0 && (
+          <SectionCard
+            title="Attachments"
+            headerRight={<span className="badge badge-muted tnum">{job.attachments.length}</span>}
+          >
+            <ul className="space-y-1.5">
+              {job.attachments.map((file, i) => {
+                const href = attachmentHrefs[i];
+                return (
+                  <li key={file.id} className="flex items-center gap-2 text-sm">
+                    <Paperclip size={13} className="text-faint shrink-0" />
+                    {href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-accent hover:text-accent-bright transition-colors truncate"
+                      >
+                        {file.filename}
+                      </a>
+                    ) : (
+                      <span className="truncate">{file.filename}</span>
+                    )}
+                    <span className="ml-auto shrink-0 text-xs text-faint tnum">{fmtBytes(file.size)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </SectionCard>
+        )}
 
         <SectionCard title="Classification">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

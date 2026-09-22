@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { PdfButton } from "@/components/ui/PdfButton";
 import { fmtMoney, fmtDateTime } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
@@ -32,7 +33,6 @@ import {
   MessageSquare,
   History,
   GitMerge,
-  Printer,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -88,15 +88,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             <>
               <StatusBadge value={co.status} />
               <PriorityBadge value={co.priority} />
-              <a
-                href={`/api/export/change-orders/${co.id}`}
-                className="btn"
-                target="_blank"
-                rel="noopener"
-              >
-                <Printer size={14} />
-                PDF
-              </a>
+              <PdfButton href={`/api/export/change-orders/${co.id}`} />
             </>
           }
         />
