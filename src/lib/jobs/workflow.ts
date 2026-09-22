@@ -60,6 +60,30 @@ export function assertTransitionJob(from: JobStatus, to: JobStatus) {
   }
 }
 
+/**
+ * Transitions that must never be reached through the plain transitionJob
+ * action, however legal the edge and however permitted the caller —
+ * because reaching them any other way skips a ceremony this module cannot
+ * see: a confirmation code, a fingerprint check, an audit record of who
+ * signed and from where.
+ *
+ * Before this, the only thing keeping `CLIENT_ACCEPTED` out of reach was
+ * `NOT_OFFERED` below — a UI-layer filter this file's own header comment
+ * claimed made the server and the screen unable to disagree, while
+ * transitionJob never actually checked it. AUDIT_REPORT.md's Critical C2:
+ * any holder of job.accept could post `to=CLIENT_ACCEPTED` directly and
+ * commit the vessel to a quote's full value with no code, no change-order
+ * gate, and no fingerprint proving the price wasn't altered — and the
+ * resulting record was unsigned, since transitionJob never set
+ * clientAcceptedAt/clientAcceptedById either.
+ *
+ * This list is deliberately not `NOT_OFFERED`: that one also hides
+ * `EXPIRED`, but for an unrelated reason (nobody manually presses a button
+ * for the clock to do its job) — merging the two would smuggle a UI
+ * decision into a security control, or vice versa.
+ */
+export const JOB_TRANSITIONS_REQUIRING_CEREMONY: JobStatus[] = ["CLIENT_ACCEPTED"];
+
 /** Statuses counted as money the client has committed to. */
 export const JOB_ACCEPTED_STATUSES: JobStatus[] = [
   "ACCEPTED",

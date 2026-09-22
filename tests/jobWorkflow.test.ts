@@ -6,6 +6,7 @@ import {
   JOB_PENDING_STATUSES,
   JOB_TERMINAL_STATUSES,
   JOB_TRANSITION_PERMISSION,
+  JOB_TRANSITIONS_REQUIRING_CEREMONY,
   assertTransitionJob,
   canTransitionJob,
   daysUntilExpiry,
@@ -197,5 +198,28 @@ describe("separation of duties on a job", () => {
   it("never lets one permission both issue a quote and accept it", () => {
     expect(PERMISSIONS.JOB_ISSUE_QUOTE).not.toBe(PERMISSIONS.JOB_ACCEPT);
     expect(PERMISSIONS.JOB_ACCEPT).not.toBe(PERMISSIONS.JOB_COUNTERSIGN);
+  });
+});
+
+describe("JOB_TRANSITIONS_REQUIRING_CEREMONY", () => {
+  it("names CLIENT_ACCEPTED — the C2 fix", () => {
+    // transitionJob refuses any status in this list outright, regardless of
+    // permission or legality, so it can never be used to shortcut the
+    // confirmation-code ceremony in jobs/[id]/accept/actions.ts.
+    expect(JOB_TRANSITIONS_REQUIRING_CEREMONY).toContain("CLIENT_ACCEPTED");
+  });
+
+  it("is a real subset of the legal transition map, not a status nobody could reach anyway", () => {
+    // If this list named a status the map never targets, it would prove
+    // nothing — the whole point is that CLIENT_ACCEPTED IS a legal target
+    // (from QUOTE_SENT and EXPIRED) and still must be refused.
+    const allTargets = new Set(Object.values(JOB_LEGAL_TRANSITIONS).flat());
+    for (const status of JOB_TRANSITIONS_REQUIRING_CEREMONY) {
+      expect(allTargets, status).toContain(status);
+    }
+  });
+
+  it("does not name EXPIRED — that exclusion from jobActions is a UI choice, not a security one", () => {
+    expect(JOB_TRANSITIONS_REQUIRING_CEREMONY).not.toContain("EXPIRED");
   });
 });

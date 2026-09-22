@@ -12,6 +12,7 @@ import { getActiveProject, listProjectsForUser, usersWithPermissionOnProject } f
 import { groupCodeOf, isValidJobCode, nextCodeInGroup, normaliseJobCode } from "@/lib/jobs/codes";
 import {
   JOB_TRANSITION_PERMISSION,
+  JOB_TRANSITIONS_REQUIRING_CEREMONY,
   assertTransitionJob,
   expiryFrom,
 } from "@/lib/jobs/workflow";
@@ -304,12 +305,23 @@ export async function issueQuote(formData: FormData) {
   redirect(`/jobs/${jobId}`);
 }
 
-/** A plain status move. Accepting is not done here: it runs through Phase 2. */
+/**
+ * A plain status move.
+ *
+ * Acceptance is never done here, whatever `to` is posted: it runs through
+ * the confirmation-code ceremony in jobs/[id]/accept/actions.ts, which this
+ * refuses to shortcut — see JOB_TRANSITIONS_REQUIRING_CEREMONY. Fixed as
+ * AUDIT_REPORT.md's Critical C2.
+ */
 export async function transitionJob(formData: FormData) {
   const user = await requireUser();
   const jobId = String(formData.get("jobId") ?? "");
   const to = String(formData.get("to") ?? "") as JobStatus;
   const reason = String(formData.get("reason") ?? "").trim() || null;
+
+  if (JOB_TRANSITIONS_REQUIRING_CEREMONY.includes(to)) {
+    throw forbidden("Accepting a quote goes through the confirmation code, not this action.");
+  }
 
   const job = await loadJob(user.id, jobId);
 
