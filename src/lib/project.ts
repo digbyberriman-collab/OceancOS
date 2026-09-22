@@ -8,6 +8,7 @@
 import { cookies } from "next/headers";
 import { prisma } from "./db";
 import { forbidden } from "./errors";
+import { requestCache } from "./requestCache";
 
 const SESSION_COOKIE = "oc_session";
 
@@ -65,7 +66,7 @@ export function resolveProjectWhere(
  * with an unscoped assignment (the common case for owner-side staff) sees every
  * active project. Archived projects are never listed.
  */
-export async function listProjectsForUser(userId: string): Promise<ProjectSummary[]> {
+export const listProjectsForUser = requestCache(async (userId: string): Promise<ProjectSummary[]> => {
   const scopes = await prisma.userRole.findMany({
     where: { userId },
     select: { projectId: true, vesselId: true },
@@ -78,6 +79,7 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
     where,
     include: { vessel: { select: { name: true } } },
     orderBy: [{ status: "asc" }, { name: "asc" }],
+    take: 200,
   });
 
   return projects.map((p) => ({
@@ -87,7 +89,7 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
     vesselName: p.vessel.name,
     status: p.status,
   }));
-}
+});
 
 /** The ids of the projects this user can reach. Empty for a user with none. */
 export async function accessibleProjectIds(userId: string): Promise<string[]> {
@@ -132,8 +134,17 @@ export async function requireProjectAccess(userId: string, projectId: string): P
  * Falls back to their first available project when nothing is selected yet, or
  * when the stored selection is no longer one they can reach. Returns null only
  * when the user has access to no project at all.
+ *
+ * Wrapped in `requestCache` — React's `cache()` where it's actually
+ * available (ACTION_PLAN.md G4.3) — because `(app)/layout.tsx` calls it, and
+ * the page under it (`jobs/page.tsx`, `dashboard/page.tsx`, …) calls it
+ * again for the same userId, previously re-running its full four-query
+ * sequence (this function's own session lookup, plus `listProjectsForUser`'s
+ * two, plus the final `project.findUnique`) a second time.
+ * `listProjectsForUser` is also cached, so the two calls to it here and in
+ * `(app)/layout.tsx` collapse into one query too.
  */
-export async function getActiveProject(userId: string) {
+export const getActiveProject = requestCache(async (userId: string) => {
   const token = cookies().get(SESSION_COOKIE)?.value;
   const session = token
     ? await prisma.session.findUnique({ where: { token }, select: { activeProjectId: true } })
@@ -150,7 +161,7 @@ export async function getActiveProject(userId: string) {
     include: { vessel: true },
   });
   return project;
-}
+});
 
 /** Persist the selection against the current session. */
 export async function storeActiveProject(userId: string, projectId: string) {
