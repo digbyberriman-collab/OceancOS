@@ -46,6 +46,7 @@ export function FileDrop({
   resourceId,
   name = "attachments",
   maxBytes = 10 * 1024 * 1024,
+  label = "Attachments",
   hint,
   onChange,
   initialFiles,
@@ -55,6 +56,14 @@ export function FileDrop({
   resourceId: string;
   name?: string;
   maxBytes?: number;
+  /**
+   * Accessible name for the file input. FileDrop renders several labelable
+   * controls of its own (the file input, the browse button, a remove button
+   * per file), so it can't rely on being implicitly wrapped in a single
+   * surrounding <label> the way Input/Select/Textarea can — it names itself
+   * instead (ACTION_PLAN.md G5.4).
+   */
+  label?: string;
   hint?: string;
   onChange?: (files: UploadedFile[]) => void;
   /**
@@ -226,6 +235,7 @@ export function FileDrop({
           ref={inputRef}
           type="file"
           multiple
+          aria-label={label}
           className="sr-only"
           onChange={(e) => {
             add(e.target.files);

@@ -163,6 +163,7 @@ export default async function NewJobRequest() {
             </div>
 
             <Field
+              as="fieldset"
               label="Attachments"
               hint="Photos, drawings or documents that help the yard understand the work."
             >
@@ -170,6 +171,7 @@ export default async function NewJobRequest() {
                 projectId={project.id}
                 resource="Job"
                 resourceId="new"
+                label="Attachments"
                 maxBytes={10 * 1024 * 1024}
                 hint="Photos, technical documents or drawings, up to 10 MB each"
                 initialFiles={flash?.attachments}
