@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { fmtDateTime } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { Bell, CheckCheck } from "lucide-react";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +44,10 @@ export default async function NotificationsPage() {
         subtitle="In-app inbox. Email fan-out enables when SMTP is configured."
         actions={
           <form action={markAllRead}>
-            <button className="btn btn-ghost flex items-center gap-1.5">
+            <SubmitButton className="btn btn-ghost flex items-center gap-1.5">
               <CheckCheck size={14} />
               Mark all read
-            </button>
+            </SubmitButton>
           </form>
         }
       />

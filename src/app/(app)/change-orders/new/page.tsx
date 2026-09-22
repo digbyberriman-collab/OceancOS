@@ -5,6 +5,7 @@ import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createChangeOrder } from "../actions";
 import { ArrowLeft } from "lucide-react";
@@ -167,9 +168,9 @@ export default async function NewChangeOrderPage() {
               The change order will be saved as a{" "}
               <span className="font-medium text-white">Draft</span> until submitted for review.
             </p>
-            <button className="btn-primary btn-lg" type="submit">
+            <SubmitButton className="btn-primary btn-lg" pendingText="Creating…">
               Create Draft
-            </button>
+            </SubmitButton>
           </div>
         </div>
       </form>

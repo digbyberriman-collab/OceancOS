@@ -5,6 +5,7 @@ import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CREW_REQUEST_CATEGORIES, DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createCrewRequest } from "../actions";
 import { ArrowLeft } from "lucide-react";
@@ -138,9 +139,9 @@ export default async function NewCrewRequest() {
             <p className="text-xs text-muted">
               The request will be created in <span className="font-medium text-white">New</span> status and routed for triage.
             </p>
-            <button className="btn-primary btn-lg" type="submit">
+            <SubmitButton className="btn-primary btn-lg" pendingText="Creating…">
               Create Request
-            </button>
+            </SubmitButton>
           </div>
         </div>
       </form>

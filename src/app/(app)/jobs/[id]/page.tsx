@@ -19,6 +19,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { Field, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
 import { daysUntilExpiry, isExpired, jobActions } from "@/lib/jobs/workflow";
 import {
@@ -128,13 +129,13 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
               <StatusBadge value={job.status} />
               <form action={toggleJobFavourite}>
                 <input type="hidden" name="jobId" value={job.id} />
-                <button
+                <SubmitButton
                   className={`btn text-xs ${isFavourite ? "border-warn/40 text-warn" : ""}`}
                   aria-pressed={isFavourite}
                 >
                   <Star size={13} className={isFavourite ? "fill-warn" : ""} />
                   {isFavourite ? "Favourited" : "Favourite"}
-                </button>
+                </SubmitButton>
               </form>
               <a href={`/api/export/jobs/${job.id}`} className="btn" target="_blank" rel="noopener">
                 <Printer size={14} />
@@ -340,13 +341,13 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                   <Textarea name="body" required placeholder="Write a comment…" />
                 </Field>
                 <div className="flex flex-wrap gap-2">
-                  <button name="kind" value="MESSAGE" className="btn-primary">
+                  <SubmitButton name="kind" value="MESSAGE" className="btn-primary" pendingText="Posting…">
                     Send message
-                  </button>
+                  </SubmitButton>
                   {hasPermission(user, PERMISSIONS.MINUTES_RECORD) && (
-                    <button name="kind" value="MINUTE" className="btn">
+                    <SubmitButton name="kind" value="MINUTE" className="btn" pendingText="Posting…">
                       Record minute
-                    </button>
+                    </SubmitButton>
                   )}
                 </div>
               </form>
@@ -458,7 +459,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                     className="input-base"
                   />
                 </Field>
-                <button className="btn-primary">Save</button>
+                <SubmitButton className="btn-primary" pendingText="Saving…">Save</SubmitButton>
               </form>
             </SectionCard>
           )}
@@ -477,13 +478,13 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                         className="input-base text-xs"
                       />
                     )}
-                    <button
+                    <SubmitButton
                       className={`w-full justify-center ${
                         action.tone === "danger" ? "btn-danger" : action.tone === "primary" ? "btn-primary" : "btn"
                       }`}
                     >
                       {action.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>

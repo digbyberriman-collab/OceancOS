@@ -8,6 +8,7 @@ import { listProjectsForUser } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { isExpired } from "@/lib/jobs/workflow";
 import { CHALLENGE_TTL_MINUTES, challengeProblem } from "@/lib/jobs/acceptance";
@@ -237,13 +238,15 @@ export default async function AcceptQuote({
                     className="text-center text-lg tracking-[0.4em] tnum"
                   />
                 </Field>
-                <button className="btn-primary btn-lg w-full justify-center">
+                <SubmitButton className="btn-primary btn-lg w-full justify-center" pendingText="Confirming…">
                   Accept {fmtMoney(job.total, currency)}
-                </button>
+                </SubmitButton>
               </form>
               <form action={requestAcceptanceCode} className="mt-3">
                 <input type="hidden" name="jobId" value={job.id} />
-                <button className="btn-ghost w-full justify-center text-xs">Send a new code</button>
+                <SubmitButton className="btn-ghost w-full justify-center text-xs" pendingText="Sending…">
+                  Send a new code
+                </SubmitButton>
               </form>
             </SectionCard>
           ) : (
@@ -256,12 +259,13 @@ export default async function AcceptQuote({
               </p>
               <form action={requestAcceptanceCode}>
                 <input type="hidden" name="jobId" value={job.id} />
-                <button
+                <SubmitButton
                   className="btn-primary btn-lg w-full justify-center"
                   disabled={Boolean(coBlocking)}
+                  pendingText="Sending code…"
                 >
                   Accept quote
-                </button>
+                </SubmitButton>
               </form>
               {coBlocking && (
                 <p className="mt-2 text-xs text-warn">
@@ -278,7 +282,9 @@ export default async function AcceptQuote({
                 <Field label="Reason" hint="Shared with the yard.">
                   <Input name="reason" placeholder="Why the quote is being rejected" />
                 </Field>
-                <button className="btn-danger w-full justify-center">Reject quote</button>
+                <SubmitButton className="btn-danger w-full justify-center" pendingText="Rejecting…">
+                  Reject quote
+                </SubmitButton>
               </form>
             </SectionCard>
           )}

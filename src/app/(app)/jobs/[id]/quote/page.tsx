@@ -8,6 +8,7 @@ import { listProjectsForUser } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRICING_BASES, PRICING_BASIS_LABELS } from "@/lib/enums";
 import { DEFAULT_JOB_CODE_PATTERN } from "@/lib/jobs/codes";
 import { issueQuote } from "../../actions";
@@ -211,7 +212,7 @@ export default async function QuoteJob({
         </div>
 
         <div className="flex items-center gap-3">
-          <button className="btn-primary btn-lg">Send quote</button>
+          <SubmitButton className="btn-primary btn-lg" pendingText="Sending…">Send quote</SubmitButton>
           <Link href={`/jobs/${job.id}`} className="btn-ghost">
             Cancel
           </Link>

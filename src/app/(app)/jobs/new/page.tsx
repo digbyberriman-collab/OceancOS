@@ -7,6 +7,7 @@ import { getActiveProject } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { FileDrop } from "@/components/ui/FileDrop";
 import { createJobRequest } from "../actions";
 
@@ -162,7 +163,7 @@ export default async function NewJobRequest({
             </Field>
 
             <div className="flex items-center gap-3">
-              <button className="btn-primary btn-lg">Send request</button>
+              <SubmitButton className="btn-primary btn-lg" pendingText="Sending…">Send request</SubmitButton>
               <Link href="/jobs" className="btn-ghost">
                 Cancel
               </Link>

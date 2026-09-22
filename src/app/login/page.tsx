@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { LoginSchema } from "@/lib/validators";
 import { recordAudit } from "@/lib/audit";
 import { Field, Input } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { BrandPanel } from "@/components/auth/BrandPanel";
 
@@ -111,9 +112,9 @@ export default async function LoginPage({
                   Forgot password?
                 </Link>
               </div>
-              <button type="submit" className="btn-primary btn-lg w-full">
+              <SubmitButton className="btn-primary btn-lg w-full" pendingText="Signing in…">
                 Sign in
-              </button>
+              </SubmitButton>
             </form>
           </div>
 

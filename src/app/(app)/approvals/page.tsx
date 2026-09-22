@@ -6,6 +6,7 @@ import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
 import { projectScope } from "@/lib/project";
@@ -146,15 +147,15 @@ export default async function ApprovalsPage() {
                     <td>
                       <form action={decideChangeOrderApproval} className="flex gap-1.5 flex-wrap">
                         <input type="hidden" name="approvalId" value={a.id} />
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs py-1 px-2.5">
+                        <SubmitButton name="decision" value="APPROVED" className="btn-primary text-xs py-1 px-2.5">
                           Approve
-                        </button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs py-1 px-2.5">
+                        </SubmitButton>
+                        <SubmitButton name="decision" value="MORE_INFO" className="btn text-xs py-1 px-2.5">
                           Request Info
-                        </button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs py-1 px-2.5">
+                        </SubmitButton>
+                        <SubmitButton name="decision" value="REJECTED" className="btn-danger text-xs py-1 px-2.5">
                           Reject
-                        </button>
+                        </SubmitButton>
                       </form>
                     </td>
                   </tr>

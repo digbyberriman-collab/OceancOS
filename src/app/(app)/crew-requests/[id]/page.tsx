@@ -6,6 +6,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge } from "@/components/ui/Badge";
 import { Field, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
@@ -144,9 +145,9 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
               <div className="flex flex-wrap gap-2">
                 {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionCrewRequest(cr.id, t.to); }}>
-                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
+                    <SubmitButton className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
@@ -167,7 +168,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
                   ))}
                 </Select>
               </Field>
-              <button className="btn-primary w-full">Save Assignment</button>
+              <SubmitButton className="btn-primary w-full" pendingText="Saving…">Save Assignment</SubmitButton>
             </form>
           ) : (
             <p className="text-sm text-muted">
@@ -211,7 +212,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           <Field label="Add a comment">
             <Textarea name="body" required placeholder="Write a comment…" />
           </Field>
-          <button className="btn-primary">Post Comment</button>
+          <SubmitButton className="btn-primary" pendingText="Posting…">Post Comment</SubmitButton>
         </form>
       </SectionCard>
 

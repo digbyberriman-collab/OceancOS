@@ -6,6 +6,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtMoney, fmtDateTime } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
@@ -172,9 +173,9 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
               <div className="flex flex-wrap gap-2">
                 {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionChangeOrder(co.id, t.to); }}>
-                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
+                    <SubmitButton className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
@@ -265,15 +266,15 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
                         className="input-base text-xs min-h-[64px]"
                       />
                       <div className="flex gap-2">
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs">
+                        <SubmitButton name="decision" value="APPROVED" className="btn-primary text-xs">
                           Approve
-                        </button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs">
+                        </SubmitButton>
+                        <SubmitButton name="decision" value="MORE_INFO" className="btn text-xs">
                           Request Info
-                        </button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs">
+                        </SubmitButton>
+                        <SubmitButton name="decision" value="REJECTED" className="btn-danger text-xs">
                           Reject
-                        </button>
+                        </SubmitButton>
                       </div>
                     </form>
                   )}
@@ -331,7 +332,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             <Field label="Add a comment">
               <Textarea name="body" required placeholder="Write a comment…" />
             </Field>
-            <button className="btn-primary">Post Comment</button>
+            <SubmitButton className="btn-primary" pendingText="Posting…">Post Comment</SubmitButton>
           </form>
         </SectionCard>
 

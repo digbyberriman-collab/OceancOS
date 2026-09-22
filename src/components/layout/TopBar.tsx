@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Search, Bell, Menu } from "lucide-react";
 import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import type { ProjectSummary } from "@/lib/project";
 
 export function TopBar({
@@ -66,7 +67,9 @@ export function TopBar({
           </div>
         </div>
         <form action={logoutAction}>
-          <button className="btn-ghost text-xs">Sign out</button>
+          <SubmitButton className="btn-ghost text-xs" pendingText="Signing out…">
+            Sign out
+          </SubmitButton>
         </form>
       </div>
     </header>

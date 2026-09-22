@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { toDateInputValue } from "@/lib/projectDates";
 import { projectTiming } from "@/lib/metrics/project";
@@ -182,7 +183,7 @@ export default async function AdminProjectsPage({
             </div>
 
             <div className="flex items-center gap-3">
-              <button className="btn-primary">Save project</button>
+              <SubmitButton className="btn-primary" pendingText="Saving…">Save project</SubmitButton>
               <span className="text-xs text-faint">
                 Last updated {fmtDate(selected.updatedAt)}
               </span>
