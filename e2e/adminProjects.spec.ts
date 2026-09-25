@@ -33,13 +33,21 @@ test.describe("project administration", () => {
     await signIn(page, PM);
     await page.goto("/admin/projects");
 
+    await page.getByLabel("Yard").fill("A yard name typed alongside the bad date");
     await page.getByLabel("Departure").fill("2026-02-01");
     await page.getByRole("button", { name: /save project/i }).click();
 
     await expect(page.getByText(/departure must be after arrival/i)).toBeVisible();
-    // Nothing was stored: the field still shows the original value on reload.
+    // Nothing was stored, but what was typed is not thrown away either
+    // (ACTION_PLAN.md G3.6) — the rejected date and the untouched field
+    // both still show exactly what the user had on screen.
+    await expect(page.getByLabel("Departure")).toHaveValue("2026-02-01");
+    await expect(page.getByLabel("Yard")).toHaveValue("A yard name typed alongside the bad date");
+
+    // A later, unrelated visit reads the database, not a stale flash.
     await page.goto("/admin/projects");
     await expect(page.getByLabel("Departure")).toHaveValue("2026-09-30");
+    await expect(page.getByLabel("Yard")).not.toHaveValue("A yard name typed alongside the bad date");
   });
 
   test("refuses a code already used by another project", async ({ page }) => {
@@ -63,8 +71,9 @@ test.describe("project administration", () => {
     await expect(page.getByLabel("Yard")).toHaveValue("MB92 Barcelona");
     await expect(page.getByLabel("Sea trials")).toHaveValue("2026-09-20");
 
-    // The switcher reads the same record.
+    // The switcher reads the same record. Scoped to the banner landmark
+    // since G2.7 added a second (mobile-drawer) instance of the switcher.
     await page.goto("/dashboard");
-    await expect(page.getByLabel("Active project")).toBeVisible();
+    await expect(page.getByRole("banner").getByLabel("Active project")).toBeVisible();
   });
 });

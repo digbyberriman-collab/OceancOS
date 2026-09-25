@@ -5,12 +5,9 @@
 // status and contract type rather than a different table, so they live here as
 // data and the page simply reads them.
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { JobStatus } from "@/lib/enums";
-import {
-  JOB_ACCEPTED_STATUSES,
-  JOB_PENDING_STATUSES,
-} from "./workflow";
+import { JOB_ACCEPTED_STATUSES } from "./workflow";
 
 export type JobViewKey =
   | "requests"
@@ -80,6 +77,34 @@ export function jobView(key: string | undefined): JobView {
   return JOB_VIEWS.find((v) => v.key === key) ?? JOB_VIEWS[2]; // Pending is the default
 }
 
+/** One group's worth of `prisma.job.groupBy({ by: ["status", "contractType"] })`. */
+export type JobStatusContractGroup = { status: string; contractType: string; _count: { _all: number } };
+
+/**
+ * Every view's count, derived from one grouped aggregate instead of one
+ * `job.count` per view (ACTION_PLAN.md G4.2, performance `[QUERY]` — seven
+ * sequential `SELECT COUNT(*)` statements on every `/jobs` render,
+ * unconditionally, even when the caller has filtered to one section).
+ *
+ * Deliberately whole-project counts, matching the tab counts before this
+ * change: they do not take `q`, `sectionLetter` or `favouriteOf` into
+ * account, so a tab's number does not shift as the caller types a search.
+ */
+export function viewCountsFromGroups(groups: JobStatusContractGroup[]): Map<JobViewKey, number> {
+  return new Map(
+    JOB_VIEWS.map((v) => [
+      v.key,
+      groups
+        .filter(
+          (g) =>
+            (!v.statuses || v.statuses.includes(g.status as JobStatus)) &&
+            (!v.contractTypes || v.contractTypes.includes(g.contractType))
+        )
+        .reduce((sum, g) => sum + g._count._all, 0),
+    ])
+  );
+}
+
 /**
  * The Prisma filter for a view, combined with the caller's search and section.
  *
@@ -120,7 +145,7 @@ export function jobWhere(opts: {
 export type JobGroup<T> = {
   groupCode: string;
   jobs: T[];
-  total: number;
+  total: Prisma.Decimal;
   /** Value-weighted progress across the group, or null when nothing is priced. */
   progressPct: number | null;
 };
@@ -129,10 +154,12 @@ export type JobGroup<T> = {
  * Group jobs under their code group, the way a yard's own quote pack reads.
  *
  * Groups are ordered by their code, and a group's progress is weighted by value
- * so a large job barely started is not masked by a small finished one.
+ * so a large job barely started is not masked by a small finished one. Summed
+ * with `Prisma.Decimal` rather than `+`, per ACTION_PLAN.md G3.2 — `total` is
+ * money and this group total is what the worklist header displays.
  */
 export function groupJobs<
-  T extends { groupCode: string | null; code: string; total: number; progressPct: number },
+  T extends { groupCode: string | null; code: string; total: Prisma.Decimal; progressPct: number },
 >(jobs: T[], compare: (a: string, b: string) => number): JobGroup<T>[] {
   const byGroup = new Map<string, T[]>();
   for (const job of jobs) {
@@ -145,13 +172,16 @@ export function groupJobs<
   return [...byGroup.entries()]
     .map(([groupCode, list]) => {
       const sorted = [...list].sort((a, b) => compare(a.code, b.code));
-      const total = sorted.reduce((sum, j) => sum + j.total, 0);
-      const weighted = sorted.reduce((sum, j) => sum + j.progressPct * j.total, 0);
+      const total = sorted.reduce((sum, j) => sum.plus(j.total), new Prisma.Decimal(0));
+      const weighted = sorted.reduce(
+        (sum, j) => sum.plus(j.total.times(j.progressPct)),
+        new Prisma.Decimal(0)
+      );
       return {
         groupCode,
         jobs: sorted,
         total,
-        progressPct: total > 0 ? Math.round(weighted / total) : null,
+        progressPct: total.greaterThan(0) ? Math.round(weighted.div(total).toNumber()) : null,
       };
     })
     .sort((a, b) => compare(a.groupCode, b.groupCode));

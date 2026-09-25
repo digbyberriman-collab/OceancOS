@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { prisma } from "./db";
+import { requestCache } from "./requestCache";
 
 const SESSION_COOKIE = "oc_session";
 const SESSION_TTL_DAYS = 14;
@@ -44,7 +45,18 @@ export async function destroySession() {
 
 export type CurrentUser = Awaited<ReturnType<typeof getCurrentUser>>;
 
-export async function getCurrentUser() {
+/**
+ * Wrapped in `requestCache` — React's request-scoped `cache()` where it's
+ * actually available (ACTION_PLAN.md G4.3): every one of the 24 app pages
+ * calls `requireUser`, which calls this, in addition to `(app)/layout.tsx`
+ * calling it once already — a `session.findUnique` with a four-level nested
+ * `include` (session → user → roles → role → permissions → permission),
+ * which Prisma resolves as roughly five or six round trips, was therefore
+ * paid twice on every single authenticated page view. `cache()` dedupes
+ * calls with the same arguments (none, here) within one render pass, so the
+ * layout and the page now share one result.
+ */
+export const getCurrentUser = requestCache(async () => {
   const token = cookies().get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const session = await prisma.session.findUnique({
@@ -71,7 +83,7 @@ export async function getCurrentUser() {
     roleKeys,
     permissions,
   };
-}
+});
 
 export async function requireUser() {
   const u = await getCurrentUser();

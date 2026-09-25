@@ -2,8 +2,10 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/EmptyState";
+import { getActiveProject } from "@/lib/project";
+import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createChangeOrder } from "../actions";
 import { ArrowLeft } from "lucide-react";
@@ -13,8 +15,14 @@ export const dynamic = "force-dynamic";
 export default async function NewChangeOrderPage() {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CO_CREATE);
-  const projects = await prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true } });
-  const areas = await prisma.vesselArea.findMany();
+
+  // The project is the caller's active project, not a choice on this form —
+  // see the note on ChangeOrderCreateSchema in lib/validators.ts.
+  const project = await getActiveProject(user.id);
+  if (!project)
+    return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
+
+  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
 
   return (
     <div className="animate-fade-up">
@@ -28,28 +36,14 @@ export default async function NewChangeOrderPage() {
         </Link>
         <PageHeader
           title="New Change Order"
-          eyebrow="Change Orders"
+          eyebrow={project.code ?? project.name}
           subtitle="Capture scope, cost, schedule and risk impact."
         />
       </div>
 
       <form action={createChangeOrder} className="max-w-2xl space-y-0">
-        {/* Project */}
-        <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
-          <div className="eyebrow mb-1">Project</div>
-          <Field label="Project">
-            <Select name="projectId" required>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.vessel.name} — {p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
         {/* Core change details */}
-        <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
+        <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
           <div className="eyebrow mb-1">Change Details</div>
           <Field label="Title">
             <Input
@@ -64,6 +58,7 @@ export default async function NewChangeOrderPage() {
             <Textarea
               name="description"
               required
+              minLength={5}
               placeholder="What is changing and why?"
             />
           </Field>
@@ -71,6 +66,7 @@ export default async function NewChangeOrderPage() {
             <Textarea
               name="reason"
               required
+              minLength={3}
               placeholder="Underlying cause or driver…"
             />
           </Field>
@@ -116,7 +112,7 @@ export default async function NewChangeOrderPage() {
         <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
           <div className="eyebrow mb-1">Cost &amp; Schedule</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Estimated Cost (EUR)">
+            <Field label={`Estimated Cost (${project.currency})`}>
               <Input type="number" name="estimatedCost" min={0} step="0.01" defaultValue={0} />
             </Field>
             <Field label="Schedule Impact (days)">
@@ -175,9 +171,9 @@ export default async function NewChangeOrderPage() {
               The change order will be saved as a{" "}
               <span className="font-medium text-white">Draft</span> until submitted for review.
             </p>
-            <button className="btn-primary btn-lg" type="submit">
+            <SubmitButton className="btn-primary btn-lg" pendingText="Creating…">
               Create Draft
-            </button>
+            </SubmitButton>
           </div>
         </div>
       </form>

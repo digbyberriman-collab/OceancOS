@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { Nav } from "@/components/marketing/Nav";
 import { Hero } from "@/components/marketing/Hero";
-import { TrustBar } from "@/components/marketing/TrustBar";
 import { FeatureGrid } from "@/components/marketing/FeatureGrid";
 import { Workflow } from "@/components/marketing/Workflow";
 import { Stats } from "@/components/marketing/Stats";
@@ -35,7 +34,6 @@ export default async function Root() {
 
       <main id="main">
         <Hero />
-        <TrustBar />
         <FeatureGrid />
         <Workflow />
         <Stats />

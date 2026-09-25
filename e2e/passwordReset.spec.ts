@@ -144,7 +144,8 @@ test.describe("password reset", () => {
     await page.getByLabel(/email/i).fill(TARGET);
     await page.getByLabel(/password/i).fill("password");
     await page.getByRole("button", { name: /sign in/i }).click();
-    await expect(page).toHaveURL(/err=/);
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByText(/invalid email or password/i)).toBeVisible();
 
     // And the link cannot be used twice.
     await page.goto(path);

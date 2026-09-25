@@ -1,7 +1,9 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney } from "@/lib/utils";
 import {
@@ -55,6 +57,7 @@ export default async function InventoryPage({
   if (!hasPermission(user, PERMISSIONS.INV_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<ShieldAlert className="h-5 w-5" />}
         title="Forbidden"
         hint="Inventory is restricted."
@@ -62,7 +65,7 @@ export default async function InventoryPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.q) {
     where.OR = [
       { name: { contains: searchParams.q, mode: "insensitive" } },
@@ -76,6 +79,7 @@ export default async function InventoryPage({
 
   const items = await prisma.inventoryItem.findMany({
     where,
+    include: { project: { select: { currency: true } } },
     orderBy: { name: "asc" },
     take: 500,
   });
@@ -189,15 +193,15 @@ export default async function InventoryPage({
       {/* ── Table or empty state ── */}
       {items.length === 0 ? (
         <div className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-          <EmptyState
-            icon={<Layers className="h-5 w-5" />}
-            title="No inventory items"
-            hint={
-              searchParams.q || searchParams.category || searchParams.status
-                ? "No items match your current filters."
-                : "Seed sample data or import from Excel to populate inventory."
-            }
-          />
+          {searchParams.q || searchParams.category || searchParams.status ? (
+            <EmptyState
+              icon={<Layers className="h-5 w-5" />}
+              title="No inventory items"
+              hint="No items match your current filters."
+            />
+          ) : (
+            <ComingSoon icon={<Layers className="h-5 w-5" />} title="No inventory items" />
+          )}
         </div>
       ) : (
         <div
@@ -284,8 +288,8 @@ export default async function InventoryPage({
 
                       {/* Replacement cost */}
                       <td className="text-right tnum text-white/70">
-                        {i.replacementCost > 0 ? (
-                          fmtMoney(i.replacementCost)
+                        {i.replacementCost.greaterThan(0) ? (
+                          fmtMoney(i.replacementCost, i.project?.currency)
                         ) : (
                           <span className="text-faint">—</span>
                         )}

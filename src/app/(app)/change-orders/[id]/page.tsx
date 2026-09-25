@@ -6,9 +6,13 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
-import { fmtMoney, fmtDateTime } from "@/lib/utils";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { PdfButton } from "@/components/ui/PdfButton";
+import { fmtMoney, fmtDateTime, cn } from "@/lib/utils";
+import { resolveUserNames } from "@/lib/users";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
+import { accessibleProjectIds } from "@/lib/project";
 import {
   transitionChangeOrder,
   decideChangeOrderApproval,
@@ -17,6 +21,8 @@ import {
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
+  CO_STATUSES_AWAITING_DECISION,
+  canDecideApproval,
   changeOrderActions,
 } from "@/lib/workflow/changeOrder";
 import {
@@ -27,8 +33,6 @@ import {
   Clock,
   MessageSquare,
   History,
-  GitMerge,
-  Printer,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -37,27 +41,36 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) return notFound();
 
+  // approvals is never unbounded by nature (one row per stage, at most
+  // seven) — only history and comments accumulate for the life of the
+  // change order (ACTION_PLAN.md G4.5).
+  const HISTORY_CAP = 20;
+  const COMMENTS_CAP = 50;
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
     include: {
       project: { include: { vessel: true } },
       approvals: { orderBy: { order: "asc" } },
-      history: { orderBy: { createdAt: "desc" } },
-      comments: { orderBy: { createdAt: "asc" } },
+      history: { orderBy: { createdAt: "desc" }, take: HISTORY_CAP },
+      // Newest-first so `take` keeps the recent end, reversed below for the
+      // thread's oldest-first reading order.
+      comments: { orderBy: { createdAt: "desc" }, take: COMMENTS_CAP },
+      _count: { select: { history: true, comments: true } },
     },
   });
   if (!co) return notFound();
 
-  // map authorIds to names for comments and history
-  const userIds = Array.from(new Set([
+  const comments = [...co.comments].reverse();
+
+  const projectIds = await accessibleProjectIds(user.id);
+  if (!projectIds.includes(co.projectId)) return notFound();
+
+  const usersMap = await resolveUserNames([
     ...co.comments.map((c) => c.authorId),
     ...co.history.map((h) => h.actorId),
-    ...co.approvals.map((a) => a.decidedById).filter((x): x is string => !!x),
+    ...co.approvals.map((a) => a.decidedById),
     co.createdById,
-  ]));
-  const usersMap = new Map(
-    (await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
-  );
+  ]);
 
   const allowedTransitions = changeOrderActions(co.status as ChangeOrderStatus).filter((t) =>
     hasPermission(user, t.permission)
@@ -81,15 +94,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             <>
               <StatusBadge value={co.status} />
               <PriorityBadge value={co.priority} />
-              <a
-                href={`/api/export/change-orders/${co.id}`}
-                className="btn"
-                target="_blank"
-                rel="noopener"
-              >
-                <Printer size={14} />
-                PDF
-              </a>
+              <PdfButton href={`/api/export/change-orders/${co.id}`} />
             </>
           }
         />
@@ -109,10 +114,10 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
               </DefRow>
               <DefRow label="Department">{co.departmentCode ?? "—"}</DefRow>
               <DefRow label="Estimated Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost)}</span>
+                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost, co.project.currency)}</span>
               </DefRow>
               <DefRow label="Approved Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost)}</span>
+                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost, co.project.currency)}</span>
               </DefRow>
               <DefRow label="Schedule Impact">
                 {co.scheduleImpactDays ? (
@@ -160,15 +165,30 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             </DefGrid>
           </SectionCard>
 
+          {/* Amend, while it's still editable */}
+          {hasPermission(user, PERMISSIONS.CO_EDIT) &&
+            (co.status === "DRAFT" || co.status === "MORE_INFO") && (
+              <SectionCard title="Amend">
+                <p className="mb-3 text-sm text-muted">
+                  {co.status === "MORE_INFO"
+                    ? "An approver asked for more information — edit the figures below rather than only replying in a comment."
+                    : "Change any field before submitting for review."}
+                </p>
+                <Link href={`/change-orders/${co.id}/edit`} className="btn w-full justify-center">
+                  Edit details
+                </Link>
+              </SectionCard>
+            )}
+
           {/* Workflow actions */}
           {allowedTransitions.length > 0 && (
             <SectionCard title="Workflow Actions">
               <div className="flex flex-wrap gap-2">
                 {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionChangeOrder(co.id, t.to); }}>
-                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
+                    <SubmitButton className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
@@ -184,9 +204,14 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
           <ol className="space-y-4">
             {co.approvals.map((a, i) => {
               const canDecide =
+                hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
+                CO_STATUSES_AWAITING_DECISION.includes(co.status as ChangeOrderStatus) &&
+                canDecideApproval(a, co.approvals);
+              const waitingOnEarlierStage =
                 a.decision === "PENDING" &&
                 hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
-                ["UNDER_REVIEW", "SUBMITTED", "MORE_INFO"].includes(co.status);
+                CO_STATUSES_AWAITING_DECISION.includes(co.status as ChangeOrderStatus) &&
+                !canDecideApproval(a, co.approvals);
 
               const decisionIcon =
                 a.decision === "APPROVED" ? (
@@ -251,20 +276,46 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
                       <textarea
                         name="comment"
                         placeholder="Comment (optional)…"
+                        aria-label="Decision comment"
                         className="input-base text-xs min-h-[64px]"
                       />
                       <div className="flex gap-2">
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs">
+                        <SubmitButton
+                          name="decision"
+                          value="APPROVED"
+                          aria-label={`Approve ${co.number} — ${co.title}`}
+                          className="btn-primary text-xs"
+                        >
                           Approve
-                        </button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs">
+                        </SubmitButton>
+                        <SubmitButton
+                          name="decision"
+                          value="MORE_INFO"
+                          aria-label={`Request Info — ${co.number} — ${co.title}`}
+                          className="btn text-xs"
+                        >
                           Request Info
-                        </button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs">
+                        </SubmitButton>
+                        <SubmitButton
+                          name="decision"
+                          value="REJECTED"
+                          aria-label={`Reject ${co.number} — ${co.title}`}
+                          className="btn-danger text-xs"
+                        >
                           Reject
-                        </button>
+                        </SubmitButton>
                       </div>
                     </form>
+                  )}
+                  {waitingOnEarlierStage && (
+                    <p className="text-xs text-faint mt-2">
+                      Waiting on{" "}
+                      {co.approvals
+                        .filter((s) => s.required && s.order < a.order && s.decision === "PENDING")
+                        .map((s) => s.stage.replace(/_/g, " "))
+                        .join(", ")}
+                      .
+                    </p>
                   )}
                 </li>
               );
@@ -281,19 +332,24 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
         <SectionCard
           title="Comments"
           headerRight={
-            co.comments.length > 0 ? (
-              <span className="badge badge-muted tnum">{co.comments.length}</span>
+            co._count.comments > 0 ? (
+              <span className="badge badge-muted tnum">{co._count.comments}</span>
             ) : undefined
           }
         >
           <div className="space-y-3 mb-5 max-h-72 overflow-y-auto">
-            {co.comments.length === 0 && (
+            {co._count.comments === 0 && (
               <div className="flex items-center gap-2 text-sm text-muted py-2">
                 <MessageSquare size={14} />
                 No comments yet.
               </div>
             )}
-            {co.comments.map((c) => (
+            {co._count.comments > COMMENTS_CAP && (
+              <p className="text-xs text-faint">
+                Showing the {COMMENTS_CAP} most recent of {co._count.comments} comments.
+              </p>
+            )}
+            {comments.map((c) => (
               <div key={c.id} className="text-sm bg-ink-850/40 rounded-lg px-3 py-2.5 border border-line-soft">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-white text-xs">
@@ -310,11 +366,18 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             <Field label="Add a comment">
               <Textarea name="body" required placeholder="Write a comment…" />
             </Field>
-            <button className="btn-primary">Post Comment</button>
+            <SubmitButton className="btn-primary" pendingText="Posting…">Post Comment</SubmitButton>
           </form>
         </SectionCard>
 
-        <SectionCard title="History">
+        <SectionCard
+          title="History"
+          headerRight={
+            co._count.history > HISTORY_CAP ? (
+              <span className="text-[11px] text-faint">most recent {HISTORY_CAP} of {co._count.history}</span>
+            ) : undefined
+          }
+        >
           <ul className="space-y-3 max-h-96 overflow-y-auto">
             {co.history.length === 0 && (
               <li className="flex items-center gap-2 text-sm text-muted py-2">
@@ -359,8 +422,4 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
       </div>
     </div>
   );
-}
-
-function cn(...classes: (string | boolean | undefined | null)[]) {
-  return classes.filter(Boolean).join(" ");
 }

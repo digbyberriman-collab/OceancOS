@@ -1,7 +1,9 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
 import { ShieldAlert } from "lucide-react";
@@ -25,14 +27,32 @@ function ratingLabel(rating: number) {
 export default async function RisksPage() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.RSK_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Risk register is restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Risk register is restricted." />;
   }
-  const risks = await prisma.risk.findMany({ orderBy: [{ rating: "desc" }, { createdAt: "desc" }] });
+  // Rows are capped (ACTION_PLAN.md G4.1); the severity buckets come from a
+  // `groupBy` on the rating column rather than `.filter(...).length` on the
+  // capped array, so they stay exact — rating only ever takes 25 values, so
+  // this is a small aggregate rather than a full-table read.
+  const ROW_CAP = 300;
+  const scope = await projectScope(user.id);
+  const [risks, ratingCounts] = await Promise.all([
+    prisma.risk.findMany({
+      where: scope,
+      include: { project: { select: { currency: true } } },
+      orderBy: [{ rating: "desc" }, { createdAt: "desc" }],
+      take: ROW_CAP,
+    }),
+    prisma.risk.groupBy({ by: ["rating"], where: scope, _count: true }),
+  ]);
 
-  const critical = risks.filter((r) => r.rating >= 15).length;
-  const high = risks.filter((r) => r.rating >= 10 && r.rating < 15).length;
-  const medium = risks.filter((r) => r.rating >= 5 && r.rating < 10).length;
-  const low = risks.filter((r) => r.rating < 5).length;
+  const bucket = (min: number, max: number) =>
+    ratingCounts.filter((g) => g.rating >= min && g.rating <= max).reduce((s, g) => s + g._count, 0);
+  const critical = bucket(15, 25);
+  const high = bucket(10, 14);
+  const medium = bucket(5, 9);
+  const low = bucket(1, 4);
+  const totalCount = critical + high + medium + low;
+  const truncated = totalCount > risks.length;
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -42,12 +62,8 @@ export default async function RisksPage() {
         subtitle="Identified risks with likelihood, impact and mitigation."
       />
 
-      {risks.length === 0 ? (
-        <EmptyState
-          icon={<ShieldAlert size={20} />}
-          title="No risks logged"
-          hint="Add risks to track likelihood, impact and mitigation status."
-        />
+      {totalCount === 0 ? (
+        <ComingSoon icon={<ShieldAlert size={20} />} title="No risks logged" />
       ) : (
         <>
           {/* Severity summary cards */}
@@ -74,19 +90,30 @@ export default async function RisksPage() {
 
           {/* Risk table */}
           <div className="surface overflow-hidden">
+            {truncated && (
+              <div className="px-4 py-2 border-b border-line bg-ink-850/40 text-[11px] text-faint">
+                Showing the {risks.length} highest-rated of {totalCount} risks.
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="table-base">
                 <thead>
                   <tr>
-                    <th>Risk</th>
-                    <th className="w-28">Category</th>
-                    <th className="w-10 text-center" title="Likelihood (1–5)">L</th>
-                    <th className="w-10 text-center" title="Impact (1–5)">I</th>
-                    <th className="w-36">Rating</th>
-                    <th className="w-32">Status</th>
-                    <th className="w-24 text-right">Cost</th>
-                    <th className="w-16 text-right" title="Schedule impact (days)">Sched</th>
-                    <th className="w-28 text-right">Due</th>
+                    <th scope="col">Risk</th>
+                    <th scope="col" className="w-28">Category</th>
+                    <th scope="col" className="w-10 text-center">
+                      L<span className="sr-only"> Likelihood, 1 to 5</span>
+                    </th>
+                    <th scope="col" className="w-10 text-center">
+                      I<span className="sr-only"> Impact, 1 to 5</span>
+                    </th>
+                    <th scope="col" className="w-36">Rating</th>
+                    <th scope="col" className="w-32">Status</th>
+                    <th scope="col" className="w-24 text-right">Cost</th>
+                    <th scope="col" className="w-16 text-right">
+                      Sched<span className="sr-only"> Schedule impact, days</span>
+                    </th>
+                    <th scope="col" className="w-28 text-right">Due</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -134,7 +161,7 @@ export default async function RisksPage() {
                           <StatusBadge value={r.status} />
                         </td>
                         <td className="text-right tnum text-xs text-muted">
-                          {fmtMoney(r.costImpact)}
+                          {fmtMoney(r.costImpact, r.project.currency)}
                         </td>
                         <td className="text-right tnum text-xs text-muted">
                           {r.scheduleImpactDays != null ? `${r.scheduleImpactDays}d` : "—"}

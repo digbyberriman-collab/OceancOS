@@ -4,12 +4,41 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Search, SearchX } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
+
+// Below this, the seven `ILIKE '%x%'` scans below match nearly every row in
+// every table regardless of the trigram indexes G4.6 added — a one-character
+// term is the worst case a leading wildcard can hit, not a useful search
+// (ACTION_PLAN.md G4.6, performance [QUERY]).
+const MIN_QUERY_LENGTH = 2;
 
 export default async function SearchPage({ searchParams }: { searchParams: { q?: string } }) {
   const user = await requireUser();
   const q = (searchParams.q ?? "").trim();
+
+  if (q && q.length < MIN_QUERY_LENGTH) {
+    return (
+      <div className="animate-fade-up space-y-5">
+        <PageHeader eyebrow="System" title="Search results" subtitle={`"${q}" is too short to search on.`} />
+        <div className="surface p-4">
+          <form className="flex gap-2">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+              <input name="q" defaultValue={q} aria-label="Search" className="input-base pl-9" autoFocus />
+            </div>
+            <button type="submit" className="btn btn-primary px-5">Search</button>
+          </form>
+        </div>
+        <EmptyState
+          icon={<SearchX size={20} />}
+          title="Type at least 2 characters"
+          hint="A single character would match almost everything in every table."
+        />
+      </div>
+    );
+  }
 
   if (!q) {
     return (
@@ -17,7 +46,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
         <PageHeader
           eyebrow="System"
           title="Search"
-          subtitle="Find anything — change orders, drawings, documents, suppliers, crew requests."
+          subtitle="Find anything — change orders, quotes, drawings, documents, suppliers, crew requests."
         />
         <div className="surface p-5">
           <form className="flex gap-2">
@@ -26,6 +55,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
               <input
                 name="q"
                 placeholder="Type and press enter…"
+                aria-label="Search"
                 className="input-base pl-9"
                 autoFocus
               />
@@ -33,7 +63,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
             <button type="submit" className="btn btn-primary px-5">Search</button>
           </form>
           <p className="text-xs text-faint mt-3">
-            Searches change orders, crew requests, drawings, documents, suppliers, contractors and inventory.
+            Searches change orders, crew requests, quotes &amp; requests, drawings, documents, suppliers, contractors and inventory.
           </p>
         </div>
       </div>
@@ -41,45 +71,57 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   }
 
   const like = q;
-  const [cos, crs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
+  // Contractors and suppliers carry no projectId — they're company directories,
+  // not tied to one project — so scope is applied to every other model but
+  // those two.
+  const scope = await projectScope(user.id);
+  const [cos, crs, jobs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
     hasPermission(user, PERMISSIONS.CO_VIEW)
       ? prisma.changeOrder.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.CR_VIEW)
       ? prisma.crewRequest.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          take: 20,
+        })
+      : [],
+    hasPermission(user, PERMISSIONS.JOB_VIEW)
+      ? prisma.job.findMany({
+          where: { ...scope, archivedAt: null, OR: [{ title: { contains: like, mode: "insensitive" } }, { code: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }, { clientRef: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DRW_VIEW)
       ? prisma.drawing.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }] },
+          where: { ...scope, OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }] },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.DOC_VIEW)
-      ? prisma.document.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
+      ? prisma.document.findMany({ where: { ...scope, name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
     prisma.supplier.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 }),
     hasPermission(user, PERMISSIONS.CON_VIEW)
       ? prisma.contractor.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
     hasPermission(user, PERMISSIONS.INV_VIEW)
-      ? prisma.inventoryItem.findMany({ where: { OR: [{ name: { contains: like, mode: "insensitive" } }, { serial: { contains: like, mode: "insensitive" } }] }, take: 20 })
+      ? prisma.inventoryItem.findMany({ where: { ...scope, OR: [{ name: { contains: like, mode: "insensitive" } }, { serial: { contains: like, mode: "insensitive" } }] }, take: 20 })
       : [],
   ]);
 
+  const qs = encodeURIComponent(q);
   const sections: { label: string; items: { href: string; label: string }[] }[] = [
     { label: "Change orders", items: cos.map((x) => ({ href: `/change-orders/${x.id}`, label: `${x.number} — ${x.title}` })) },
     { label: "Crew requests", items: crs.map((x) => ({ href: `/crew-requests/${x.id}`, label: `${x.number} — ${x.title}` })) },
-    { label: "Drawings", items: drawings.map((x) => ({ href: `/drawings`, label: `${x.number} — ${x.title}` })) },
-    { label: "Documents", items: docs.map((x) => ({ href: `/documents`, label: x.name })) },
-    { label: "Suppliers", items: suppliers.map((x) => ({ href: `/suppliers`, label: x.name })) },
-    { label: "Contractors", items: contractors.map((x) => ({ href: `/contractors`, label: x.name })) },
-    { label: "Inventory", items: inv.map((x) => ({ href: `/inventory`, label: x.name })) },
+    { label: "Quotes & requests", items: jobs.map((x) => ({ href: `/jobs/${x.id}`, label: `${x.code} — ${x.title}` })) },
+    { label: "Drawings", items: drawings.map((x) => ({ href: `/drawings?q=${qs}`, label: `${x.number} — ${x.title}` })) },
+    { label: "Documents", items: docs.map((x) => ({ href: `/documents?q=${qs}`, label: x.name })) },
+    { label: "Suppliers", items: suppliers.map((x) => ({ href: `/suppliers?q=${qs}`, label: x.name })) },
+    { label: "Contractors", items: contractors.map((x) => ({ href: `/contractors?q=${qs}`, label: x.name })) },
+    { label: "Inventory", items: inv.map((x) => ({ href: `/inventory?q=${qs}`, label: x.name })) },
   ].filter((s) => s.items.length > 0);
 
   const totalResults = sections.reduce((n, s) => n + s.items.length, 0);
@@ -97,7 +139,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
         <form className="flex gap-2">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-            <input name="q" defaultValue={q} className="input-base pl-9" />
+            <input name="q" defaultValue={q} aria-label="Search" className="input-base pl-9" />
           </div>
           <button type="submit" className="btn btn-primary px-5">Search</button>
         </form>

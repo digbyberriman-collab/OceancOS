@@ -2,20 +2,38 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
-import { fmtDate, fmtMoney } from "@/lib/utils";
-import { Building2, AlertTriangle, Phone, Mail } from "lucide-react";
+import { ComingSoon } from "@/components/ui/ComingSoon";
+import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
+import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
+import { Building2, AlertTriangle, Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContractorsPage() {
+export default async function ContractorsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CON_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Contractor records are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Contractor records are restricted." />;
   }
-  const items = await prisma.contractor.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } });
-
+  const where: any = { archivedAt: null };
+  if (searchParams.q) {
+    where.name = { contains: searchParams.q, mode: "insensitive" };
+  }
+  // Rows are capped (ACTION_PLAN.md G4.1); the three summary figures come
+  // from a count and an aggregate instead of the capped array, so they stay
+  // exact regardless of how many contractors exceed the page.
   const now = new Date();
-  const expiredInsurance = items.filter((c) => c.insuranceExpiresAt && c.insuranceExpiresAt < now).length;
+  const [items, totalCount, contractValueSum, expiredInsurance] = await Promise.all([
+    prisma.contractor.findMany({ where, orderBy: { name: "asc" }, take: 300 }),
+    prisma.contractor.count({ where }),
+    prisma.contractor.aggregate({ where, _sum: { contractValue: true } }),
+    prisma.contractor.count({ where: { ...where, insuranceExpiresAt: { lt: now } } }),
+  ]);
+  const isFiltered = !!searchParams.q;
+  const truncated = totalCount > items.length;
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -25,25 +43,40 @@ export default async function ContractorsPage() {
         subtitle="Companies, contacts, contract values and insurance status."
       />
 
-      {items.length === 0 ? (
-        <EmptyState
-          icon={<Building2 size={20} />}
-          title="No contractors"
-          hint="Add a contractor to track scope, value and insurance."
-        />
+      <FilterBar resetHref="/contractors" resultCount={totalCount} resultLabel="contractor">
+        <FilterField label="Search" flex>
+          <input
+            name="q"
+            defaultValue={searchParams.q}
+            className="input-base"
+            placeholder="Contractor name…"
+          />
+        </FilterField>
+      </FilterBar>
+
+      {totalCount === 0 ? (
+        isFiltered ? (
+          <EmptyState
+            icon={<Building2 size={20} />}
+            title="No contractors match this search"
+            hint="Try a different name, or reset to see all contractors."
+          />
+        ) : (
+          <ComingSoon icon={<Building2 size={20} />} title="No contractors" />
+        )
       ) : (
         <>
           {/* Summary stat strip */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="stat-card">
               <div className="stat-label">Contractors</div>
-              <div className="stat-value text-white">{items.length}</div>
+              <div className="stat-value text-white">{totalCount}</div>
               <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
             </div>
             <div className="stat-card">
               <div className="stat-label">Total contract value</div>
               <div className="stat-value text-marine text-lg">
-                {fmtMoney(items.reduce((sum, c) => sum + (c.contractValue ?? 0), 0))}
+                {fmtMoney(toNumber(contractValueSum._sum.contractValue))}
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
             </div>
@@ -61,7 +94,8 @@ export default async function ContractorsPage() {
             <div className="flex items-center gap-3 px-4 py-2.5 border-b border-line bg-ink-850/40">
               <Building2 size={13} className="text-marine shrink-0" />
               <span className="text-[11px] uppercase tracking-wider text-muted font-semibold">
-                {items.length} contractor{items.length !== 1 ? "s" : ""}
+                {totalCount} contractor{totalCount !== 1 ? "s" : ""}
+                {truncated && <span className="text-faint normal-case font-normal"> · showing the first {items.length}, search to narrow</span>}
               </span>
               {expiredInsurance > 0 && (
                 <div className="ml-auto flex items-center gap-1.5 text-[11px] text-bad">

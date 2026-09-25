@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { listProjectsForUser } from "@/lib/project";
-import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
+import { fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
 import { isExpired } from "@/lib/jobs/workflow";
 import {
   CONTRACT_TYPE_LABELS,
@@ -125,7 +125,7 @@ export default async function JobPrint({ params }: { params: { id: string } }) {
               {job.lines.map((line) => (
                 <tr key={line.id}>
                   <td>{line.description}</td>
-                  <td className="num">{line.quantity.toLocaleString("en-GB")}</td>
+                  <td className="num">{toNumber(line.quantity).toLocaleString("en-GB")}</td>
                   <td>{line.unit}</td>
                   <td className="num">{fmtMoney(line.unitPrice, currency)}</td>
                   <td className="num">{fmtMoney(line.total, currency)}</td>

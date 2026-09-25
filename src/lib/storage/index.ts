@@ -8,12 +8,20 @@
 //   local — writes under ./uploads for development and CI, so the app runs
 //           with no cloud credentials.
 //
-// Uploads go straight from the browser to storage using a presigned PUT, so
-// large drawings never pass through the Next.js server.
+// Uploads go through a presigned PUT either way, but only the s3 driver's URL
+// points at the bucket directly — the local driver's "signed URL" is this
+// app's own /api/uploads/local route (below). So with STORAGE_DRIVER=local
+// (the default for dev, test and CI) every upload does pass through the
+// Next.js server, streamed to disk rather than buffered (ACTION_PLAN.md
+// G4.8). Large drawings bypass the server only in production, where
+// STORAGE_DRIVER=s3 is required.
 
-import { createHash } from "node:crypto";
-import { mkdir, writeFile, readFile, unlink, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { isSafeObjectKey } from "./keys";
 
 export * from "./keys";
@@ -30,10 +38,36 @@ export type SignedUpload = {
 
 export type StorageDriverName = "s3" | "local";
 
+/**
+ * Which storage driver is active.
+ *
+ * Required in production, with no inferred fallback: AUDIT_REPORT.md's
+ * Critical C15/C14 (.env.example presented local-disk as the silent
+ * production default). Inferring from S3_BUCKET meant a deployment that
+ * simply forgot to configure a bucket ran on local disk with no error and
+ * no warning — and most deployment platforms treat local disk as
+ * ephemeral, so every upload would be lost on the next restart or
+ * redeploy, discovered only when someone goes looking for a file that is
+ * no longer there.
+ *
+ * Development, test and CI keep the inference: it is what lets the app run
+ * with no cloud credentials, which is the whole point of the local driver
+ * existing.
+ */
 export function storageDriverName(): StorageDriverName {
   const explicit = process.env.STORAGE_DRIVER;
   if (explicit === "s3" || explicit === "local") return explicit;
-  // Infer: if a bucket is configured, use it; otherwise fall back to local disk.
+  if (explicit) {
+    throw new Error(`STORAGE_DRIVER must be "s3" or "local" — got "${explicit}".`);
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "STORAGE_DRIVER must be set in production (\"s3\" or \"local\"). Refusing to infer it " +
+        "from whether S3_BUCKET happens to be set, which would silently run on local disk — " +
+        "ephemeral on most deployment platforms — if the bucket were ever left unconfigured."
+    );
+  }
+  // Outside production: infer, for a smooth local/dev/CI experience.
   return process.env.S3_BUCKET ? "s3" : "local";
 }
 
@@ -240,6 +274,86 @@ export async function getObject(key: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/** Thrown by `putObjectStream` when the body exceeds `maxBytes`. */
+export class UploadTooLargeError extends Error {
+  constructor() {
+    super("Upload exceeds the maximum allowed size.");
+    this.name = "UploadTooLargeError";
+  }
+}
+
+/**
+ * Store a request body as it streams in, instead of buffering the whole
+ * file in memory first (ACTION_PLAN.md G4.8, performance [uploads], High —
+ * a handful of concurrent large uploads could hold their entire body in
+ * memory at once via `Buffer.from(await request.arrayBuffer())`).
+ *
+ * Only the local driver needs this: S3 uploads go straight from the browser
+ * to the bucket via a presigned URL and never pass through this server.
+ * Writes to a temp file first and renames into place, so a failed or
+ * oversized upload never leaves a partial file at `key`.
+ *
+ * Returns the number of bytes written.
+ */
+export async function putObjectStream(
+  key: string,
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number
+): Promise<number> {
+  if (!isSafeObjectKey(key)) throw new Error("Unsafe object key");
+  if (storageDriverName() !== "local") {
+    throw new Error("putObjectStream is only implemented for the local driver");
+  }
+
+  const path = localPath(key);
+  await mkdir(dirname(path), { recursive: true });
+  const tempPath = `${path}.${randomUUID()}.part`;
+
+  let written = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      written += chunk.byteLength;
+      if (written > maxBytes) {
+        callback(new UploadTooLargeError());
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(Readable.fromWeb(body as never), limiter, createWriteStream(tempPath));
+    await rename(tempPath, path);
+    return written;
+  } catch (err) {
+    await unlink(tempPath).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Stream an object back instead of reading it fully into memory first
+ * (ACTION_PLAN.md G4.8). Returns null when it is not there.
+ */
+export async function getObjectStream(
+  key: string
+): Promise<{ stream: ReadableStream<Uint8Array>; size: number } | null> {
+  if (!isSafeObjectKey(key)) throw new Error("Unsafe object key");
+  if (storageDriverName() !== "local") {
+    throw new Error("getObjectStream is only implemented for the local driver");
+  }
+
+  const path = localPath(key);
+  let size: number;
+  try {
+    size = (await stat(path)).size;
+  } catch {
+    return null;
+  }
+
+  return { stream: Readable.toWeb(createReadStream(path)) as ReadableStream<Uint8Array>, size };
 }
 
 export async function deleteObject(key: string): Promise<void> {
