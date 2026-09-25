@@ -234,7 +234,7 @@ Prisma, no `next/*`, no `requestCache`. Those two files start with `import "serv
 | File | Contents |
 |---|---|
 | `src/lib/permissions/keys.ts` | `PERMISSIONS` (the 42 keys moved verbatim from `rbac.ts`, plus the 70 new ones), `PermissionKey`, `ALL_KEYS` |
-| `src/lib/permissions/catalog.ts` | `PERMISSION_META`, `MODULES`, `LEVELS`, lookups. Its header comment carries the §16 definition of done. |
+| `src/lib/permissions/catalog.ts` | `PERMISSION_META`, `MODULES`, `LEVELS`, `PROJECT_SCOPE_KEYS`, `ACCOUNT_SCOPE_KEYS`, lookups. Its header comment carries the §16 definition of done. |
 | `src/lib/permissions/defaults.ts` | `SYSTEM_ACCESS_SETS`, `DEFAULTS_VERSION`, `DEFAULTS_MIGRATIONS` |
 | `src/lib/permissions/sod.ts` | `SOD_RULES`, `CATEGORY_CEILINGS` |
 | `src/lib/permissions/policy.ts` | `buildGraph`, `closure`, `denyCascade`, `coveringAssignments`, `computeEffective`, `levelOf`, `levelKeys`, `cellState` |
@@ -276,6 +276,8 @@ export type ModuleDef = {
   short: string;                         // collapsed-band label
   status: ModuleStatus;
   viewKey: PermissionKey | null;         // null ⇒ no R2 implication (e.g. contacts & forms)
+  navKey?: PermissionKey;                // gates the nav entry and list page; defaults to viewKey.
+                                         // Set it where the page is an admin tool (project: project.edit).
   nav?: { href: string; section?: string };
   bridgePhase?: number;
   groups: { id: string; label: string; keys: PermissionKey[] }[]; // the subcategory column groups
@@ -356,7 +358,7 @@ Set `enforced` in `catalog.ts` to what is true *at each commit*:
 - Each Gate 10 item flips the keys it starts guarding.
 - 10.9 finalises the flags to the E/R column below.
 
-#### 1. Project — `project` · live · nav `/admin/projects` · viewKey `project.access`
+#### 1. Project — `project` · live · nav `/admin/projects` (navKey `project.edit`) · viewKey `project.access`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -808,7 +810,7 @@ model ProjectAccessOverride {
   id            String    @id @default(cuid())
   userId        String
   projectId     String
-  permissionKey String
+  permissionKey String                          // project-scope keys only (§8.1 step 4)
   effect        String                          // GRANT | DENY
   reason        String?
   expiresAt     DateTime?                       // temporary cover ("covering Ch/Off until 30 Oct")
@@ -879,8 +881,11 @@ For user U on project P (P has `id` and `vesselId`):
    ones apply. Otherwise the unscoped ones. Assignments at the same level are unioned.
 3. **Template.** T = ∪ `RolePermission` of the winning assignments, excluding archived sets,
    filtered to project-scope keys.
-4. **Overrides.** Active (non-expired) `ProjectAccessOverride` rows for (U, P) give the grant set G
-   and the deny set D.
+4. **Overrides.** Active (non-expired) `ProjectAccessOverride` rows for (U, P), **restricted to
+   project-scope keys**, give the grant set G and the deny set D. An account-scope key can never be
+   granted or denied per project. It changes only through `AccountAccessOverride` or an unscoped
+   assignment (step 7). `computeEffective` filters G and D by scope as a second line of defence
+   behind the action schema (§12.14).
 5. **Closure.** C = closure(T ∪ G) under R1–R3.
 6. **Deny wins and cascades.** Remove every k ∈ C where k ∈ D or closure({k}) ∩ D ≠ ∅.
 7. **Account keys.** A = closure(templates of **unscoped** assignments ∪ account GRANTs) minus
@@ -939,6 +944,9 @@ as *Removed from project* so an admin can restore them.
 8. **Account admin alone.** A user whose only assignment is ACCOUNT_ADMIN (unscoped) has the
    account keys, an empty set on every project, and an empty `listProjectsForUser`. They do not
    appear as a row on any People matrix.
+9. **No account keys per project.** A `ProjectAccessOverride` GRANT of `admin.users` for a
+   project-scoped PM on p1 has no effect: `admin.users` is in neither their project set nor their
+   account set.
 
 ---
 
@@ -1059,9 +1067,13 @@ still derived fresh on every request, so changes take effect immediately. Unit t
 Each check returns `Problem { userId?, key?, ruleId, severity: "block"|"warn", message }`.
 
 1. **No escalation (D-3).** A project admin who is not an account admin may only change cells, by
-   granting or revoking, for keys they **effectively hold on P**. They may only assign sets whose
-   closure ⊆ their own set on P, never an ADMIN-category set, and never one containing account
-   keys. Account admins (holders of `admin.roles`) are exempt for project keys, since they can
+   granting or revoking, for keys they **effectively hold on P**. They create **project-scoped**
+   assignments only, where a set's account-scope keys are inert (§8.1 step 7). So the subset test
+   compares the set's **project-scope** closure against their own set on P, and a PM can assign
+   OWNERS_REP or PROJECT_MANAGER even though those sets carry `admin.users`. They may never assign
+   an ADMIN-category set. Unscoped and vessel-scoped assignments, the only ones through which
+   account keys or other projects are affected, are created by holders of `admin.access.appoint`
+   alone. Account admins (holders of `admin.roles`) are exempt for project keys, since they can
    already do the same through templates. **Nobody may grant an account-scope critical key they
    do not hold.** The project-scope admin keys `admin.access.manage` and `admin.access.view` are
    governed by `admin.access.appoint` instead (§11.1): its holders may grant or remove them on
@@ -1307,12 +1319,14 @@ quotes*", or "Granted by Pat Manager, 25 Sep — *Covering Ch/Off*". It includes
 **Server actions** in `src/app/(app)/admin/access/actions.ts`, with schemas in `schemas.ts`:
 
 ```ts
-const Key = z.enum(ALL_KEYS as [PermissionKey, ...PermissionKey[]]);
+// Per-project cells accept project-scope keys only. Account-scope keys are edited through the
+// Admins tab's account actions, never as a project cell (§8.1 step 4).
+const ProjectKey = z.enum(PROJECT_SCOPE_KEYS as [PermissionKey, ...PermissionKey[]]);
 export const SaveProjectAccess = z.object({
   projectId: z.string().min(1),
   baseVersion: z.number().int().min(0),
   cells: z.array(z.object({
-    userId: z.string().min(1), key: Key, value: z.boolean(),
+    userId: z.string().min(1), key: ProjectKey, value: z.boolean(),
     expiresAt: z.coerce.date().optional(),
   })).max(5000),
   presets: z.array(z.object({ userId: z.string(), roleId: z.string() })).max(500).default([]),
@@ -1335,6 +1349,7 @@ saveAccessSets({ changes: { roleId, key, value }[], baseVersions: Record<string,
 createAccessSet({ name, badge, category, description, cloneFromRoleId })
 archiveAccessSet / resetAccessSetToDefault / reorderAccessSets
 appointProjectAdmin / removeProjectAdmin / setAccountAdmin
+saveAccountAccess({ changes: { userId, key /* ACCOUNT_SCOPE_KEYS only */, value }[], reason })   // admin.access.appoint
 searchPeople(q)
 ```
 
@@ -1358,10 +1373,12 @@ Paths are under `src/app/(app)/` unless shown otherwise.
    - `NAV` entries (`src/components/layout/Sidebar.tsx:31-51`) gain a `moduleId`. The layout
      computes the visible module ids on the server and passes **ids only**, via `AppShell`, to
      `Sidebar.tsx`.
-   - Scaffold entries stay, per G3.11, but only for users holding their view key. Approvals is
-     visible per §5.5 (6).
+   - Each entry shows when the user holds its module's `navKey` (the `viewKey` unless set).
+     Scaffold entries stay, per G3.11, but only for users holding that key. Approvals is visible
+     per §5.5 (6). Projects is gated on `project.edit`, not the membership key every project
+     member holds.
    - `TopBar.tsx:66` shows the active project's presets.
-2. **List pages.** Check the module's `viewKey` on the active project. Lists stay scoped and capped
+2. **List pages.** Check the module's `navKey` (the `viewKey` unless set) on the active project. Lists stay scoped and capped
    per `CLAUDE.md` (`projectScope()` plus `take`).
 3. **Detail pages.** Load the record, then `forProject(user, record.projectId)`, then
    `notFound()` if the user lacks view.
@@ -1431,9 +1448,9 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 
 | File | Asserts |
 |---|---|
-| `tests/permissionCatalog.test.ts` | groups partition `ALL_KEYS`; counts from §5.6; implications acyclic; cross-module edges ⊆ allowlist; `short` ≤ 16 chars; money keys ≥ sensitive; every `access`-module key except `admin.access.view` is critical, plus `audit.view.all`; account keys ⊆ the §5.6 list; every module with a nav entry has a `viewKey` |
+| `tests/permissionCatalog.test.ts` | groups partition `ALL_KEYS`; counts from §5.6; implications acyclic; cross-module edges ⊆ allowlist; `short` ≤ 16 chars; money keys ≥ sensitive; every `access`-module key except `admin.access.view` is critical, plus `audit.view.all`; account keys ⊆ the §5.6 list; every module with a nav entry has a `navKey` or `viewKey`, and no nav gate is `project.access` (which R1 gives every member) |
 | `tests/permissionDefaults.test.ts` | the existing `tests/rbac.test.ts` SoD assertions, migrated; every system set passes block rules and ceilings; ACCOUNT_ADMIN's closure contains no project-scope key; the V1 − V0 diff equals the §6.2 table exactly (against `tests/fixtures/matrixV0.ts`); D-4 holders of `job.price.view` after closure |
-| `tests/permissionResolver.test.ts` | all eight §8.3 examples, plus inactive user, reserved-key pass-through and provenance |
+| `tests/permissionResolver.test.ts` | all nine §8.3 examples, plus inactive user, reserved-key pass-through and provenance |
 | `tests/accessAuthority.test.ts` | no escalation (grant **and** revoke), critical-key rule, self-edit, rank, last admin (via simulation), reason length, block vs warn with acknowledgement, concurrency code |
 | `tests/permissionSync.test.ts` | idempotency; customised sets survive; additive migrations; key retirement cascades; reset to default |
 | `tests/matrixState.test.ts` | toggle and untoggle; implied-cell deny cascade; normalisation to INHERIT; level set/clear leaves authority keys; diff grouping for the review dialog |
@@ -1501,7 +1518,7 @@ six checks in §1 (1).
 | **9.2** | `defaults.ts` (20 sets incl. ACCOUNT_ADMIN), `sod.ts`, `ROLE_PERMISSIONS` derived (explicit grants); `ROLE_KEYS` + `ROLE_CATEGORIES` + `DEPARTMENT_LABELS` | defaults tests green; V0 diff test green; existing `rbac.test.ts` green |
 | **9.3** | Migration `access_matrix` (§7); count and log any `UserRole` rows with both `projectId` and `vesselId` set (§8.1) | `prisma migrate deploy` is clean on a fresh **and** a seeded database |
 | **9.4** | `sync.ts`; the seed uses it; fixtures (§9) | seeding twice gives 0 `RolePermission` writes on the second run; sync tests green; `npm run qa` checks that a customised set survives the seed |
-| **9.5** | `policy.ts` | resolver tests green, including all eight §8.3 examples |
+| **9.5** | `policy.ts` | resolver tests green, including all nine §8.3 examples |
 | **9.6** | `resolver.ts`, `guards.ts`; `getCurrentUser` project-aware (fixes D1); `listProjectsForUser` honours `project.access`; TopBar shows presets | the D1 regression e2e passes; `e2e/tenancy.spec.ts` and every other existing e2e stay green |
 | **9.7** | `usersWithPermissionOnProject` on `holdersOf`; authoriser dropdown and validation (D3) | coverage rule (e) passes; the jobs and change-order approval e2e stay green |
 
