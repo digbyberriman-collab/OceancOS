@@ -225,7 +225,7 @@ Not a fix gate. After Gate 6:
 
 ## Decisions taken
 
-Recorded here because both change the shape of the plan.
+Recorded here because each changes the shape of the plan.
 
 **Next.js stays on 14 for this pass.** The two remaining Critical advisories are both Next and both
 need 14.2.35 → 16.3.5, a React 19 migration touching every async request API in the application.
@@ -242,7 +242,25 @@ out remains out of scope — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are
 | | Item | Closes |
 |---|---|---|
 | **G3.11** | **Label the ten scaffold modules as unbuilt.** A shared `ComingSoon` state replacing the misleading empty states on schedule, financials, logistics, inventory, drawings, documents, meetings, risks, contractors and suppliers. Keep the sidebar entries; make the state honest. | ui-ux `[SCAFFOLDS]`, `[EMPTY STATES]` |
-| **G3.12** | **Give suppliers a permission gate.** `suppliers/page.tsx` is the one list page with no `hasPermission` check at all — every other module has one. No `PERMISSIONS.SUP_VIEW` key exists yet, so this needs a small RBAC decision (which key, which roles) that the other nine pages' copy-paste fix doesn't need; that's why it wasn't folded into G2.1 alongside the rest of the scoping pass. Discovered in Phase 2 (`auth-security`, `[RBAC] — the suppliers page has no permission check`, Medium) but never assigned a gate in Phase 4 — noted here rather than silently left untracked. | auth-security `[RBAC] — suppliers` |
+| **G3.12** | ~~**Give suppliers a permission gate.** `suppliers/page.tsx` is the one list page with no `hasPermission` check at all — every other module has one. No `PERMISSIONS.SUP_VIEW` key exists yet, so this needs a small RBAC decision (which key, which roles) that the other nine pages' copy-paste fix doesn't need; that's why it wasn't folded into G2.1 alongside the rest of the scoping pass. Discovered in Phase 2 (`auth-security`, `[RBAC] — the suppliers page has no permission check`, Medium) but never assigned a gate in Phase 4 — noted here rather than silently left untracked.~~ **Folded into 10.3.** The permission matrix makes the RBAC decision this item was waiting on: a `supplier.view` key, granted by default to OWNER, OWNERS_REP, PROJECT_MANAGER, CAPTAIN, PURSER, FINANCE and AUDITOR (`PERMISSIONS_MATRIX_MASTER_PROMPT.md` §6.2). | auth-security `[RBAC] — suppliers` |
+
+**Access control becomes an admin-editable permission matrix.** Found after Gate 7: permissions
+are still unioned across every role assignment regardless of its project scope (`auth.ts:75-77`),
+so a per-project role leaks onto every reachable project, and the static role matrix cannot be
+adjusted without a code change. Rather than patch the union, access moves to a typed permission
+catalog (112 keys across 24 modules), per-project per-person overrides on top of editable access
+sets, and a Users & Access screen. The decisions are:
+- overrides are per project;
+- admin is tiered with no escalation: an account admin edits the templates, a project admin edits
+  their own projects and can only grant what they hold;
+- job prices get their own key;
+- the most specific assignment wins;
+- there is no blanket "Approve" level.
+
+The full brief, including the defects it fixes and the verified defaults, is
+`PERMISSIONS_MATRIX_MASTER_PROMPT.md`. It is **Gates 9–11** below. They do not depend on Gate 8,
+and because the scope leak is live, they may run first. Its findings are logged at the end of
+`audit/findings-phase5.md`.
 
 ---
 
@@ -251,3 +269,48 @@ out remains out of scope — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are
 Deferred from G0.2. Closes the last two Critical advisories and the two High `postcss` advisories
 that ship inside Next. Taken as one dedicated piece of work against a green suite: React 19, the
 async `cookies()` / `headers()` / `params` APIs, and a full re-run of the e2e suite.
+
+---
+
+## Gate 9 — Access foundations
+
+Full scope and acceptance criteria for each item are in `PERMISSIONS_MATRIX_MASTER_PROMPT.md` §15.
+Independent of Gate 8.
+
+| | Item |
+|---|---|
+| **9.1** | Typed permission catalog (`src/lib/permissions/keys.ts`, `catalog.ts`); `rbac.ts` becomes a façade. 42 existing + 70 new keys, with zero call-site edits. |
+| **9.2** | System access-set defaults (20 sets including ACCOUNT_ADMIN), separation-of-duties rules and category ceilings. |
+| **9.3** | Migration `access_matrix`: access-set metadata, per-project and account overrides, `AuditLog.projectId`, department order. |
+| **9.4** | Seed via a pure `planSync`, so admin edits survive re-seeding; the D1 regression fixture. |
+| **9.5** | Pure effective-permission policy (most specific assignment wins, overrides, closure, deny cascade). |
+| **9.6** | Project-aware `getCurrentUser` and guards (`assertPermissionOn`); closes the scope leak. |
+| **9.7** | One holder lookup (`holdersOf`) behind `usersWithPermissionOnProject`, the authoriser dropdown and its validation. |
+
+---
+
+## Gate 10 — Access enforcement
+
+| | Item |
+|---|---|
+| **10.1** | Check permissions after loading the record, against the record's project, at every action. |
+| **10.2** | Sidebar filtered by module view key; TopBar shows the active project's access sets. |
+| **10.3** | `supplier.view` on the suppliers page and search. **Closes G3.12.** |
+| **10.4** | Dedicated comment keys for change orders and crew requests. |
+| **10.5** | Per-module export keys; money in exports by price keys; PDF routes checked before render. |
+| **10.6** | Money redaction by price/cost keys on every page that shows it. |
+| **10.7** | Project-scoped audit log and Recent activity; `/admin` directory account-scoped; `/admin/projects` scoped and capped. |
+| **10.8** | Approvals page gate and typed stage map; crew-request progress key. |
+| **10.9** | Static coverage test: every enforced key guarded, every page and action guarded. |
+
+---
+
+## Gate 11 — Users & Access screen (after Gates 9 and 10)
+
+| | Item |
+|---|---|
+| **11.1–11.5** | Admin authority rules (no escalation, self-edit, rank, last admin, reasons, SoD) and the server actions for project access, access sets and admins. |
+| **11.6–11.10** | `/admin/access`: shell, tabs and URL state; the matrix grid with staging; the Review & save dialog. |
+| **11.11–11.14** | Filter chips, List view, Access sets tab, Admins tab. |
+| **11.15** | Full e2e suite plus a 100-person performance check. |
+| **11.16** | Docs, including `CLAUDE.md`'s "Roles and permissions" section. |
