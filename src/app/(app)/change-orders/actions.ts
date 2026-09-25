@@ -16,6 +16,7 @@ import { getActiveProject, requireProjectAccess, usersWithPermissionOnProject } 
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   CO_STATUSES_AWAITING_DECISION,
+  approvalStageChanges,
   assertTransitionChangeOrder,
   canDecideApproval,
   nextChangeOrderStatus,
@@ -88,7 +89,10 @@ export async function updateChangeOrder(formData: FormData) {
   assertPermission(user, PERMISSIONS.CO_EDIT);
 
   const id = String(formData.get("id") ?? "");
-  const co = await prisma.changeOrder.findUnique({ where: { id } });
+  const co = await prisma.changeOrder.findUnique({
+    where: { id },
+    include: { approvals: { select: { id: true, stage: true, decision: true, order: true } } },
+  });
   if (!co) throw notFound("That change order");
 
   await requireProjectAccess(user.id, co.projectId);
@@ -105,20 +109,46 @@ export async function updateChangeOrder(formData: FormData) {
   }
   const data = parsed.data;
 
+  const { approvals, ...stored } = co;
   const normalise = (v: unknown): unknown => (v instanceof Prisma.Decimal ? v.toNumber() : v ?? null);
   const changed = (Object.keys(data) as (keyof typeof data)[]).filter(
-    (key) => normalise(data[key]) !== normalise((co as unknown as Record<string, unknown>)[key])
+    (key) => normalise(data[key]) !== normalise((stored as unknown as Record<string, unknown>)[key])
   );
+
+  // The review flags decide which optional stages the chain has. Editing them
+  // without restaging the approval rows would leave a requested review with
+  // no stage, or a stage nobody asked for.
+  const stages = approvalStageChanges(
+    approvals,
+    defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview })
+  );
+  if (stages.decided.length) {
+    const names = stages.decided.map((s) => (s === "CLASS" ? "Class" : "Flag")).join(" and ");
+    throw conflict(
+      `${names} review has already been decided on this change order. Revise it back to draft to change which reviews it needs.`
+    );
+  }
+  const stagesRemoved = approvals.filter((a) => stages.removeIds.includes(a.id)).map((a) => a.stage);
+  const stagesAdded = stages.create.map((c) => c.stage);
 
   await prisma.$transaction(async (tx) => {
     await tx.changeOrder.update({ where: { id }, data: { ...data, updatedById: user.id } });
+    if (stages.create.length) {
+      await tx.changeOrderApproval.createMany({
+        data: stages.create.map((c) => ({ changeOrderId: id, stage: c.stage, order: c.order, required: true })),
+      });
+    }
+    if (stages.removeIds.length) {
+      await tx.changeOrderApproval.deleteMany({ where: { id: { in: stages.removeIds }, decision: "PENDING" } });
+    }
     if (changed.length) {
+      const restaged = [...stagesAdded.map((s) => `+${s}`), ...stagesRemoved.map((s) => `-${s}`)];
       await tx.changeOrderHistory.create({
         data: {
           changeOrderId: id,
           actorId: user.id,
           event: "EDITED",
-          details: `Changed: ${changed.join(", ")}`,
+          details: `Changed: ${changed.join(", ")}${restaged.length ? `; approval stages ${restaged.join(", ")}` : ""}`,
         },
       });
     }
@@ -129,7 +159,7 @@ export async function updateChangeOrder(formData: FormData) {
     action: "UPDATE",
     resource: "ChangeOrder",
     resourceId: id,
-    details: { changed },
+    details: { changed, stagesAdded, stagesRemoved },
   });
 
   revalidatePath(`/change-orders/${id}`);
@@ -185,6 +215,19 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
       await tx.changeOrderApproval.updateMany({
         where: { changeOrderId: id },
         data: { decision: "PENDING", decidedById: null, decidedAt: null, comment: null },
+      });
+    }
+
+    // "Resume review" (MORE_INFO → UNDER_REVIEW) answers the question without
+    // restarting the chain: the stages that already approved keep their
+    // decision, and the stage that asked goes back to PENDING so it can
+    // actually decide. Left at MORE_INFO it could never be decided again
+    // (canDecideApproval only takes PENDING rows) and would block the chain
+    // for good.
+    if (co.status === "MORE_INFO" && target === "UNDER_REVIEW") {
+      await tx.changeOrderApproval.updateMany({
+        where: { changeOrderId: id, decision: "MORE_INFO" },
+        data: { decision: "PENDING", decidedById: null, decidedAt: null },
       });
     }
   });

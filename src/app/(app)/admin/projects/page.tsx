@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Ship } from "lucide-react";
 import { requireUser } from "@/lib/auth";
+import { accessibleProjectIds } from "@/lib/project";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
@@ -34,10 +35,14 @@ export default async function AdminProjectsPage({
     );
   }
 
+  // Only the projects the caller can reach, the same scope the save path
+  // enforces with requireProjectAccess. Listing every project exposed codes,
+  // yard names and dates of refits a project-scoped editor cannot touch.
   const projects = await prisma.project.findMany({
-    where: { archivedAt: null },
+    where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
     include: { vessel: true },
     orderBy: [{ status: "asc" }, { name: "asc" }],
+    take: 200,
   });
 
   if (!projects.length) {

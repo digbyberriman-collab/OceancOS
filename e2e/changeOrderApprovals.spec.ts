@@ -164,4 +164,35 @@ test.describe("change order approval chain", () => {
     await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
     await expect(page.getByText(/waiting on captain/i)).toBeVisible();
   });
+
+  test("editing the review flags adds and removes the matching approval stage", async ({ page }) => {
+    // The class and flag stages were created once, at draft time. Ticking
+    // "Requires class review" on a later edit stored the flag but gave the
+    // chain no CLASS stage to decide; unticking it left the stage behind.
+    await signIn(page, PM);
+    await page.goto("/change-orders/new");
+    const title = `Review-flag restaging ${Date.now()}`;
+    await page.getByLabel("Title").fill(title);
+    await page.getByLabel("Description").fill("Confirms an edit restages the class approval.");
+    await page.getByLabel("Reason for Change").fill("Verifying the review-flag restaging fix.");
+    await page.getByLabel("Estimated Cost (EUR)").fill("1000");
+    await page.getByRole("button", { name: /create draft/i }).click();
+    await page.waitForURL((url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
+    const coUrl = page.url();
+    await expect(page.getByText("6. CLASS")).toHaveCount(0);
+
+    await page.getByRole("link", { name: /edit details/i }).click();
+    await page.waitForURL(/\/edit$/);
+    await page.getByLabel(/requires class review/i).check();
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await page.waitForURL(coUrl);
+    await expect(page.getByText("6. CLASS")).toBeVisible();
+
+    await page.getByRole("link", { name: /edit details/i }).click();
+    await page.waitForURL(/\/edit$/);
+    await page.getByLabel(/requires class review/i).uncheck();
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await page.waitForURL(coUrl);
+    await expect(page.getByText("6. CLASS")).toHaveCount(0);
+  });
 });

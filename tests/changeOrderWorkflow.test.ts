@@ -10,6 +10,7 @@ import {
   canDecideApproval,
   nextChangeOrderStatus,
   nextDueApprovals,
+  approvalStageChanges,
 } from "@/lib/workflow/changeOrder";
 import { CHANGE_ORDER_STATUSES, CO_APPROVAL_STAGES } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
@@ -184,6 +185,13 @@ describe("canDecideApproval", () => {
     expect(canDecideApproval(rows[1], rows)).toBe(false);
   });
 
+  it("blocks a later stage while an earlier required stage has asked for more information", () => {
+    // The stage that asked has not approved; the rest of the chain waits for
+    // the answer instead of deciding around it.
+    const rows = chain([{ id: "a0", order: 0, decision: "MORE_INFO" }, { id: "a1", order: 1 }]);
+    expect(canDecideApproval(rows[1], rows)).toBe(false);
+  });
+
   it("allows a later stage once the earlier one has decided, whichever way", () => {
     const approved = chain([{ id: "a0", order: 0, decision: "APPROVED" }, { id: "a1", order: 1 }]);
     expect(canDecideApproval(approved[1], approved)).toBe(true);
@@ -240,6 +248,15 @@ describe("nextChangeOrderStatus", () => {
     expect(nextChangeOrderStatus("UNDER_REVIEW", "APPROVED", siblings)).toBe("APPROVED");
   });
 
+  it("does not complete while a required stage is still at MORE_INFO", () => {
+    // The bypass: the first stage asks a question, every later stage
+    // approves. Nothing is PENDING any more, but the stage that asked has not
+    // approved, so the change order must not become APPROVED.
+    const siblings = [row("MORE_INFO"), row("APPROVED", 1), row("APPROVED", 2)];
+    expect(nextChangeOrderStatus("UNDER_REVIEW", "APPROVED", siblings)).toBeNull();
+    expect(nextChangeOrderStatus("MORE_INFO", "APPROVED", siblings)).toBe("UNDER_REVIEW");
+  });
+
   it("ignores an optional row still pending when deciding completeness", () => {
     const siblings = [row("APPROVED"), { ...row("PENDING", 1), required: false }];
     expect(nextChangeOrderStatus("UNDER_REVIEW", "APPROVED", siblings)).toBe("APPROVED");
@@ -287,5 +304,48 @@ describe("nextDueApprovals", () => {
 
   it("is empty once nothing required is pending", () => {
     expect(nextDueApprovals([row(0, "APPROVED"), row(1, "REJECTED")])).toEqual([]);
+  });
+});
+
+describe("approvalStageChanges", () => {
+  const BASE = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"] as const;
+  const rows = (stages: string[], decisions: Record<string, string> = {}) =>
+    stages.map((stage, order) => ({ id: `r-${stage}`, stage, decision: decisions[stage] ?? "PENDING", order }));
+
+  it("changes nothing when the review flags are unchanged", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"]), [...BASE, "CLASS"]);
+    expect(result).toEqual({ create: [], removeIds: [], decided: [] });
+  });
+
+  it("adds a flag stage after the existing chain", () => {
+    const result = approvalStageChanges(rows([...BASE]), [...BASE, "FLAG"]);
+    expect(result.create).toEqual([{ stage: "FLAG", order: 5 }]);
+    expect(result.removeIds).toEqual([]);
+  });
+
+  it("orders each new stage after the highest existing one, never alongside it", () => {
+    // FLAG was added first and holds order 5; adding CLASS later must not
+    // land on 5 too, or the two would be decided in parallel.
+    const existing = rows([...BASE, "FLAG"]);
+    const result = approvalStageChanges(existing, [...BASE, "CLASS", "FLAG"]);
+    expect(result.create).toEqual([{ stage: "CLASS", order: 6 }]);
+  });
+
+  it("removes a class stage that is still pending", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"]), [...BASE]);
+    expect(result.removeIds).toEqual(["r-CLASS"]);
+    expect(result.decided).toEqual([]);
+  });
+
+  it("reports, rather than removes, a class stage that has already been decided", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"], { CLASS: "APPROVED" }), [...BASE]);
+    expect(result.removeIds).toEqual([]);
+    expect(result.decided).toEqual(["CLASS"]);
+  });
+
+  it("never removes a stage of the base chain, even if it were missing from the wanted list", () => {
+    const result = approvalStageChanges(rows([...BASE]), ["CAPTAIN"]);
+    expect(result.removeIds).toEqual([]);
+    expect(result.decided).toEqual([]);
   });
 });
