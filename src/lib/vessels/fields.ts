@@ -264,6 +264,13 @@ export const EVIDENCE_FIELD_MAP: Record<string, VesselFieldKey> = {
 
 type FieldValue = string | number | Date | null | undefined;
 
+/** Text a source writes for "no supported value". Kept as evidence, never taken as a value. */
+const NO_VALUE_TEXT = new Set(["", "not verified", "unverified", "unknown", "n/a", "na", "tbc", "tba", "-", "–", "—"]);
+
+export function isNoValueText(value: string | null | undefined): boolean {
+  return NO_VALUE_TEXT.has(String(value ?? "").trim().toLowerCase());
+}
+
 export function isBlank(value: FieldValue): boolean {
   return value == null || (typeof value === "string" && value.trim() === "");
 }
@@ -365,7 +372,7 @@ export function conflictingObservations<T extends ObservedValue>(
   observations: T[]
 ): T[] {
   if (isBlank(preferred)) return [];
-  const relevant = observations.filter((o) => o.fieldKey === field.key && !isBlank(o.value));
+  const relevant = observations.filter((o) => o.fieldKey === field.key && !isNoValueText(o.value));
 
   if (NUMERIC_KINDS.includes(field.kind)) {
     const target = typeof preferred === "number" ? preferred : parseNumber(String(preferred));

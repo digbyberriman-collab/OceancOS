@@ -12,6 +12,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   EVIDENCE_FIELD_MAP,
   isBlank,
+  isNoValueText,
   isVesselFieldKey,
   vesselField,
   type VesselFieldKey,
@@ -90,7 +91,9 @@ export function valuesFromEvidence(
   const byKey = new Map<VesselFieldKey, Set<string>>();
   for (const o of observations) {
     const key = EVIDENCE_FIELD_MAP[o.fieldLabel];
-    if (!key || !isVesselFieldKey(key) || AMBIGUOUS_EVIDENCE.has(o.fieldLabel) || isBlank(o.value)) continue;
+    // A source's "Not verified" or "n/a" is not a figure: it neither fills a
+    // field nor counts as a disagreement with a real value beside it.
+    if (!key || !isVesselFieldKey(key) || AMBIGUOUS_EVIDENCE.has(o.fieldLabel) || isNoValueText(o.value)) continue;
     byKey.set(key, (byKey.get(key) ?? new Set()).add(o.value.trim()));
   }
 

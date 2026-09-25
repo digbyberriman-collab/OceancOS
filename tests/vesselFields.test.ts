@@ -138,6 +138,11 @@ describe("conflictingObservations", () => {
     ).toEqual([]);
   });
 
+  it("does not count a source's placeholder as a conflicting value", () => {
+    expect(conflictingObservations(vesselField("callSign"), "ZGDQ", [obs("callSign", "Not verified")])).toEqual([]);
+    expect(conflictingObservations(vesselField("callSign"), "ZGDQ", [obs("callSign", "Unknown")])).toEqual([]);
+  });
+
   it("has nothing to conflict with when no value is preferred yet", () => {
     expect(conflictingObservations(vesselField("deadweight"), null, [obs("deadweight", "395")])).toEqual([]);
   });

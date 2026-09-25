@@ -211,6 +211,18 @@ describe("import", () => {
     ).toEqual({});
   });
 
+  it("does not take a source's placeholder for a value", () => {
+    // Alone, a placeholder fills nothing; beside a real figure, it does not block it.
+    expect(valuesFromEvidence({ deadweight: null }, [{ fieldLabel: "Database deadweight", value: "Not verified" }])).toEqual({});
+    expect(
+      valuesFromEvidence({ deadweight: null }, [
+        { fieldLabel: "Database deadweight", value: "395" },
+        { fieldLabel: "Database deadweight", value: "n/a" },
+        { fieldLabel: "Database deadweight", value: "—" },
+      ])
+    ).toEqual({ deadweight: 395 });
+  });
+
   it("never replaces a value the register sheets already give", () => {
     // Builder beam 14.2 m is preferred over the database's 12 m.
     const batello = buildVesselRecords(register).find((r) => r.yardNumber === "Y701")!;

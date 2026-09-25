@@ -12,6 +12,7 @@
 // instead of loading the wrong figure into the wrong field.
 
 import type { Workbook, Worksheet, CellValue } from "exceljs";
+import { isNoValueText } from "./fields";
 
 /** The committed register, relative to the repository root. */
 export const DEFAULT_REGISTER_PATH = "prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25.xlsx";
@@ -149,21 +150,18 @@ function plain(value: CellValue): Plain {
   return null;
 }
 
-/** Placeholders the workbook uses for "no supported value". */
-const NO_VALUE = new Set(["", "not verified", "n/a", "-", "—"]);
-
 function text(value: Plain): string | null {
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   const s = String(value).trim();
-  return NO_VALUE.has(s.toLowerCase()) ? null : s;
+  return isNoValueText(s) ? null : s;
 }
 
 function num(value: Plain): number | null {
   if (value == null || value instanceof Date) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const s = value.replace(/,/g, "").trim();
-  if (NO_VALUE.has(s.toLowerCase())) return null;
+  if (isNoValueText(s)) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
