@@ -557,7 +557,9 @@ profile.
 
 In the UI, a `Role` row is an **Access set**. It is a *preset* in the matrix's Preset column.
 The 19 existing roles become **system** sets, plus one new overlay set, **`ACCOUNT_ADMIN`**, which
-is valid only on an unscoped assignment.
+is valid only on an unscoped assignment and **holds account-scope keys only**. It never holds a
+project-scope key, so it never implies `project.access` and never gives its holder reach into a
+project. A test asserts this invariant (§14.1); every "every set" row in §6.2 excludes it.
 
 ### 6.1 System sets: category, badge, rank
 
@@ -640,11 +642,11 @@ prices, CO cost and crew-request cost were previously ungated, and are now gated
 | `location.view` | every set holding `job.view` | |
 | `location.edit` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, CHIEF_OFFICER, CHIEF_ENGINEER, HOD, YARD_PM | |
 | `location.ga.manage` | PROJECT_MANAGER, YARD_PM | |
-| `contact.view` | every set except GUEST | |
+| `contact.view` | every set except GUEST and ACCOUNT_ADMIN | |
 | `contact.manage` | OWNERS_REP, PROJECT_MANAGER, YARD_PM | |
 | `forms.view` | every OWNER_SIDE, VESSEL and YARD set | |
 | `forms.manage` | OWNERS_REP, PROJECT_MANAGER | |
-| `notification.prefs` | every set | |
+| `notification.prefs` | every set except ACCOUNT_ADMIN | |
 | `admin.access.view` | OWNERS_REP, PROJECT_MANAGER, AUDITOR | |
 | `admin.access.manage` | OWNERS_REP, PROJECT_MANAGER | |
 | `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all` | ACCOUNT_ADMIN | |
@@ -801,9 +803,15 @@ For user U on project P (P has `id` and `vesselId`):
   `{type:"template", roleId}` | `{type:"implied", by}` |
   `{type:"override", id, by, at, reason, expiresAt}` | `{type:"denied", id}`
 
-**Project reach.** `listProjectsForUser` becomes: the projects with a covering assignment, minus
-those where `project.access` is effectively denied. **Keep the existing zero-scope guard**
-(`project.ts`: "A scoped user with no project or vessel named would otherwise match everything").
+**Project reach.** `listProjectsForUser` becomes: the projects on which the user's effective set
+contains `project.access`. A covering assignment alone is not enough: an assignment whose winning
+template holds no project-scope key (ACCOUNT_ADMIN on its own) reaches nothing, and a DENY of
+`project.access` removes the project. **Keep the existing zero-scope guard** (`project.ts`: "A
+scoped user with no project or vessel named would otherwise match everything").
+
+**Matrix rows.** The People matrix for project P lists users whose winning template on P holds at
+least one project-scope key, plus users whose `project.access` is denied on P. The latter are shown
+as *Removed from project* so an admin can restore them.
 
 ### 8.2 Normalisation and the Custom badge
 
@@ -825,13 +833,19 @@ those where `project.access` is effectively denied. **Keep the existing zero-sco
    exactly HOD's set. On p2 (same vessel), Chris has CHIEF_ENGINEER's.
 3. **Grant with expiry.** A GRANT of `job.accept` to Chris on p1, expiring yesterday, has no
    effect today.
-4. **Deny cascade.** A DENY of `job.view` for a CREW member on p1 removes `job.request`,
-   `minutes.view`… and nothing outside the job module unless it implies `job.view`.
+4. **Deny cascade.** A DENY of `job.view` on p1 removes every job key the person holds (for
+   CREW, `job.request`), plus the keys outside the job module whose closure reaches `job.view`:
+   `minutes.record` (via `job.comment`) and `crew_request.promote_to_job` (via `job.request`).
+   `minutes.view` and `location.view` **stay**. Their defaults follow `job.view` in the seed
+   (§6.2), but neither implies it, so a deny does not touch them.
 5. **Removal from a project.** A DENY of `project.access` removes p1 from `listProjectsForUser`
    and empties the effective set on p1.
 6. **Account keys.** ACCOUNT_ADMIN scoped to a vessel contributes **no** account keys.
 7. **Archived set.** A person whose only covering assignment is an archived custom set has
    nothing on P.
+8. **Account admin alone.** A user whose only assignment is ACCOUNT_ADMIN (unscoped) has the
+   account keys, an empty set on every project, and an empty `listProjectsForUser`. They do not
+   appear as a row on any People matrix.
 
 ---
 
@@ -953,8 +967,11 @@ Each check returns `Problem { userId?, key?, ruleId, severity: "block"|"warn", m
 1. **No escalation (D-3).** A project admin who is not an account admin may only change cells, by
    granting or revoking, for keys they **effectively hold on P**. They may only assign sets whose
    closure ⊆ their own set on P, never an ADMIN-category set, and never one containing account
-   keys. Account admins are exempt for project keys, since they can already do the same through
-   templates. **Nobody may grant a critical key they do not hold.**
+   keys. Account admins (holders of `admin.roles`) are exempt for project keys, since they can
+   already do the same through templates. **Nobody may grant an account-scope critical key they
+   do not hold.** The project-scope admin keys `admin.access.manage` and `admin.access.view` are
+   governed by `admin.access.appoint` instead (§11.1): its holders may grant or remove them on
+   any project without holding them, which is how an account admin appoints a project admin.
 2. **No self-edit.** No one edits their own row, overrides or assignments. An account admin
    editing a set they themselves hold gets a warning, must give a reason, and may not add critical
    keys to it.
@@ -1289,8 +1306,8 @@ searchPeople(q)
 | File | Asserts |
 |---|---|
 | `tests/permissionCatalog.test.ts` | groups partition `ALL_KEYS`; counts from §5.6; implications acyclic; cross-module edges ⊆ allowlist; `short` ≤ 16 chars; money keys ≥ sensitive; every `access`-module key except `admin.access.view` is critical, plus `audit.view.all`; account keys ⊆ the §5.6 list; every module with a nav entry has a `viewKey` |
-| `tests/permissionDefaults.test.ts` | the existing `tests/rbac.test.ts` SoD assertions, migrated; every system set passes block rules and ceilings; the V1 − V0 diff equals the §6.2 table exactly (against `tests/fixtures/matrixV0.ts`); D-4 holders of `job.price.view` after closure |
-| `tests/permissionResolver.test.ts` | all seven §8.3 examples, plus inactive user, reserved-key pass-through and provenance |
+| `tests/permissionDefaults.test.ts` | the existing `tests/rbac.test.ts` SoD assertions, migrated; every system set passes block rules and ceilings; ACCOUNT_ADMIN's closure contains no project-scope key; the V1 − V0 diff equals the §6.2 table exactly (against `tests/fixtures/matrixV0.ts`); D-4 holders of `job.price.view` after closure |
+| `tests/permissionResolver.test.ts` | all eight §8.3 examples, plus inactive user, reserved-key pass-through and provenance |
 | `tests/accessAuthority.test.ts` | no escalation (grant **and** revoke), critical-key rule, self-edit, rank, last admin (via simulation), reason length, block vs warn with acknowledgement, concurrency code |
 | `tests/permissionSync.test.ts` | idempotency; customised sets survive; additive migrations; key retirement cascades; reset to default |
 | `tests/matrixState.test.ts` | toggle and untoggle; implied-cell deny cascade; normalisation to INHERIT; level set/clear leaves authority keys; diff grouping for the review dialog |
