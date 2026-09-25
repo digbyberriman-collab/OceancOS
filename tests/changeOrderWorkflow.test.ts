@@ -10,6 +10,7 @@ import {
   canDecideApproval,
   nextChangeOrderStatus,
   nextDueApprovals,
+  approvalStageChanges,
 } from "@/lib/workflow/changeOrder";
 import { CHANGE_ORDER_STATUSES, CO_APPROVAL_STAGES } from "@/lib/enums";
 import { PERMISSIONS } from "@/lib/rbac";
@@ -303,5 +304,48 @@ describe("nextDueApprovals", () => {
 
   it("is empty once nothing required is pending", () => {
     expect(nextDueApprovals([row(0, "APPROVED"), row(1, "REJECTED")])).toEqual([]);
+  });
+});
+
+describe("approvalStageChanges", () => {
+  const BASE = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"] as const;
+  const rows = (stages: string[], decisions: Record<string, string> = {}) =>
+    stages.map((stage, order) => ({ id: `r-${stage}`, stage, decision: decisions[stage] ?? "PENDING", order }));
+
+  it("changes nothing when the review flags are unchanged", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"]), [...BASE, "CLASS"]);
+    expect(result).toEqual({ create: [], removeIds: [], decided: [] });
+  });
+
+  it("adds a flag stage after the existing chain", () => {
+    const result = approvalStageChanges(rows([...BASE]), [...BASE, "FLAG"]);
+    expect(result.create).toEqual([{ stage: "FLAG", order: 5 }]);
+    expect(result.removeIds).toEqual([]);
+  });
+
+  it("orders each new stage after the highest existing one, never alongside it", () => {
+    // FLAG was added first and holds order 5; adding CLASS later must not
+    // land on 5 too, or the two would be decided in parallel.
+    const existing = rows([...BASE, "FLAG"]);
+    const result = approvalStageChanges(existing, [...BASE, "CLASS", "FLAG"]);
+    expect(result.create).toEqual([{ stage: "CLASS", order: 6 }]);
+  });
+
+  it("removes a class stage that is still pending", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"]), [...BASE]);
+    expect(result.removeIds).toEqual(["r-CLASS"]);
+    expect(result.decided).toEqual([]);
+  });
+
+  it("reports, rather than removes, a class stage that has already been decided", () => {
+    const result = approvalStageChanges(rows([...BASE, "CLASS"], { CLASS: "APPROVED" }), [...BASE]);
+    expect(result.removeIds).toEqual([]);
+    expect(result.decided).toEqual(["CLASS"]);
+  });
+
+  it("never removes a stage of the base chain, even if it were missing from the wanted list", () => {
+    const result = approvalStageChanges(rows([...BASE]), ["CAPTAIN"]);
+    expect(result.removeIds).toEqual([]);
+    expect(result.decided).toEqual([]);
   });
 });

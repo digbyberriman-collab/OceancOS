@@ -218,3 +218,34 @@ export function nextDueApprovals(approvals: ApprovalRow[]): ApprovalRow[] {
   const minOrder = Math.min(...pending.map((s) => s.order));
   return pending.filter((s) => s.order === minOrder);
 }
+
+/** The stages a change order can add or drop after creation; the base chain is fixed. */
+const OPTIONAL_STAGES: readonly CoApprovalStage[] = ["CLASS", "FLAG"];
+
+/**
+ * How the approval rows must change when a change order's review flags are
+ * edited, given the rows it has and the stages it now wants.
+ *
+ * Wanted stages with no row are created, ordered after the highest existing
+ * row so a new stage never jumps ahead of the base chain. Unwanted optional
+ * stages (CLASS, FLAG) are removed while still PENDING. One already decided
+ * is reported in `decided` instead: dropping a decision someone has made is
+ * a revision, not an edit, and the caller refuses it.
+ */
+export function approvalStageChanges(
+  existing: { id: string; stage: string; decision: string; order: number }[],
+  wanted: CoApprovalStage[]
+): { create: { stage: CoApprovalStage; order: number }[]; removeIds: string[]; decided: CoApprovalStage[] } {
+  const have = new Set(existing.map((r) => r.stage));
+  let nextOrder = existing.reduce((max, r) => Math.max(max, r.order), -1) + 1;
+  const create = wanted.filter((stage) => !have.has(stage)).map((stage) => ({ stage, order: nextOrder++ }));
+
+  const unwanted = existing.filter(
+    (r) => OPTIONAL_STAGES.includes(r.stage as CoApprovalStage) && !wanted.includes(r.stage as CoApprovalStage)
+  );
+  return {
+    create,
+    removeIds: unwanted.filter((r) => r.decision === "PENDING").map((r) => r.id),
+    decided: unwanted.filter((r) => r.decision !== "PENDING").map((r) => r.stage as CoApprovalStage),
+  };
+}
