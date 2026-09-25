@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { ROLE_KEYS, DEPARTMENTS } from "../src/lib/enums";
 import { ROLE_PERMISSIONS, PERMISSIONS } from "../src/lib/rbac";
 import { seedJobs } from "./seedJobs";
+import { DEFAULT_REGISTER_PATH, readVesselRegister } from "../src/lib/vessels/workbook";
+import { importVesselRegister } from "../src/lib/vessels/importRegister";
 
 const prisma = new PrismaClient();
 
@@ -66,7 +68,7 @@ async function main() {
   const vessel = await prisma.vessel.upsert({
     where: { id: "v1" },
     update: {},
-    create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, builtYear: 2018 },
+    create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, deliveredYear: 2018, vesselType: "Motor yacht" },
   });
 
   // Yard period for the primary project. These dates drive the Home timing
@@ -99,7 +101,7 @@ async function main() {
   const vessel2 = await prisma.vessel.upsert({
     where: { id: "v2" },
     update: {},
-    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, builtYear: 2012 },
+    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, deliveredYear: 2012, vesselType: "Motor yacht" },
   });
 
   const project2YardPeriod = {
@@ -366,6 +368,17 @@ async function main() {
   }
 
   await seedJobs(prisma, project.id, projectYardPeriod.arrivalDate);
+
+  // The Oceanco Y700 register: 22 vessels, each with a project, and the
+  // evidence behind every figure. The same loader runs in production through
+  // `npm run vessels:import`.
+  const register = await readVesselRegister(DEFAULT_REGISTER_PATH);
+  const imported = await importVesselRegister(prisma, register);
+  console.log(
+    `  vessel register: ${register.vessels.length} vessels ` +
+      `(${imported.vesselsCreated} new, ${imported.projectsCreated} projects created, ` +
+      `${imported.observationsAdded} observations added)`
+  );
 
   console.log("Done.");
 }

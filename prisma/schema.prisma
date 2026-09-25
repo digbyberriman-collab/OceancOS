@@ -79,20 +79,152 @@ model UserRole {
 
 // ---------- Org / project ----------
 
+// Vessel particulars. Every field below is laid out, labelled and validated by
+// the catalogue in src/lib/vessels/fields.ts, so the same placeholders appear
+// for every vessel whether or not a value is known yet. Values are the
+// preferred figure; alternatives and their sources live in VesselObservation.
 model Vessel {
-  id         String     @id @default(cuid())
-  name       String
-  imo        String?
-  flag       String?
-  loa        Float?
-  builtYear  Int?
-  notes      String?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-  archivedAt DateTime?
-  projects   Project[]
-  areas      VesselArea[]
-  userRoles  UserRole[]
+  id                     String    @id @default(cuid())
+  // Identity & registry
+  name                   String
+  yardNumber             String?   @unique // builder's hull / yard code, e.g. "Y709"
+  builder                String?
+  vesselType             String?
+  formerNames            String?
+  deliveredYear          Int?      @map("builtYear")
+  imo                    String?   @unique
+  mmsi                   String?
+  callSign               String?
+  flag                   String?
+  portOfRegistry         String?
+  officialNumber         String?
+  // Dimensions & tonnage (metres, tonnes; GT/NT are dimensionless)
+  loa                    Float?
+  beam                   Float?
+  draft                  Float?
+  grossTonnage           Int?
+  netTonnage             Int?
+  deadweight             Float?
+  displacement           Float?
+  dimensionsBasis        String?
+  tonnageBasis           String?
+  // Design & construction
+  hullMaterial           String?
+  superstructureMaterial String?
+  navalArchitect         String?
+  exteriorDesigner       String?
+  interiorDesigner       String?
+  lastRefitYear          Int?
+  sailArea               Float?
+  features               String?
+  // Machinery & performance (knots, nautical miles, litres)
+  mainMachinery          String?
+  propulsion             String?
+  generators             String?
+  cruiseSpeed            Float?
+  maxSpeed               Float?
+  maxSailSpeed           Float?
+  rangeNm                Int?
+  fuelCapacity           Int?
+  freshWaterCapacity     Int?
+  // Accommodation & manning
+  guests                 Int?
+  guestCabins            Int?
+  crew                   Int?
+  maxPersonsOnBoard      Int?
+  // Class & certification
+  classSociety           String?
+  classNotation          String?
+  // UNVERIFIED | PUBLIC_SOURCE | CERTIFICATE_VERIFIED
+  verification           String    @default("UNVERIFIED")
+  particularsCheckedOn   DateTime?
+  // Notes & references
+  identityNote           String?
+  dimensionsNote         String?
+  technicalNote          String?
+  yardNumberBasis        String?
+  yardNumberNote         String?
+  builderUrl             String?
+  databaseUrl            String?
+  identitySupplementUrl  String?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  updatedById            String?
+  archivedAt             DateTime?
+  projects               Project[]
+  areas                  VesselArea[]
+  userRoles              UserRole[]
+  observations           VesselObservation[]
+  dataGaps               VesselDataGap[]
+}
+
+// A publication a vessel observation was taken from: builder fleet page,
+// vessel database, broker listing, naval architect and so on.
+model VesselSource {
+  id              String              @id @default(cuid())
+  code            String              @unique // e.g. "B709", "V709", "FLEET"
+  publisher       String?
+  sourceType      String?
+  scope           String?
+  fieldsSupported String?
+  url             String?
+  accessedOn      DateTime?
+  limitations     String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  observations    VesselObservation[]
+}
+
+// One sourced value for one field of one vessel. Alternatives are kept side by
+// side rather than overwritten, so a conflict stays visible until a
+// certificate settles it. Rows are only ever added.
+model VesselObservation {
+  id            String        @id @default(cuid())
+  vesselId      String
+  // Catalogue key the value bears on (e.g. "beam"); null when it maps to none.
+  fieldKey      String?
+  fieldLabel    String
+  value         String
+  unit          String?
+  basis         String?
+  qualification String?
+  sourceCode    String?
+  sourceId      String?
+  sourceUrl     String?
+  observedOn    DateTime?
+  origin        String        @default("IMPORT") // IMPORT | MANUAL
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  // Deterministic hash of the observation, so a re-import adds nothing twice.
+  fingerprint   String        @unique
+  vessel        Vessel        @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  source        VesselSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([vesselId, fieldKey])
+}
+
+// Something about a vessel's particulars that still needs evidence to close,
+// e.g. "Post-2026 rebuild tonnage". vesselId is null for fleet-level gaps.
+model VesselDataGap {
+  id             String    @id @default(cuid())
+  vesselId       String?
+  scope          String
+  priority       String    // CRITICAL | HIGH | MEDIUM | LOW
+  issue          String
+  treatment      String?
+  evidenceNeeded String?
+  status         String    @default("OPEN") // OPEN | IN_PROGRESS | CLOSED
+  reference      String?
+  resolutionNote String?
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  updatedById    String?
+  fingerprint    String    @unique
+  vessel         Vessel?   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@index([vesselId, status])
 }
 
 model Project {
