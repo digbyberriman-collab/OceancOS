@@ -276,8 +276,8 @@ export type ModuleDef = {
   short: string;                         // collapsed-band label
   status: ModuleStatus;
   viewKey: PermissionKey | null;         // null ⇒ no R2 implication (e.g. contacts & forms)
-  navKey?: PermissionKey;                // gates the nav entry and list page; defaults to viewKey.
-                                         // Set it where the page is an admin tool (project: project.edit).
+  navKeys?: PermissionKey[];             // any-of; gates the nav entry and list page; defaults to [viewKey].
+                                         // Set it where the page is an admin tool or has several ways in.
   nav?: { href: string; section?: string };
   bridgePhase?: number;
   groups: { id: string; label: string; keys: PermissionKey[] }[]; // the subcategory column groups
@@ -358,7 +358,7 @@ Set `enforced` in `catalog.ts` to what is true *at each commit*:
 - Each Gate 10 item flips the keys it starts guarding.
 - 10.9 finalises the flags to the E/R column below.
 
-#### 1. Project — `project` · live · nav `/admin/projects` (navKey `project.edit`) · viewKey `project.access`
+#### 1. Project — `project` · live · nav `/admin/projects` (navKeys `project.edit`) · viewKey `project.access`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -434,14 +434,14 @@ gated by its own module's key.
 | Handling | `CR_COMPLETE` | `crew_request.complete` | Complete / close | M | | d | E |
 | Escalation | `CR_PROMOTE` NEW | `crew_request.promote_to_job` | Promote to job | F | | w | R |
 
-#### 6. Approvals centre — `approvals` · live · nav `/approvals` · viewKey `approvals.view`
+#### 6. Approvals centre — `approvals` · live · nav `/approvals` (navKeys `approvals.view` + the 7 CO stage keys) · viewKey `approvals.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
 | Queue | `APPROVALS_VIEW` NEW | `approvals.view` | Full queue | V | | r | E |
 
 Decisions still use each module's stage keys. The Approvals nav item and page are visible to a
-holder of `approvals.view` **or of any CO stage key**. Without `approvals.view`, the page shows
+holder of `approvals.view` **or of any CO stage key** (its `navKeys`). Without `approvals.view`, the page shows
 only "Waiting on me". This is deliberately **not** an implication: denying the queue must not
 strip anyone's signing authority.
 
@@ -535,7 +535,7 @@ strip anyone's signing authority.
 | | | `FORMS_MANAGE` NEW | `forms.manage` | Edit forms | M | | w | R |
 | Notifications (`notifications` · Ph. 11) | Preferences | `NOTIF_PREFS` NEW | `notification.prefs` | Own settings | V | | self | R |
 
-#### 23. Access — `access` · live · nav `/admin/access` · viewKey `admin.access.view`
+#### 23. Access — `access` · live · nav `/admin/access` (navKeys `admin.access.view`, `admin.roles`, `admin.access.appoint`) · viewKey `admin.access.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -546,7 +546,7 @@ strip anyone's signing authority.
 | Account | `ADM_ROLES` NEW (re-added) | `admin.roles` | Edit access sets | A | c | a | acct | E |
 | Account | `ADM_SETTINGS` NEW (re-added) | `admin.settings` | Settings | A | c | a | acct | R |
 
-#### 24. Audit — `audit` · live · nav `/admin` (audit panel) · viewKey `audit.view`
+#### 24. Audit — `audit` · live · nav `/admin` (navKeys `audit.view`, `audit.view.all`, `admin.users`) · viewKey `audit.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -1069,9 +1069,11 @@ Each check returns `Problem { userId?, key?, ruleId, severity: "block"|"warn", m
 1. **No escalation (D-3).** A project admin who is not an account admin may only change cells, by
    granting or revoking, for keys they **effectively hold on P**. They create **project-scoped**
    assignments only, where a set's account-scope keys are inert (§8.1 step 7). So the subset test
-   compares the set's **project-scope** closure against their own set on P, and a PM can assign
-   OWNERS_REP or PROJECT_MANAGER even though those sets carry `admin.users`. They may never assign
-   an ADMIN-category set. Unscoped and vessel-scoped assignments, the only ones through which
+   compares the set's **project-scope** closure against their own set on P. A PM can therefore
+   assign PROJECT_MANAGER, which carries `admin.users`, because the account key is inert there. A PM
+   cannot assign OWNERS_REP: its project scope includes keys the PM set lacks
+   (`change_order.approve.owners_rep`, `document.view.confidential`, `financial.approve`), so that
+   stays with account admins. They may never assign an ADMIN-category set. Unscoped and vessel-scoped assignments, the only ones through which
    account keys or other projects are affected, are created by holders of `admin.access.appoint`
    alone. Account admins (holders of `admin.roles`) are exempt for project keys, since they can
    already do the same through templates. **Nobody may grant an account-scope critical key they
@@ -1373,12 +1375,15 @@ Paths are under `src/app/(app)/` unless shown otherwise.
    - `NAV` entries (`src/components/layout/Sidebar.tsx:31-51`) gain a `moduleId`. The layout
      computes the visible module ids on the server and passes **ids only**, via `AppShell`, to
      `Sidebar.tsx`.
-   - Each entry shows when the user holds its module's `navKey` (the `viewKey` unless set).
-     Scaffold entries stay, per G3.11, but only for users holding that key. Approvals is visible
-     per §5.5 (6). Projects is gated on `project.edit`, not the membership key every project
-     member holds.
+   - Each entry shows when the user holds **any** of its module's `navKeys` (`[viewKey]` unless
+     set), checked against the active project's set plus the account set. Scaffold entries stay,
+     per G3.11, but only for users holding one. So Projects is gated on `project.edit`, not the
+     membership key every project member holds. Users & access shows for project admins and for
+     account admins (`admin.roles`, `admin.access.appoint`), matching §11.1. `/admin` shows for
+     `audit.view`, `audit.view.all` or `admin.users`, and Approvals for `approvals.view` or any
+     stage key.
    - `TopBar.tsx:66` shows the active project's presets.
-2. **List pages.** Check the module's `navKey` (the `viewKey` unless set) on the active project. Lists stay scoped and capped
+2. **List pages.** Check the module's `navKeys` (any of; `[viewKey]` unless set) on the active project. Lists stay scoped and capped
    per `CLAUDE.md` (`projectScope()` plus `take`).
 3. **Detail pages.** Load the record, then `forProject(user, record.projectId)`, then
    `notFound()` if the user lacks view.
@@ -1448,7 +1453,7 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 
 | File | Asserts |
 |---|---|
-| `tests/permissionCatalog.test.ts` | groups partition `ALL_KEYS`; counts from §5.6; implications acyclic; cross-module edges ⊆ allowlist; `short` ≤ 16 chars; money keys ≥ sensitive; every `access`-module key except `admin.access.view` is critical, plus `audit.view.all`; account keys ⊆ the §5.6 list; every module with a nav entry has a `navKey` or `viewKey`, and no nav gate is `project.access` (which R1 gives every member) |
+| `tests/permissionCatalog.test.ts` | groups partition `ALL_KEYS`; counts from §5.6; implications acyclic; cross-module edges ⊆ allowlist; `short` ≤ 16 chars; money keys ≥ sensitive; every `access`-module key except `admin.access.view` is critical, plus `audit.view.all`; account keys ⊆ the §5.6 list; every module with a nav entry has `navKeys` or a `viewKey`; no module's nav gate is `project.access` alone (R1 gives it to every member); the Access module's `navKeys` include every key §11.1 accepts for viewing `/admin/access` |
 | `tests/permissionDefaults.test.ts` | the existing `tests/rbac.test.ts` SoD assertions, migrated; every system set passes block rules and ceilings; ACCOUNT_ADMIN's closure contains no project-scope key; the V1 − V0 diff equals the §6.2 table exactly (against `tests/fixtures/matrixV0.ts`); D-4 holders of `job.price.view` after closure |
 | `tests/permissionResolver.test.ts` | all nine §8.3 examples, plus inactive user, reserved-key pass-through and provenance |
 | `tests/accessAuthority.test.ts` | no escalation (grant **and** revoke), critical-key rule, self-edit, rank, last admin (via simulation), reason length, block vs warn with acknowledgement, concurrency code |
