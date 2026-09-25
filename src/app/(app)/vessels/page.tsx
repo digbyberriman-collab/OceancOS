@@ -30,7 +30,7 @@ export default async function FleetRegisterPage({
     return <EmptyState icon={<Ship size={20} />} title="No vessels yet" hint="You are not on any project yet." />;
   }
 
-  const [vessels, fleetGaps] = await Promise.all([
+  const [vessels, fleetGaps, allYardNumbers] = await Promise.all([
     prisma.vessel.findMany({
       where: { id: { in: ids }, archivedAt: null },
       include: {
@@ -44,6 +44,12 @@ export default async function FleetRegisterPage({
       },
     }),
     prisma.vesselDataGap.findMany({ where: { vesselId: null }, orderBy: { createdAt: "asc" } }),
+    // Unmapped numbers are worked out from the whole register, not the vessels
+    // this user can see: a vessel hidden from a scoped user is still mapped.
+    prisma.vessel.findMany({
+      where: { archivedAt: null, yardNumber: { not: null } },
+      select: { yardNumber: true },
+    }),
   ]);
 
   // Yard-numbered vessels in build order, then any without a yard number by name.
@@ -68,7 +74,7 @@ export default async function FleetRegisterPage({
   const toReview = rows.filter((r) => r.comparison.flag === "REVIEW").length;
   const verified = rows.filter((r) => r.vessel.verification === "CERTIFICATE_VERIFIED").length;
   const avgComplete = Math.round(rows.reduce((s, r) => s + r.completeness.pct, 0) / rows.length);
-  const unmapped = missingYardNumbers(vessels.map((v) => v.yardNumber));
+  const unmapped = missingYardNumbers(allYardNumbers.map((v) => v.yardNumber));
 
   return (
     <div className="animate-fade-up">
