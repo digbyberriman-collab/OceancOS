@@ -36,26 +36,34 @@ The screen is only the visible part. The real work underneath:
 
 ## 1. Ground rules (non-negotiable)
 
-1. **ACTION_PLAN discipline applies.** One item per commit. Every item must pass `npm run build`,
-   `npm run typecheck` and `npm test` before the next begins; run `npm run test:e2e` on items that
-   touch UI or guards. Anything found along the way is logged in `audit/findings-phase5.md` in the
-   existing format, not silently folded into the current item. An item that proves wrong is struck
-   through with a reason, never deleted.
+1. **`CLAUDE.md` and ACTION_PLAN discipline apply.** Read `CLAUDE.md` first; its code conventions
+   are binding here:
+   - `requestCache()` (`src/lib/requestCache.ts`), never `cache` imported from `"react"`;
+   - `recordAudit()` on every mutating server action;
+   - money as `Prisma.Decimal`;
+   - every list query scoped (`projectScope()` / `accessibleProjectIds()`) and capped with `take`;
+   - zod schemas in `lib/validators.ts`, re-validated in the action.
+
+   One item per commit. Every commit passes `npm run lint`, `npm run typecheck`, `npm test`,
+   `npm run build`, `npm run test:e2e` and `npm run qa`, the same jobs CI runs. Anything found along
+   the way is logged in `audit/findings-phase5.md` in the existing format, not silently folded into
+   the current item. An item that proves wrong is struck through with a reason, never deleted.
 2. **Never name permission keys in user-facing errors.** The rule and its rationale are in
-   `src/lib/rbac.ts:208-215`. Use `forbidden("You do not have permission to do that.")`, or name
+   `src/lib/rbac.ts:194-201`. Use `forbidden("You do not have permission to do that.")`, or name
    the business action ("You cannot decide the CAPTAIN approval."), never the key.
 3. **The server is the authority.** Every client-side check (disabled cells, hidden buttons,
    no-escalation hints) is repeated on the server. Client code gets permission *ids and
    verdicts*, never the catalog itself (§12.13).
 4. **Existing call sites keep compiling.** `PERMISSIONS.X`, `hasPermission(user, key)` and
-   `assertPermission(user, key)` keep their names and signatures. Tests import only pure modules.
-   React `cache` must never reach a file Vitest imports (React 18.3 stable does not export it).
+   `assertPermission(user, key)` keep their names and signatures, and so do the scoping helpers in
+   `src/lib/project.ts`. Unit tests exercise the pure modules; server-only modules memoise through
+   `requestCache`, which falls back to the plain function under Vitest.
 5. **Design tokens.** Dark-first, using the tokens in `tailwind.config.ts`:
    - surfaces: `ink-950…500`
    - borders: `line`, `line-soft`, `line-strong`
    - brand: `accent`, `accent-bright`, `marine`
    - status: `ok`, `warn`, `bad`
-   - text: `muted`, `faint` (`faint` must not carry essential information until G5.1 lands).
+   - text: `muted`, `faint` (raised to WCAG AA in G5.1).
 
    No new colour literals.
 6. **No new runtime dependencies** without a logged justification. The matrix is built with
@@ -82,82 +90,114 @@ The screen is only the visible part. The real work underneath:
 
 ## 3. Verify the current state first
 
-Before writing code, confirm each fact below against the tree; line numbers drift. If one is no
-longer true, note it in your first commit message and adapt.
+This prompt is baselined on the tree after ACTION_PLAN Gates 0–7 (branch
+`claude/charming-bell-36iht1`, PR #7; Gate 7's results are in
+`audit/findings-phase6-regression.md`). Before writing code, confirm each fact below against the
+tree; line numbers drift. If one is no longer true, note it in your first commit message and adapt.
 
 ### 3.1 What exists
 
 - **Stack:** Next.js 14.2 App Router, TypeScript, Prisma 5 on PostgreSQL, Tailwind, zod, Vitest
-  (`tests/`), Playwright (`e2e/`). Server components plus server actions. Single-tenant, with no
-  Organization model. There is no Supabase and no RLS: authorization is app-level only.
+  (`tests/`, 21 files), Playwright (`e2e/`, 12 specs, `workers: 1`). Server components plus server
+  actions. Single-tenant, with no Organization model. There is no Supabase and no RLS:
+  authorization is app-level only.
 - **Permissions:** `src/lib/rbac.ts`.
-  - `PERMISSIONS` (56 keys, `resource.action[.qualifier]`) at `:6-77`; `PermissionKey` at `:79`.
-  - `ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]>` at `:82-198`. This is the seed matrix.
-  - `hasPermission` at `:200`, `hasAnyRole` at `:204` (unused outside tests), `assertPermission`
-    at `:216`.
+  - `PERMISSIONS` (**42 keys** after G6.7 removed the 14 unenforced ones) at `:6-63`;
+    `PermissionKey` at `:65`.
+  - `ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]>` at `:68-184`, "the seed". Since G6.9,
+    `admin.users` is held by OWNER, OWNERS_REP and PROJECT_MANAGER; `/admin` checks it separately
+    from `audit.view` (`admin/page.tsx:19-20`).
+  - `hasPermission` at `:186`, `hasAnyRole` at `:190` (unused outside tests), `assertPermission`
+    at `:202`.
 - **Roles and departments:** `src/lib/enums.ts`. `ROLE_KEYS` (19) at `:3-23`, `DEPARTMENTS` (12)
-  at `:165-178`, `CO_APPROVAL_STAGES`. There is no separate rank model; roles double as ranks.
-- **Schema:** `prisma/schema.prisma:12-78`: `User`, `Session.activeProjectId`, `Role`,
-  `Permission`, `RolePermission`, `UserRole { userId, roleId, vesselId?, projectId?,
-  departmentId? }`, `Department { name, code }`. `UserRole.departmentId` is never read.
-- **Loading the user:** `getCurrentUser()` at `src/lib/auth.ts:47-74`.
-- **Project reach:** `src/lib/project.ts`. `listProjectsForUser` (an unscoped assignment means
-  every project; otherwise the named projects plus every project on the named vessels),
-  `getActiveProject` and `storeActiveProject`.
-- **Workflow permission maps:**
-  - `CO_STAGE_PERMISSION` at `src/lib/workflow/changeOrder.ts:12-20`; `permissionForTransition`
-    at `:54-58` (SUBMITTED needs `submit`, CANCELLED needs `cancel`, anything else needs `edit`).
-  - `JOB_TRANSITION_PERMISSION` at `src/lib/jobs/workflow.ts:39-51`.
+  at `:165`, `CO_APPROVAL_STAGES` at `:43`. There is no separate rank model; roles double as ranks.
+- **Schema:** `prisma/schema.prisma`. `User` (`:14`), `Role` (`:76`), `Permission` (`:85`),
+  `RolePermission` (`:92`), `UserRole` (`:101`: `userId, roleId, vesselId?, projectId?,
+  departmentId?`, already indexed on every column, no unique constraint on the tuple),
+  `Department` (`:183`: `name, code`, no sort order), `AuditLog` (`:723`: **no `projectId`**).
+  `UserRole.departmentId` is still never read.
+- **Loading the user:** `getCurrentUser` at `src/lib/auth.ts:59`, wrapped in `requestCache`. It
+  builds `permissions` at `:75-77` from **every** `UserRole` row, ignoring scope (D1).
+- **Project reach and scoping** (`src/lib/project.ts`, all built in G1.2 and G2.1):
+
+  | Export | Line | What it does |
+  |---|---|---|
+  | `resolveProjectWhere` | `:40` | pure; an unscoped assignment reaches every project |
+  | `listProjectsForUser` | `:69` | `requestCache`d; the reachable projects, `take: 200` |
+  | `accessibleProjectIds` | `:95` | the ids of the above |
+  | `projectScope` | `:114` | a Prisma `where` that never matches when nothing is reachable |
+  | `requireProjectAccess` | `:124` | throws `forbidden(...)` for an unreachable project |
+  | `getActiveProject` / `storeActiveProject` | `:147` / `:167` | the header project switcher |
+  | `resolveUserRoleWhereForProject` | `:189` | pure; the assignments that cover a project |
+  | `usersWithPermissionOnProject` | `:208` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
+
+- **Workflow:** `applyTransition` at `src/lib/workflow/transition.ts:41` is **write-only**: a
+  status write conditional on the status read. Callers check legality, permission and project
+  access themselves. The permission maps are `CO_STAGE_PERMISSION` (`src/lib/workflow/changeOrder.ts:13`),
+  `permissionForTransition` (`:78`), `JOB_TRANSITION_PERMISSION` (`src/lib/jobs/workflow.ts:48`) and
+  `CR_TRANSITION_PERMISSION` (`src/lib/workflow/crewRequest.ts:72`).
+- **Seed** (`prisma/seed.ts`): 19 accounts, one per role, all unscoped (the seven added in G6.9 at
+  `:153`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:185`), used by
+  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806). Passwords come from
+  `SEED_PASSWORD` and are required in production.
 - **Admin UI:**
-  - `src/app/(app)/admin/page.tsx` is read-only, gated at `:13` on `admin.users` OR `audit.view`.
-    `admin.users` is granted to no role, so only the `audit.view` half can pass.
-  - `src/app/(app)/admin/projects/*` edits a project's code and yard dates (`project.edit`).
-- **Navigation:** the `NAV` array in `src/components/layout/Sidebar.tsx:28-48`. It is not filtered
-  by permission.
-- **Shell:** `src/app/(app)/layout.tsx` sets `max-w-[1400px]` on `<main>`.
-  `src/components/layout/TopBar.tsx:53` shows `roleKeys[0]` as the user's role.
-- **UI kit:** `src/components/ui/` has `Badge`, `EmptyState`, `FileDrop`, `Form`. **There is no
-  Dialog component.**
-- **Tests:** `tests/rbac.test.ts` covers matrix integrity plus the separation-of-duties
-  assertions: crew get no financials; the owner cannot approve tech stages or drawings; the
-  auditor is read-only; confidential documents go only to FINANCE, OWNER and OWNERS_REP.
+  - `src/app/(app)/admin/page.tsx` is read-only. It shows the user directory to `admin.users`
+    holders and the audit log to `audit.view` holders. Its user, vessel and project queries are
+    **not** scoped (`:26-41`).
+  - `src/app/(app)/admin/projects/*` edits projects on `project.edit`; its list query (`admin/projects/page.tsx:37`)
+    is unscoped and uncapped (a performance finding in the Gate 7 report).
+- **Shell:** `src/app/(app)/layout.tsx` renders `src/components/layout/AppShell.tsx`, which has the
+  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:52`. The `NAV` array is in
+  `Sidebar.tsx:31-51`, rendered unfiltered at `:128`. `TopBar.tsx:66` shows `roleKeys[0]`.
+- **UI kit** (`src/components/ui/`): `Badge`, `ComingSoon` (the "Not yet built" state from G3.11),
+  `EmptyState`, `FileDrop`, `FlashCleanup`, `Form`, `PdfButton`, `Skeleton`, `SubmitButton`
+  (`useFormStatus`). **There is no Dialog component.**
+- **Tests that touch access:**
+  - `tests/rbac.test.ts`: matrix integrity plus separation of duties. Crew get no financials; the
+    owner cannot approve tech stages; the auditor is read-only; confidential documents go only to
+    FINANCE, OWNER and OWNERS_REP; every approval stage has a holder; no role holds the whole chain;
+    SUPPLIER has ≤ 3 permissions; CONTRACTOR has no financials.
+  - `tests/project.test.ts`: the two pure scoping functions only.
+  - `e2e/tenancy.spec.ts`: reachability as `scoped@` (lists, 404 on a p2 record, dashboard counts,
+    create on own project).
+  - **Nothing tests scope-aware permission checks**, which is why D1 survived Gate 7.
+- **CI** (`.github/workflows/ci.yml`): `verify` runs lint, typecheck, unit, build, migrate + seed
+  and `npm run qa`; `e2e` builds, seeds and runs Playwright. There is no e2e DB-cleanup helper.
 
 ### 3.2 Defects this work fixes
 
+All paths are under `src/app/(app)/` unless shown otherwise.
+
 | ID | Defect | Where |
 |---|---|---|
-| D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. | `src/lib/auth.ts:47-74` |
-| D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:33-58` (`deleteMany` at the "wipe and reset" loop) |
-| D3 | **Five global permission-holder lookups** that ignore the project. They offer and notify people on other refits. | `jobs/actions.ts:74-80` (authoriser validation), `jobs/actions.ts:129-135` (notify yard), `jobs/new/page.tsx:30-41` (authoriser dropdown), `jobs/[id]/accept/actions.ts:~233-242` (countersign notify), `change-orders/actions.ts:116-122` (stage approvers). All under `src/app/(app)/`. |
-| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:164`→`:167`, `setJobProgress` `:412`→`:415`, `addJobComment` `:444`→`:450`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:50`, `confirmAcceptance` `:127`, `rejectQuote` `:261` |
-| D5 | **Duplicate approval-stage map typed `Record<string,string>` and used with `as any`.** | `approvals/page.tsx:14-22,28`; `change-orders/actions.ts:151` (`permKey as any`) |
-| D6 | **Money gating is too loose.** Job list and detail, CO list and detail, the approvals page and crew-request detail render money to anyone who can open them. | `fmtMoney` in `jobs/page.tsx`, `jobs/[id]/page.tsx`, `jobs/[id]/accept/page.tsx`, `change-orders/page.tsx`, `change-orders/[id]/page.tsx`, `approvals/page.tsx`, `crew-requests/[id]/page.tsx:109`, `print/jobs/[id]/page.tsx` |
-| D7 | **Money gating is too strict.** Exports hide prices without `financial.view`, which YARD_PM lacks, so the yard's export of its own quotes has no prices. | `src/app/api/export/jobs/route.ts:35`, `api/export/change-orders/route.ts:36` |
-| D8 | **Exports check the view permission, not the export permission.** The `export` key is never checked anywhere. | both export routes |
-| D9 | **`/suppliers` has no permission check.** | `src/app/(app)/suppliers/page.tsx:9` |
-| D10 | **The dashboard's "Recent activity" shows the global audit log to every user.** | `dashboard/page.tsx:54` (query), `:347` (panel) |
-| D11 | **CO and crew-request comments have no permission or project check.** Already logged. | `change-orders/actions.ts:218`, `crew-requests/actions.ts:128`; `audit/findings-data-api.md:864-874` |
-| D12 | **14 keys are defined but never checked:** `admin.roles`, `admin.settings`, `export`, `contractor.edit`, `document.upload`, `drawing.upload`, `drawing.approve`, `financial.approve`, `financial.budget.edit`, `inventory.edit`, `logistics.edit`, `meeting.edit`, `risk.edit`, `schedule.edit`. The `admin.*` keys are granted to no role. | `rbac.ts`; `audit/findings-dead-code.md:131-134` |
-| D13 | **The sidebar shows every module to every user.** | `Sidebar.tsx:28-48` |
-| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:53` |
+| D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. Reachability is scoped; permissions are not. | `src/lib/auth.ts:75-77` |
+| D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:51-52` |
+| D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:208`; `jobs/new/page.tsx:39`; `jobs/actions.ts:126-133` |
+| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:224`→`:227`, `setJobProgress` `:566`→`:569`, `addJobComment` `:630`→`:643`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:52`→`:55`, `confirmAcceptance` `:132`→`:138`, `rejectQuote` `:269`→`:273`; `change-orders/actions.ts` `updateChangeOrder` `:88`→`:94`; `crew-requests/actions.ts` `assignCrewRequest` `:125`→`:133`; `admin/projects/actions.ts` `updateProjectAction` `:39`→`:70` |
+| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:268` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
+| D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:110`), the CO print view (`print/change-orders/[id]/page.tsx:39`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:127`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
+| D7 | **Money gating is too strict in exports.** They hide prices without `financial.view`, which YARD_PM lacks, so the yard's own quote export has no prices. The job PDF (via `print/jobs/[id]`) shows money the jobs spreadsheet hides. | `src/app/api/export/jobs/route.ts:46`, `api/export/change-orders/route.ts` |
+| D8 | **Exports check the view permission; there is no export permission** (`export` was removed in G6.7 because nothing checked it). The two PDF routes load by id before any project check, which is the residue of data-api's `[EXPOSURE]` PDF finding. | `api/export/jobs/[id]/route.ts:16-20`, `api/export/change-orders/[id]/route.ts:24-28` |
+| D9 | **`/suppliers` has no permission check** (ACTION_PLAN G3.12, still open). | `suppliers/page.tsx:15-16` |
+| D10 | **The dashboard's "Recent activity" shows the global audit log to every user**, described as a deliberate exception in the page's own comment. | `dashboard/page.tsx:77` (query), `:390` (panel) |
+| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:388`, `crew-requests/actions.ts:161` |
+| D12 | **Reservation is implicit.** G6.7 deleted 13 keys for modules that have no guards yet; this work re-adds them as explicit `enforced: false` reserved keys (§5). | `audit/findings-dead-code.md:131-134` |
+| D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:31-51,128` |
+| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:66` |
+| D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:19,26-41` |
 
-D1, D2, D3, D4, D6/D7 (as one money-model finding), D10 and D14 are **not yet logged**. Item P.0
-(§15) logs them.
+D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are **not yet logged**.
+Item P.0 (§15) logs them.
 
 ### 3.3 Where this sits in ACTION_PLAN
 
-- G1.1 (error boundary, `ActionError`) has landed.
-- These items are still open and are prerequisites or overlaps:
-  - **G1.2** (`requireProjectAccess`, `scopedProjectFilter`)
-  - **G1.3** (`applyTransition`)
-  - **G2.1** (scoping at 14 call sites)
-  - **G2.4** (crew-request permission coverage)
-  - **G4.3** (request memoisation with React `cache`)
-  - **G6.7** (remove the 14 unenforced keys)
-  - **G6.9** (grant or delete `admin.*`, and seed the 7 roles that have no account)
-- §15 amends these items rather than duplicating them. **Do not start Gate A (the screen) before
-  Gate 1 and Gate 2 are done.** A matrix editor over an unenforced, unscoped model would be
-  cosmetic.
+- Gates 0–7 are complete. G3.12 (suppliers gate) and Gate 8 (Next.js 16) are open.
+- This work is **Gates 9–11**, appended after Gate 8 in `ACTION_PLAN.md`. They do not depend on
+  Gate 8. D1 is live, so they may run first. If Gate 8 lands first, `getCurrentUser` and the
+  resolver use the async `cookies()` API.
+- Gate 10 item 10.3 closes G3.12.
+- **Do not start Gate 11 (the screen) before Gates 9 and 10 are done.** A matrix editor over an
+  unenforced, unscoped model would be cosmetic.
 
 ---
 
@@ -172,7 +212,7 @@ keys.ts ──► catalog.ts (meta, modules, levels) ──► defaults.ts (syst
    (closure, coveringAssignments, computeEffective, levelOf, cellState)
                     │
                     ▼  (server-only)
-   resolver.ts: getEffectiveAccess, holdersOf, loadProjectMatrix   (React cache, per request)
+   resolver.ts: getEffectiveAccess, holdersOf, loadProjectMatrix   (requestCache, per request)
                     │
                     ▼
    guards.ts: forProject, canOn, assertPermissionOn  +  rbac.ts façade (hasPermission/assertPermission)
@@ -183,7 +223,7 @@ keys.ts ──► catalog.ts (meta, modules, levels) ──► defaults.ts (syst
 ```
 
 Everything under `src/lib/permissions/` except `resolver.ts` and `guards.ts` is **pure**: no
-Prisma, no `next/*`, no React `cache`. Those two files start with `import "server-only"`.
+Prisma, no `next/*`, no `requestCache`. Those two files start with `import "server-only"`.
 
 ---
 
@@ -193,7 +233,7 @@ Prisma, no `next/*`, no React `cache`. Those two files start with `import "serve
 
 | File | Contents |
 |---|---|
-| `src/lib/permissions/keys.ts` | `PERMISSIONS` (moved verbatim from `rbac.ts`, plus the new keys, minus `EXPORT`), `PermissionKey`, `ALL_KEYS` |
+| `src/lib/permissions/keys.ts` | `PERMISSIONS` (the 42 keys moved verbatim from `rbac.ts`, plus the 70 new ones), `PermissionKey`, `ALL_KEYS` |
 | `src/lib/permissions/catalog.ts` | `PERMISSION_META`, `MODULES`, `LEVELS`, lookups. Its header comment carries the §16 definition of done. |
 | `src/lib/permissions/defaults.ts` | `SYSTEM_ACCESS_SETS`, `DEFAULTS_VERSION`, `DEFAULTS_MIGRATIONS` |
 | `src/lib/permissions/sod.ts` | `SOD_RULES`, `CATEGORY_CEILINGS` |
@@ -205,7 +245,7 @@ Prisma, no `next/*`, no React `cache`. Those two files start with `import "serve
 | `src/lib/permissions/matrixState.ts` | the reducer for staged changes (§12.7) |
 | `src/lib/permissions/resolver.ts` | `"server-only"`: `getEffectiveAccess`, `holdersOf`, `loadProjectMatrix` |
 | `src/lib/permissions/guards.ts` | `"server-only"`: `forProject`, `canOn`, `assertPermissionOn` |
-| `src/lib/rbac.ts` | **Façade.** Re-exports `PERMISSIONS`/`PermissionKey`; keeps `hasPermission` and `assertPermission`; keeps `ROLE_PERMISSIONS` as a `@deprecated` value derived from `SYSTEM_ACCESS_SETS` so `tests/rbac.test.ts` keeps passing. |
+| `src/lib/rbac.ts` | **Façade.** Re-exports `PERMISSIONS`/`PermissionKey`; keeps `hasPermission` and `assertPermission`; keeps `ROLE_PERMISSIONS` as a `@deprecated` value derived from `SYSTEM_ACCESS_SETS` so `tests/rbac.test.ts` keeps passing. It exposes each set's **explicit** grants, not the closure, so the "SUPPLIER ≤ 3" assertion still holds (SUPPLIER's explicit V1 set is exactly 3). |
 
 ### 5.2 Types
 
@@ -307,14 +347,14 @@ levelOf(M, eff) = the highest L with levelKeys(M, L) == eff ∩ ladderKeys(M); "
 | **Tier** | blank = standard · `s` = sensitive (orange header; reason needed to grant) · `c` = critical (red header; reason needed to grant or revoke) |
 | **Kind** | `r` read · `w` write · `d` decide · `a` admin · `self` |
 | **Scope** | `acct` = account scope; otherwise project scope |
-| **E/R** | **E** = a guard checks it once Gate 2 is done · **R** = reserved, no guard yet, may be pre-granted (hatched in UI) |
+| **E/R** | **E** = a guard checks it once Gate 10 is done · **R** = reserved, no guard yet, may be pre-granted (hatched in UI) |
 
-**NEW** marks keys introduced by this work. Const names follow the existing style.
+**NEW** marks keys that are not in `rbac.ts` today. **NEW (re-added)** marks the 13 keys G6.7 deleted because no guard checked them: they return as explicit reserved keys, where `enforced: false` and the coverage test (§14.2) make the reservation visible instead of silent. Const names follow the existing style; re-added keys keep their pre-G6.7 const names.
 
 Set `enforced` in `catalog.ts` to what is true *at each commit*:
-- In G1.4, only keys a guard checks *today* are `true`.
-- Each Gate 2 item flips the keys it starts guarding.
-- G2.16 finalises the flags to the E/R column below.
+- In 9.1, only keys a guard checks *today* are `true`.
+- Each Gate 10 item flips the keys it starts guarding.
+- 10.9 finalises the flags to the E/R column below.
 
 #### 1. Project — `project` · live · nav `/admin/projects` · viewKey `project.access`
 
@@ -433,7 +473,7 @@ strip anyone's signing authority.
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
 | Schedule | `SCH_VIEW` | `schedule.view` | See schedule | V | | r | E |
-| Schedule | `SCH_EDIT` | `schedule.edit` | Edit schedule | M | | w | R |
+| Schedule | `SCH_EDIT` NEW (re-added) | `schedule.edit` | Edit schedule | M | | w | R |
 | Schedule | `SCH_EXPORT` NEW | `schedule.export` | Export | F | | r | R |
 | Planning | `PLAN_VIEW` NEW | `plan.view` | See Gantt | V | | r | R |
 | Planning | `PLAN_EDIT` NEW | `plan.edit` | Edit Gantt | M | | w | R |
@@ -444,9 +484,9 @@ strip anyone's signing authority.
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
 | Budget | `FIN_VIEW` | `financial.view` | See budget | V | s | r | E |
-| Budget | `FIN_EDIT_BUDGET` | `financial.budget.edit` | Edit budget | M | s | w | R |
+| Budget | `FIN_EDIT_BUDGET` NEW (re-added) | `financial.budget.edit` | Edit budget | M | s | w | R |
 | Budget | `FIN_EXPORT` NEW | `financial.export` | Export | F | s | r | R |
-| Budget | `FIN_APPROVE` | `financial.approve` | Approve spend | A | s | d | R |
+| Budget | `FIN_APPROVE` NEW (re-added) | `financial.approve` | Approve spend | A | s | d | R |
 | Procurement | `PO_VIEW` NEW | `purchase_order.view` | See POs | V | s | r | R |
 | Procurement | `PO_MANAGE` NEW | `purchase_order.manage` | Raise POs | M | s | w | R |
 | Procurement | `PO_APPROVE` NEW | `purchase_order.approve` | Approve POs | A | s | d | R |
@@ -458,25 +498,25 @@ strip anyone's signing authority.
 | Module (id · nav) | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|---|
 | Logistics (`logistics` · `/logistics`) | Logistics | `LOG_VIEW` | `logistics.view` | See | V | | r | E |
-| | | `LOG_EDIT` | `logistics.edit` | Edit | M | | w | R |
+| | | `LOG_EDIT` NEW (re-added) | `logistics.edit` | Edit | M | | w | R |
 | | | `LOG_EXPORT` NEW | `logistics.export` | Export | F | | r | R |
 | Inventory (`inventory` · `/inventory`) | Inventory | `INV_VIEW` | `inventory.view` | See | V | | r | E |
-| | | `INV_EDIT` | `inventory.edit` | Edit | M | | w | R |
+| | | `INV_EDIT` NEW (re-added) | `inventory.edit` | Edit | M | | w | R |
 | | | `INV_EXPORT` NEW | `inventory.export` | Export | F | | r | R |
 | Drawings (`drawing` · `/drawings`) | Drawings | `DRW_VIEW` | `drawing.view` | See | V | | r | E |
-| | | `DRW_UPLOAD` | `drawing.upload` | Upload | C | | w | R |
-| | | `DRW_APPROVE` | `drawing.approve` | Approve | A | s | d | R |
+| | | `DRW_UPLOAD` NEW (re-added) | `drawing.upload` | Upload | C | | w | R |
+| | | `DRW_APPROVE` NEW (re-added) | `drawing.approve` | Approve | A | s | d | R |
 | Documents (`document` · `/documents`) | Documents | `DOC_VIEW` | `document.view` | See | V | | r | E |
-| | | `DOC_UPLOAD` | `document.upload` | Upload | C | | w | R |
+| | | `DOC_UPLOAD` NEW (re-added) | `document.upload` | Upload | C | | w | R |
 | | | `DOC_DELETE` NEW | `document.delete` | Delete | F | s | w | R |
 | | Confidential | `DOC_VIEW_CONFIDENTIAL` | `document.view.confidential` | Confidential | A | s | r | E |
 | Meetings (`meeting` · `/meetings`) | Meetings | `MTG_VIEW` | `meeting.view` | See | V | | r | E |
-| | | `MTG_EDIT` | `meeting.edit` | Edit | M | | w | R |
+| | | `MTG_EDIT` NEW (re-added) | `meeting.edit` | Edit | M | | w | R |
 | Risks (`risk` · `/risks`) | Risks | `RSK_VIEW` | `risk.view` | See | V | | r | E |
-| | | `RSK_EDIT` | `risk.edit` | Edit | M | | w | R |
+| | | `RSK_EDIT` NEW (re-added) | `risk.edit` | Edit | M | | w | R |
 | | | `RSK_EXPORT` NEW | `risk.export` | Export | F | | r | R |
 | Contractors (`contractor` · `/contractors`) | Directory | `CON_VIEW` | `contractor.view` | See | V | | r | E |
-| | | `CON_EDIT` | `contractor.edit` | Edit | M | | w | R |
+| | | `CON_EDIT` NEW (re-added) | `contractor.edit` | Edit | M | | w | R |
 | Suppliers (`supplier` · `/suppliers`) | Directory | `SUP_VIEW` NEW | `supplier.view` | See | V | | r | E |
 | | | `SUP_EDIT` NEW | `supplier.edit` | Edit | M | | w | R |
 
@@ -501,8 +541,8 @@ strip anyone's signing authority.
 | Project access | `ACCESS_MANAGE` NEW | `admin.access.manage` | Project admin | A | c | a | | E |
 | Account | `ACCESS_APPOINT` NEW | `admin.access.appoint` | Appoint admins | A | c | a | acct | E |
 | Account | `ADM_USERS` | `admin.users` | Manage users | A | c | a | acct | E |
-| Account | `ADM_ROLES` | `admin.roles` | Edit access sets | A | c | a | acct | E |
-| Account | `ADM_SETTINGS` | `admin.settings` | Settings | A | c | a | acct | R |
+| Account | `ADM_ROLES` NEW (re-added) | `admin.roles` | Edit access sets | A | c | a | acct | E |
+| Account | `ADM_SETTINGS` NEW (re-added) | `admin.settings` | Settings | A | c | a | acct | R |
 
 #### 24. Audit — `audit` · live · nav `/admin` (audit panel) · viewKey `audit.view`
 
@@ -511,8 +551,8 @@ strip anyone's signing authority.
 | Audit | `AUDIT_VIEW` | `audit.view` | Project audit | V | s | r | | E |
 | Audit | `AUDIT_VIEW_ALL` NEW | `audit.view.all` | Fleet audit | A | c | r | acct | E |
 
-**Removed: `export` (`EXPORT`).** Nothing checks it. It is replaced by the per-module `*.export`
-keys, and the seed migration converts its four holders (§6.2).
+**Stays retired: `export` (`EXPORT`).** G6.7 removed it because nothing checked it. It is
+replaced by the per-module `*.export` keys, granted to its former holders (§6.2).
 
 **No key needed (structural):** the dashboard shell, Search (results filtered by each module's
 view key), the personal Notifications list, Favourites (requires `job.view`), and the user's own
@@ -520,11 +560,42 @@ profile.
 
 ### 5.6 Count check (assert in `permissionCatalog.test.ts`)
 
-- **Existing keys:** 56 today; removing `export` leaves **55**, all retained.
-- **New keys:** **57**, by module:
+- **Existing keys:** the **42** in `rbac.ts` today, all retained under their current const names.
+- **New keys:** **70**. That's 57 genuinely new keys plus the 13 re-added reserved keys. By module:
 
-  | Module | New |
-  |---|---|
+  | Module | New | of which re-added |
+  |---|---|---|
+  | project | 4 | |
+  | home | 3 | |
+  | job | 3 | |
+  | change_order | 4 | |
+  | crew_request | 5 | |
+  | approvals | 1 | |
+  | minutes | 2 | |
+  | after_sales | 3 | |
+  | yard_billing | 4 | |
+  | schedule | 5 | 1 |
+  | financial | 8 | 2 |
+  | logistics | 2 | 1 |
+  | inventory | 2 | 1 |
+  | drawing | 2 | 2 |
+  | document | 2 | 1 |
+  | meeting | 1 | 1 |
+  | risk | 2 | 1 |
+  | contractor | 1 | 1 |
+  | supplier | 2 | |
+  | location | 3 | |
+  | contacts_forms | 4 | |
+  | notifications | 1 | |
+  | access | 5 | 2 |
+  | audit | 1 | |
+
+- **Total:** **112** keys across **24** modules. `export` stays retired.
+- **Account-scope keys (8):** `project.create`, `project.archive`, `report.portfolio.view`,
+  `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all`.
+  `admin.users` becomes account-scope, so it takes effect only from an unscoped assignment (§17).
+
+---|---|
   | project | 4 |
   | home | 3 |
   | job | 3 |
@@ -591,10 +662,15 @@ Add `"ACCOUNT_ADMIN"` to `ROLE_KEYS`, and add `ROLE_CATEGORIES` and `DEPARTMENT_
 
 ### 6.2 Defaults: `DEFAULTS_VERSION = 1`
 
-**V1 = V0 − `export` + the table below**, where V0 is today's `ROLE_PERMISSIONS`
-(`rbac.ts:82-198`). Freeze V0 in `tests/fixtures/matrixV0.ts` and assert the exact diff. No
-existing grant is removed except `export`. The **visible** behaviour change comes from D-4: job
-prices, CO cost and crew-request cost were previously ungated, and are now gated by the new keys.
+**V1 = V0 + the table below**, where V0 is today's `ROLE_PERMISSIONS` (`rbac.ts:68-184`, after
+G6.9 granted `admin.users` to OWNER, OWNERS_REP and PROJECT_MANAGER). Freeze V0 in
+`tests/fixtures/matrixV0.ts` and assert the exact diff. **No existing grant is removed.** The
+**visible** behaviour change comes from D-4: job prices, CO cost and crew-request cost were
+previously ungated, and are now gated by the new keys.
+
+The 13 re-added keys get back the holders they had before G6.7 deleted them. Nothing enforces
+them until their modules gain edit flows, so the grants are latent; they are listed so the
+matrix is right the day a guard lands.
 
 | New key | Default holders (explicit) | Also held via implication |
 |---|---|---|
@@ -649,12 +725,24 @@ prices, CO cost and crew-request cost were previously ungated, and are now gated
 | `notification.prefs` | every set except ACCOUNT_ADMIN | |
 | `admin.access.view` | OWNERS_REP, PROJECT_MANAGER, AUDITOR | |
 | `admin.access.manage` | OWNERS_REP, PROJECT_MANAGER | |
-| `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all` | ACCOUNT_ADMIN | |
+| `admin.access.appoint`, `admin.roles`, `admin.settings`, `audit.view.all` | ACCOUNT_ADMIN | |
+| `admin.users` (existing) | V0 holders (OWNER, OWNERS_REP, PROJECT_MANAGER), plus ACCOUNT_ADMIN | |
+| `schedule.edit` (re-added) | OWNERS_REP, PROJECT_MANAGER, YARD_PM | |
+| `financial.budget.edit` (re-added) | PROJECT_MANAGER, FINANCE | |
+| `financial.approve` (re-added) | OWNERS_REP, FINANCE | |
+| `logistics.edit` (re-added) | OWNERS_REP, PROJECT_MANAGER, PURSER, YARD_PM | |
+| `inventory.edit` (re-added) | PROJECT_MANAGER, CAPTAIN, CHIEF_OFFICER, CHIEF_ENGINEER, HOD | |
+| `drawing.upload` (re-added) | PROJECT_MANAGER | |
+| `drawing.approve` (re-added) | OWNERS_REP, TECH_MANAGER | |
+| `document.upload` (re-added) | OWNERS_REP, PROJECT_MANAGER, PURSER | |
+| `meeting.edit` (re-added) | OWNERS_REP, PROJECT_MANAGER, CAPTAIN | |
+| `risk.edit` (re-added) | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER | |
+| `contractor.edit` (re-added) | OWNERS_REP, PROJECT_MANAGER, YARD_PM | |
 
 Notes:
-- **Removing `export`.** Its holders were OWNER, OWNERS_REP, PROJECT_MANAGER and FINANCE. Each
-  gets the `*.export` key of every module whose view key they already hold; FINANCE therefore gets
-  only the job, change-order and financial exports.
+- **Replacing `export`.** Before G6.7 retired it, its holders were OWNER, OWNERS_REP,
+  PROJECT_MANAGER and FINANCE. Each gets the `*.export` key of every module whose view key they
+  already hold; FINANCE therefore gets only the job, change-order and financial exports.
 - **Deviation from `BRIDGE_ALIGNMENT_PLAN.md:579,585-586`.** That plan gives FINANCE both yard-invoice
   management and payment recording. That breaks the `billing.invoice_vs_payment` block rule
   (§11.3). Finance records payments; the yard issues invoices. Record this in the Bridge plan's
@@ -666,9 +754,10 @@ Notes:
 
 A test asserts that every `SYSTEM_ACCESS_SETS` entry, after closure:
 - passes every **block** SoD rule (§11.3) and its category ceiling (§11.4);
-- keeps the existing `tests/rbac.test.ts` assertions true (crew get no financials; the owner
-  cannot approve tech stages or drawings; the auditor is read-only; confidential documents go only
-  to FINANCE, OWNER and OWNERS_REP).
+- keeps the existing `tests/rbac.test.ts` assertions true: crew get no financials; the owner
+  cannot approve tech stages; the auditor is read-only; confidential documents go only to FINANCE,
+  OWNER and OWNERS_REP; every approval stage has a holder; no role holds the whole chain; SUPPLIER
+  has ≤ 3 explicit grants; CONTRACTOR has no financials.
 
 **Known and accepted:** FINANCE triggers the `fin.budget_vs_approve` **warn** rule. Splitting it is
 a later product decision; log it and leave it.
@@ -709,13 +798,10 @@ model Permission {
 }
 
 model UserRole {                               // UI: "Assignment"
-  // …existing fields…
+  // …existing fields and indexes (userId, roleId, vesselId, projectId, departmentId)…
   jobTitle    String?                          // per-project override (relief captain)
   createdById String?
   createdAt   DateTime @default(now())
-  @@index([userId])
-  @@index([projectId])
-  @@index([vesselId])
 }
 
 model ProjectAccessOverride {
@@ -755,7 +841,7 @@ model AccountAccessOverride {                   // separate table: Prisma cannot
 
 model Project    { /* + */ accessVersion Int @default(0)  accessOverrides ProjectAccessOverride[] }
 model Department { /* + */ sortOrder Int @default(100)   users User[] }
-model AuditLog   { /* + */ projectId String?  @@index([projectId, createdAt])  @@index([resource, resourceId]) }
+model AuditLog   { /* + */ projectId String?  @@index([projectId, createdAt]) }   // [resource, resourceId] is already indexed
 ```
 
 - **Project admin needs no table.** Being a project admin means effectively holding
@@ -784,6 +870,11 @@ For user U on project P (P has `id` and `vesselId`):
    - it is vessel-scoped to `P.vesselId` with no project, or
    - it is unscoped.
 
+   This differs from today's `resolveProjectWhere` (`src/lib/project.ts:40`), which collects a
+   row's `projectId` and `vesselId` independently, so a row with both set reaches every project on
+   the vessel. The seed never writes both. The migration item (9.3) counts existing rows with both
+   set and logs them as a finding rather than silently narrowing anyone's access.
+
    If any project-scoped assignment covers P, **only** those apply. Otherwise the vessel-scoped
    ones apply. Otherwise the unscoped ones. Assignments at the same level are unioned.
 3. **Template.** T = ∪ `RolePermission` of the winning assignments, excluding archived sets,
@@ -806,8 +897,10 @@ For user U on project P (P has `id` and `vesselId`):
 **Project reach.** `listProjectsForUser` becomes: the projects on which the user's effective set
 contains `project.access`. A covering assignment alone is not enough: an assignment whose winning
 template holds no project-scope key (ACCOUNT_ADMIN on its own) reaches nothing, and a DENY of
-`project.access` removes the project. **Keep the existing zero-scope guard** (`project.ts`: "A
-scoped user with no project or vessel named would otherwise match everything").
+`project.access` removes the project. Implement it by keeping `resolveProjectWhere` as the
+candidate pre-filter (it can only over-approximate) and then dropping candidates whose effective
+set lacks `project.access`. Keep its `null`-when-nothing-named guard and `listProjectsForUser`'s
+`take: 200` cap.
 
 **Matrix rows.** The People matrix for project P lists users whose winning template on P holds at
 least one project-scope key, plus users whose `project.access` is denied on P. The latter are shown
@@ -851,7 +944,7 @@ as *Removed from project* so an admin can restore them.
 
 ## 9. Seeding without clobbering admin edits
 
-Replace `prisma/seed.ts:33-58` with `await applySync(prisma, planSync(await readDbState(prisma),
+Replace the permission and role loop in `prisma/seed.ts` (the upsert at `:34-41` and the "wipe and reset" at `:44-58`) with `await applySync(prisma, planSync(await readDbState(prisma),
 catalog, defaults))`.
 
 **`planSync`** is pure and returns a list of operations:
@@ -878,11 +971,12 @@ catalog, defaults))`.
 **Seed fixtures:**
 - `owner@` gets OWNER plus ACCOUNT_ADMIN, both unscoped.
 - Departments with `sortOrder`, and job titles on every seeded user.
-- **The D1 regression user:** CAPTAIN scoped to `p1`, CREW scoped to `p2`.
-- One account for each of the seven roles that have none today. This is G6.9's second half; see
-  README §seeded logins and G0.1's credential rule.
+- **The D1 regression user:** CAPTAIN scoped to `p1`, CREW scoped to `p2`, alongside the existing
+  `scoped@oceancos.dev` (PROJECT_MANAGER on p1 only). Credentials follow the existing
+  `SEED_PASSWORD` rule.
+- The 19 per-role accounts G6.9 seeded stay as they are.
 - `SEED_BULK_PEOPLE=100` (opt-in) creates 100 people spread across departments and sets on `p1`,
-  for the performance check in A15.
+  for the performance check in 11.15.
 
 `scripts/qa.ts` gains a check that a customised set survives a second seed.
 
@@ -891,25 +985,26 @@ catalog, defaults))`.
 ## 10. Resolver, guards and `getCurrentUser`
 
 ```ts
-// resolver.ts — import "server-only"
-export const loadProjectAccessData = cache(async (projectId: string) => ProjectAccessData);
-  // 3 queries: covering assignments (projectId = P | vesselId = P.vesselId & projectId null | both null)
-  // with role keys; active overrides for P; active users referenced.
-export const getEffectiveAccess = cache(async (userId: string, projectId: string | null) => EffectiveAccess);
+// resolver.ts — import "server-only"; memoised with requestCache (src/lib/requestCache.ts)
+export const loadProjectAccessData = requestCache(async (projectId: string) => ProjectAccessData);
+  // 3 queries: the covering assignments (the existing resolveUserRoleWhereForProject(project)
+  // filter) with role keys; active overrides for P; the active users referenced.
+export const getEffectiveAccess = requestCache(async (userId: string, projectId: string | null) => EffectiveAccess);
 export async function holdersOf(key: PermissionKey, projectId: string): Promise<string[]>; // active user ids
 export async function loadProjectMatrix(projectId: string, editorId: string): Promise<MatrixData>;
 
-// guards.ts — import "server-only"
+// guards.ts — import "server-only"; built on the existing requireProjectAccess (src/lib/project.ts:124)
 export async function forProject(user: CurrentUserT, projectId: string): Promise<CurrentUserT>;
   // clone of user with that project's effective set; throws notFound() if the project is unreachable
 export async function canOn(user: CurrentUserT, key: PermissionKey, projectId: string): Promise<boolean>;
 export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey, projectId: string): Promise<void>;
-  // throws forbidden("You do not have permission to do that.")
+  // requireProjectAccess, then the effective check; throws forbidden("You do not have permission to do that.")
 ```
 
-**Changes to `getCurrentUser` (`src/lib/auth.ts:47-74`):**
-- Move session lookup into a cached `getSession()` in a new `src/lib/session.ts`, shared with
-  `project.ts` to avoid a circular import.
+**Changes to `getCurrentUser` (`src/lib/auth.ts:59`, already wrapped in `requestCache`):**
+- Replace the global union at `:75-77`. If calling `getActiveProject` from `auth.ts` creates a
+  circular import with `project.ts`, move the session lookup into `src/lib/session.ts` and share
+  it.
 - Resolve the validated active project, then return:
 
   ```ts
@@ -920,31 +1015,30 @@ export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey,
     roleKeys /* @deprecated: winning sets on the active project */ }
   ```
 
-- `hasPermission` and `assertPermission` keep their signatures and bodies. The ~60 existing
-  list-page checks therefore become active-project-aware with no edits.
+- `hasPermission` and `assertPermission` keep their signatures and bodies. The existing list-page
+  checks therefore become active-project-aware with no edits.
 - Record-level code uses `forProject` / `canOn` / `assertPermissionOn` with `record.projectId`.
   A detail page for a record on another project is evaluated against **that** project and shows a
   "Belongs to R-00806 — switch project" banner.
+- Callers of `applyTransition` switch their `assertPermission` to `assertPermissionOn(user, key,
+  record.projectId)`. `applyTransition` itself stays a pure conditional write, as its doc comment
+  (`src/lib/workflow/transition.ts:36-39`) says.
 - `TopBar` shows `presets` for the active project, not `roleKeys[0]` (D14).
 
-**Replacing the direct holder queries (D3):**
+**Holder lookups (D3).** Reimplement `usersWithPermissionOnProject(project, key)` on
+`holdersOf`, keeping its name and signature so its five callers do not change
+(`change-orders/actions.ts:221,367`, `jobs/actions.ts:181,527`, `jobs/[id]/accept/actions.ts:251`).
+**This is a semantic change** from "any covering assignment grants it" (union) to "the winning
+assignments grant it, after overrides" (D-5). Call it out in the commit message. Then:
 
 | Site | Replacement |
 |---|---|
-| Authoriser validation | `canOn(authoriser, JOB_ACCEPT, project.id)` |
-| Authoriser dropdown | `holdersOf(JOB_ACCEPT, project.id)` |
-| Notify yard | `holdersOf(JOB_ISSUE_QUOTE, job.projectId)` |
-| Countersign notify | `holdersOf(JOB_COUNTERSIGN, job.projectId)` |
-| Stage approvers | `holdersOf(CO_STAGE_PERMISSION[stage], co.projectId)` |
+| Authoriser dropdown (`jobs/new/page.tsx:39`) | `holdersOf(JOB_ACCEPT, project.id)` |
+| Authoriser validation (`jobs/actions.ts:126-133`) | `canOn(authoriser, JOB_ACCEPT, project.id)` |
 
-**Caching:** React `cache` gives one resolution per request. This folds in G4.3, and permissions
-are still derived fresh on every request, so changes take effect immediately. Unit tests exercise
-`policy.ts` only.
-
-**Interim API (keeps Gate 2 unblocked).** G1.2 ships `forProject`, `canOn` and
-`assertPermissionOn` early, implemented as "require project access, then check the existing global
-set". G1.3 and G2.1 adopt them at every call site. G1.9 then swaps in the real resolver behind the
-same signatures, with **no call-site changes**.
+**Caching:** `requestCache` gives one resolution per request (G4.3's mechanism). Permissions are
+still derived fresh on every request, so changes take effect immediately. Unit tests exercise
+`policy.ts`, where `requestCache` is not involved.
 
 ---
 
@@ -1026,8 +1120,8 @@ Blocks prevent the save. Warnings require an acknowledgement checkbox plus the r
   Every control round-trips through the URL, so views are linkable and survive reload.
 - **Sidebar:** add "Users & access" under System. `/admin` keeps the user directory (gated by
   `admin.users`) and the audit log (gated by `audit.view` / `audit.view.all`).
-- **Page width:** the page opts out of `max-w-[1400px]`. The matrix scrolls inside its own
-  container; the page never scrolls sideways.
+- **Page width:** the page opts out of `AppShell`'s `max-w-[1400px]` (`AppShell.tsx:52`). The
+  matrix scrolls inside its own container; the page never scrolls sideways.
 
 ### 12.2 Tabs
 
@@ -1098,7 +1192,7 @@ press Review & save. Module access levels are shown in List view."*
   and expanded modules persist in `?open=`. This is required, not optional: 112 columns do not fit
   on screen, whereas the reference had 17.
 - **Planned modules** are hidden unless `planned=1`. When shown, their columns are hatched and
-  labelled *Not yet built*, and pre-granting is allowed.
+  labelled *Not yet built* (the same wording as G3.11's `ComingSoon`), and pre-granting is allowed.
 - **Sensitivity colours:** sensitive headers use `text-warn` with a `border-warn/40` underline;
   critical headers use `text-bad`. A legend sits under the caption.
 - **Row groups** are ordered as in §7. Each group header row has a collapse control and a
@@ -1136,8 +1230,9 @@ quotes*", or "Granted by Pat Manager, 25 Sep — *Covering Ch/Off*". It includes
   expiresAt? }`; toggling back removes the entry.
 - **Guards on leaving.** A `beforeunload` prompt fires while changes are pending, and changing
   project asks for confirmation.
-- **Review & save dialog.** Built on a new `src/components/ui/Dialog.tsx`: native `<dialog>`,
-  focus trap, Esc to close, focus returned to the trigger. It shows:
+- **Review & save dialog.** Built on a new `src/components/ui/Dialog.tsx` (the UI kit has none):
+  native `<dialog>`, focus trap, Esc to close, focus returned to the trigger. Its Save button is
+  the existing `SubmitButton`, so the pending state matches every other form. It shows:
   - changes **grouped by person** (+ / −), including implied side effects ("also grants *See
     change orders*");
   - a **Sensitive** or **Critical** badge on each change that needs one;
@@ -1181,8 +1276,8 @@ quotes*", or "Granted by Pat Manager, 25 Sep — *Covering Ch/Off*". It includes
   {colHeaderId}" aria-describedby="{stateDescId}">`, using **9 shared hidden description nodes**
   (one per state) rather than thousands of label strings.
 - **Group rows** expose `aria-expanded`; the tri-state checkboxes use `aria-checked="mixed"`.
-- **Colour is never the only signal:** each state also has an icon or pattern. Don't rely on
-  `faint` text (G5.1).
+- **Colour is never the only signal:** each state also has an icon or pattern. Keep text contrast
+  at the WCAG AA level G5.1 established.
 
 ### 12.12 Performance (target: 100 people × 112 keys)
 
@@ -1192,7 +1287,7 @@ quotes*", or "Granted by Pat Manager, 25 Sep — *Covering Ch/Off*". It includes
 - **Rendering.** `MatrixRow` is wrapped in `React.memo` and keyed on the row's pending version, so
   a toggle re-renders one row. One delegated tooltip/popover serves the whole grid, and
   collapsed-by-default modules keep a typical render to 25–40 columns.
-- **Budget:** under 100 ms per toggle on the 100-person bulk seed (A15). No virtualisation.
+- **Budget:** under 100 ms per toggle on the 100-person bulk seed (11.15). No virtualisation.
 
 ### 12.13 Security of the client bundle
 
@@ -1257,45 +1352,76 @@ searchPeople(q)
 
 ## 13. Enforcement across every module
 
-1. **Sidebar (D13).** `NAV` entries gain a `moduleId`. The layout computes visible module ids on
-   the server and passes **ids only** to `Sidebar.tsx`. Scaffold entries stay, per G3.11, but only
-   for users holding their view key. Approvals is visible per §5.5 (6).
-2. **List pages.** Check the module's `viewKey` on the active project.
+Paths are under `src/app/(app)/` unless shown otherwise.
+
+1. **Sidebar and TopBar (D13, D14).**
+   - `NAV` entries (`src/components/layout/Sidebar.tsx:31-51`) gain a `moduleId`. The layout
+     computes the visible module ids on the server and passes **ids only**, via `AppShell`, to
+     `Sidebar.tsx`.
+   - Scaffold entries stay, per G3.11, but only for users holding their view key. Approvals is
+     visible per §5.5 (6).
+   - `TopBar.tsx:66` shows the active project's presets.
+2. **List pages.** Check the module's `viewKey` on the active project. Lists stay scoped and capped
+   per `CLAUDE.md` (`projectScope()` plus `take`).
 3. **Detail pages.** Load the record, then `forProject(user, record.projectId)`, then
    `notFound()` if the user lacks view.
-4. **Actions.** Load the record, then `assertPermissionOn(user, key, record.projectId)`. This
-   reorders the D4 sites. Creates use the **active** project and never a submitted `projectId`.
-   `applyTransition` (G1.3) takes `permission` and calls `assertPermissionOn`.
-5. **Comments (D11).** Gate on `change_order.comment` / `crew_request.comment`, after checking
-   that the parent record exists and is on a reachable project.
-6. **Exports and print (D7, D8).** Require `job.export` / `change_order.export` plus view. Show
-   money columns when the user holds `job.price.view` / `change_order.cost.view`, **not**
-   `financial.view`. Result: the yard's own export has prices; an HOD's does not.
-7. **Money redaction (D6).** `money.ts` provides `canSeeMoney(perms, moduleId)`. Apply it to:
-   - **Jobs:** list group and grand totals, detail lines and total, VC price adjustment, accept
-     page copy, quote page, print.
-   - **Change orders:** list cost column, detail estimated and approved cost, print.
-   - **Approvals:** the cost column.
-   - **Crew requests:** detail cost impact (`crew-requests/[id]/page.tsx:109`).
-   - **Dashboard:** budget panels and charts.
+4. **Actions (D4).** Load the record, then `assertPermissionOn(user, key, record.projectId)`.
+   - This reorders the nine sites listed under D4 (§3.2).
+   - The actions that already load first (`transitionJob`, `transitionChangeOrder`,
+     `decideChangeOrderApproval`, `transitionCrewRequest`) swap `requireProjectAccess` plus
+     `assertPermission` for `assertPermissionOn`.
+   - Creates keep using the **active** project, as G2.1 established, and never a submitted
+     `projectId`.
+5. **Comments (D11).** `addChangeOrderComment` and `addCrewRequestComment` move from the view key
+   to `change_order.comment` / `crew_request.comment`. They keep their existing parent-existence
+   and project checks.
+6. **Exports and print (D7, D8).**
+   - The four export routes require `job.export` / `change_order.export` plus view.
+   - The two PDF routes (`api/export/*/[id]/route.ts`) call `assertPermissionOn` with the loaded
+     record's project **before** rendering, and return 404 instead of a PDF of a 404 page.
+   - Money columns and totals show when the user holds `job.price.view` /
+     `change_order.cost.view`, **not** `financial.view`. Result: the yard's own export has prices,
+     an HOD's does not, and the job PDF agrees with the job spreadsheet.
+7. **Money redaction (D6).** `money.ts` provides `canSeeMoney(perms, moduleId)`, and every figure
+   still goes through `toNumber()` / `fmtMoney(value, currency)` per `CLAUDE.md`. Apply it to:
+   - **Jobs:** list group and grand totals (`jobs/page.tsx`); detail lines, total and VC price
+     adjustment (`jobs/[id]/page.tsx`); print (`src/app/print/jobs/[id]/page.tsx:130-191`). The
+     accept and quote pages are already restricted to signers and the yard, who hold the key by
+     implication.
+   - **Change orders:** list cost column (`change-orders/page.tsx`); detail estimated and approved
+     cost (`change-orders/[id]/page.tsx`). The print view switches its existing `canSeeMoney`
+     (`print/change-orders/[id]/page.tsx:39`) from `financial.view` to `change_order.cost.view`.
+   - **Approvals:** the cost column, and the dashboard's approvals panel.
+   - **Crew requests:** detail cost impact (`crew-requests/[id]/page.tsx:127`).
+   - **Dashboard:** budget panels and charts keep `financial.view` (`dashboard/page.tsx:110`).
    - **Scaffold modules:** logistics cost, inventory replacement cost, contractor value and risk
      cost impact are gated by `financial.view`.
 
    Redacted values render as "—" with sr-only "hidden".
-8. **Suppliers (D9):** `supplier.view` on the page and in the search branch.
-9. **Admin and audit (D10).**
-   - `/admin` splits into the user directory (`admin.users`) and the audit log (`audit.view`
-     scoped to the active project; `audit.view.all` for fleet-wide).
-   - `recordAudit` gains `projectId`.
-   - The dashboard's Recent activity is filtered to the active project **and** by a
-     resource → module view-key map.
-10. **Approvals page (D5).** Import `CO_STAGE_PERMISSION`, delete the local `STAGE_PERM`, remove
-    both `as any`, scope to the active project, and show the full queue only with
-    `approvals.view`.
-11. **Crew requests (with G2.4).** Use an exhaustive `Record<CrewRequestStatus, PermissionKey>`
-    that the type checker verifies. Transitions into IN_PROGRESS, BLOCKED, AWAITING_APPROVAL,
-    SUBSTITUTION and VARIATION use `crew_request.progress`. The assignee may progress their own
-    request.
+8. **Suppliers (D9, closes G3.12):** `supplier.view` on `suppliers/page.tsx` and in the search
+   branch. Replace its `where: any` with a typed filter while in the file.
+9. **Admin and audit (D10, D15).**
+   - `/admin`'s user directory needs `admin.users` **as an account key**, so only unscoped admins
+     see the fleet directory. Project admins get their people through `/admin/access` instead.
+   - The vessel and project lists are scoped to what the viewer can reach.
+   - The audit log is `audit.view` scoped to the active project, or `audit.view.all` for
+     fleet-wide.
+   - `recordAudit` gains `projectId`, and every call site that has a project passes it.
+   - The dashboard's Recent activity (`dashboard/page.tsx:77`) is filtered to the active project
+     **and** by a resource → module view-key map. Remove the page comment that calls the global
+     log a deliberate exception.
+   - `/admin/projects` lists only projects the user can edit, capped.
+10. **Approvals page (D5).**
+    - Add a page gate: `approvals.view` or any CO stage key.
+    - Import `CO_STAGE_PERMISSION`, delete the local `STAGE_PERM` (`approvals/page.tsx:16`), and
+      remove both `as any` (`:30` and `change-orders/actions.ts:268`).
+    - Scope to the active project, and show the full queue only with `approvals.view`.
+11. **Crew requests.** G2.4 already made `CR_TRANSITION_PERMISSION`
+    (`src/lib/workflow/crewRequest.ts:72`) exhaustive. Its own comment defers a progress permission
+    as a grant decision, and §6.2 now makes that decision:
+    - Transitions into IN_PROGRESS, BLOCKED and AWAITING_APPROVAL use `crew_request.progress`.
+    - The assignee may progress their own request.
+    - NEW, TRIAGED, ASSIGNED and REJECTED keep `crew_request.triage`.
 
 ---
 
@@ -1325,7 +1451,9 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
 - **(d)** Every `page.tsx` under `src/app/(app)/` contains a guard call. Allowlist: `dashboard`,
   `notifications`, `search`. Every exported async function in a `"use server"` file contains a
   guard. Allowlist: `logout`, `setActiveProjectAction`.
-- **(e)** No `permissions: { some: { permission:` under `src/app/`. This locks in D3.
+- **(e)** No holder lookup outside `src/lib/permissions/`: neither the Prisma form
+  `permissions: { some: { permission:` nor the in-memory form `role.permissions.some(` (the
+  shape of the authoriser check at `jobs/actions.ts:126-133`). This locks in D3.
 - **(f)** No `"use client"` file imports from `permissions/catalog` or `permissions/defaults`.
 
 ### 14.3 End-to-end (Playwright, `e2e/access.spec.ts`)
@@ -1351,75 +1479,68 @@ This avoids the re-run failures logged in `audit/findings-phase5.md`.
 
 ## 15. Phased delivery inside ACTION_PLAN
 
-Tick items here as they land. Each item is one commit and must pass build, typecheck and the unit
-suite, plus e2e where it touches UI or guards.
+These are **Gates 9–11**, appended after Gate 8 in `ACTION_PLAN.md`. They do not depend on Gate 8
+and may run before it (§3.3). Tick items here as they land. Each item is one commit and passes the
+six checks in §1 (1).
 
-### P.0 — Docs only
+### P.0 — Docs only (done with this prompt's rebaseline)
 
-- [ ] Log D1, D2, D3, D4, D6/D7 (as one money-model finding), D10 and D14 in
-  `audit/findings-phase5.md`.
-- [ ] Amend `ACTION_PLAN.md`:
-  - insert G1.4–G1.10, G2.9–G2.16 and **Gate A** as below;
-  - amend G1.2, G1.3, G2.1 and G2.4 as below;
-  - strike **G6.9** (subsumed by G1.5 / G1.7), with the reason;
-  - reframe the **G6.7** permission clause: the 14 unenforced keys become `enforced: false`
-    reserved keys, not deletions;
-  - note that G4.3 is folded into G1.9.
+- [x] Log D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 in
+  `audit/findings-phase5.md`. D13 and the PDF-route residue of D8 are already logged
+  (auth-security and data-api).
+- [x] Append Gates 9–11 to `ACTION_PLAN.md`, add the decision record, and strike **G3.12** (folded
+  into 10.3) with the reason.
 
-### Gate 1 extension (foundations)
+### Gate 9 — Access foundations
 
-G1.4–G1.8 are pure or schema-only and may run in parallel with Gate 2 once G1.3 has landed.
+9.1–9.5 are pure or schema-only; 9.6 and 9.7 change behaviour.
 
 | Item | Scope | Done when |
 |---|---|---|
-| **G1.2** (amended) | Also ship interim `forProject` / `canOn` / `assertPermissionOn` (§10) | tests: zero-project, vessel-scoped, unscoped; unreachable project is refused even when the key is held |
-| **G1.3** (amended) | `applyTransition` calls `assertPermissionOn(actor, perm, entity.projectId)` | as planned, plus that call |
-| **G1.4** | `keys.ts`, `catalog.ts`, `rbac.ts` façade; +57 keys, −`export`; `enforced` reflects today | typecheck passes with **zero** call-site edits; catalog tests green |
-| **G1.5** | `defaults.ts` (20 sets incl. ACCOUNT_ADMIN), `sod.ts`, `ROLE_PERMISSIONS` derived; `ROLE_KEYS` + `ROLE_CATEGORIES` + `DEPARTMENT_LABELS` | defaults tests green; V0 diff test green; existing `rbac.test.ts` green |
-| **G1.6** | Migration `access_matrix` (§7) | `prisma migrate deploy` is clean on a fresh **and** a seeded database |
-| **G1.7** | `sync.ts`; the seed uses it; fixtures (§9) | seeding twice gives 0 `RolePermission` writes on the second run; sync tests green; `npm run qa` checks that a customised set survives the seed |
-| **G1.8** | `policy.ts` | resolver tests green, including the D1 regression |
-| **G1.9** | `resolver.ts`, `guards.ts` (real implementation), `session.ts`; `getCurrentUser` project-aware; `listProjectsForUser` honours `project.access`; TopBar shows presets | D1 e2e green; every existing e2e green |
-| **G1.10** | `holdersOf`, replacing the five D3 queries | coverage rule (e) passes; jobs e2e green |
+| **9.1** | `keys.ts`, `catalog.ts`, `rbac.ts` façade; 42 existing + 70 new keys; `enforced` reflects today | typecheck passes with **zero** call-site edits; catalog tests green |
+| **9.2** | `defaults.ts` (20 sets incl. ACCOUNT_ADMIN), `sod.ts`, `ROLE_PERMISSIONS` derived (explicit grants); `ROLE_KEYS` + `ROLE_CATEGORIES` + `DEPARTMENT_LABELS` | defaults tests green; V0 diff test green; existing `rbac.test.ts` green |
+| **9.3** | Migration `access_matrix` (§7); count and log any `UserRole` rows with both `projectId` and `vesselId` set (§8.1) | `prisma migrate deploy` is clean on a fresh **and** a seeded database |
+| **9.4** | `sync.ts`; the seed uses it; fixtures (§9) | seeding twice gives 0 `RolePermission` writes on the second run; sync tests green; `npm run qa` checks that a customised set survives the seed |
+| **9.5** | `policy.ts` | resolver tests green, including all eight §8.3 examples |
+| **9.6** | `resolver.ts`, `guards.ts`; `getCurrentUser` project-aware (fixes D1); `listProjectsForUser` honours `project.access`; TopBar shows presets | the D1 regression e2e passes; `e2e/tenancy.spec.ts` and every other existing e2e stay green |
+| **9.7** | `usersWithPermissionOnProject` on `holdersOf`; authoriser dropdown and validation (D3) | coverage rule (e) passes; the jobs and change-order approval e2e stay green |
 
-### Gate 2 extension (enforcement)
-
-G2.1 is **amended** to adopt `forProject` / `assertPermissionOn` at each of its 14 sites and to
-fix the D4 ordering. G2.4 is **amended** per §13 (11).
+### Gate 10 — Enforcement
 
 | Item | Scope | Done when |
 |---|---|---|
-| **G2.9** | Sidebar filtering (§13.1) | a supplier sees only Documents plus the structural entries |
-| **G2.10** | `supplier.view` on the page and search (D9) | guest and supplier get Forbidden |
-| **G2.11** | CO and crew-request comment permissions, with parent and project checks (D11) | a comment on another project's record is refused |
-| **G2.12** | Per-module export keys; money in exports by price keys (D7, D8) | the Yard PM's export includes prices; an HOD's does not |
-| **G2.13** | Money redaction on every page listed in §13.7 (D6) | an HOD sees "—" on job totals |
-| **G2.14** | `recordAudit` gains `projectId`; `/admin` split; dashboard activity filtered (D10) | a crew dashboard shows no rows they cannot view |
-| **G2.15** | Approvals page fix (D5) | no `as any`; scoped to the active project |
-| **G2.16** | Static coverage test (§14.2); `enforced` flags final | deleting any guard makes it fail |
+| **10.1** | Check after load, per project, at every action (§13.4, D4) | a user holding a key only on p1 is refused on a p2 record |
+| **10.2** | Sidebar filtering and TopBar (§13.1, D13, D14) | a supplier sees only Documents plus the structural entries |
+| **10.3** | `supplier.view` on the page and search (§13.8, D9); **closes G3.12** | guest and supplier get Forbidden |
+| **10.4** | Comment keys (§13.5, D11) | an AUDITOR can read a change order but not comment on it |
+| **10.5** | Per-module export keys; money in exports by price keys; PDF routes checked before render (§13.6, D7, D8) | the Yard PM's export includes prices; an HOD's does not; a p2 PDF by id returns 404 for a p1-only user |
+| **10.6** | Money redaction on every page in §13.7 (D6) | an HOD sees "—" on job totals |
+| **10.7** | `recordAudit` gains `projectId`; `/admin` split and scoped; dashboard activity filtered; `/admin/projects` scoped and capped (§13.9, D10, D15) | a crew dashboard shows no rows they cannot view; a scoped PM does not see the fleet directory |
+| **10.8** | Approvals page gate and fix (§13.10, D5); crew-request progress key (§13.11) | no `as any`; scoped to the active project; an assignee can progress their own request |
+| **10.9** | Static coverage test (§14.2); `enforced` flags final | deleting any guard makes it fail |
 
-### Gate A — the Users & Access feature
+### Gate 11 — The Users & Access feature
 
-Gate A comes after Gate 2. It may run alongside Gate 3 if migrations are serialised.
+This gate comes after Gates 9 and 10.
 
 | Item | Scope | Done when |
 |---|---|---|
-| **A1** | `authority.ts` | authority tests green |
-| **A2** | `loadProjectMatrix`, `CatalogView` serialiser | payload is ≤ 15 KB for the bulk seed |
-| **A3** | Project-access actions, schemas, audit and concurrency | action-level tests via the pure validator; a conflict path is exercised |
-| **A4** | Access-set actions, including reset and the impact preview | audit rows are written; the customised flag is set |
-| **A5** | Admins actions (appoint, remove, account admin) | last-admin protection holds |
-| **A6** | Page shell, tabs, toolbar, URL state, `Dialog` component | the page renders for PM, owner and auditor; crew are Forbidden |
-| **A7** | `matrixState` reducer | reducer tests green |
-| **A8** | Read-only grid: headers, sticky columns, collapse, groups, states, provenance | keyboard navigation works end to end |
-| **A9** | Editing, bulk menus, group tri-state, `beforeunload` | edits are staged, not saved |
-| **A10** | Review & save dialog | e2e 1, 3, 4 |
-| **A11** | Filter chips and the department filter | counts match the server |
-| **A12** | List view | a level change stages the ladder keys only |
-| **A13** | Access sets tab | e2e 6 |
-| **A14** | Admins tab | appoint/remove is audited |
-| **A15** | Full e2e suite (§14.3) plus a performance check on `SEED_BULK_PEOPLE=100` | < 100 ms per toggle; e2e green twice in a row on the same database |
-| **A16** | Docs: README section, §16 in the `catalog.ts` header, CLAUDE.md entry (with G6.5) | reviewed |
+| **11.1** | `authority.ts` | authority tests green |
+| **11.2** | `loadProjectMatrix`, `CatalogView` serialiser | payload is ≤ 15 KB for the bulk seed |
+| **11.3** | Project-access actions, schemas, audit and concurrency | action-level tests via the pure validator; a conflict path is exercised |
+| **11.4** | Access-set actions, including reset and the impact preview | audit rows are written; the customised flag is set |
+| **11.5** | Admins actions (appoint, remove, account admin) | last-admin protection holds; an account admin can appoint a project admin (§11.2) |
+| **11.6** | Page shell, tabs, toolbar, URL state, `Dialog` component | the page renders for PM, owner and auditor; crew are Forbidden |
+| **11.7** | `matrixState` reducer | reducer tests green |
+| **11.8** | Read-only grid: headers, sticky columns, collapse, groups, states, provenance | keyboard navigation works end to end |
+| **11.9** | Editing, bulk menus, group tri-state, `beforeunload` | edits are staged, not saved |
+| **11.10** | Review & save dialog | e2e 1, 3, 4 |
+| **11.11** | Filter chips and the department filter | counts match the server |
+| **11.12** | List view | a level change stages the ladder keys only |
+| **11.13** | Access sets tab | e2e 6 |
+| **11.14** | Admins tab | appoint/remove is audited |
+| **11.15** | Full e2e suite (§14.3) plus a performance check on `SEED_BULK_PEOPLE=100` | < 100 ms per toggle; e2e green twice in a row on the same database |
+| **11.16** | Docs: README section; §16 in the `catalog.ts` header; update `CLAUDE.md`'s "Roles and permissions" section (catalog, per-project resolution, the definition of done) | reviewed |
 
 ---
 
@@ -1437,7 +1558,9 @@ No module ships (including each Bridge phase) until:
 5. The static coverage test passes; every page and action is guarded, and money goes through
    `money.ts`.
 
-Put this checklist verbatim in the header comment of `catalog.ts`.
+Put this checklist verbatim in the header comment of `catalog.ts`, and summarise it in
+`CLAUDE.md`'s "Roles and permissions" section (item 11.16), which today describes only the static
+role → permission matrix.
 
 ---
 
@@ -1446,7 +1569,7 @@ Put this checklist verbatim in the header comment of `catalog.ts`.
 - **Global directories.** Contractor and Supplier have no `projectId`, so their keys are
   evaluated on the active project. Document this until those models gain a project link.
 - **Drift across projects.** Per-project overrides will diverge on the same vessel. A
-  "differs from other projects on this vessel" row indicator is a follow-up after A11.
+  "differs from other projects on this vessel" row indicator is a follow-up after 11.11.
 - **Template edits are fleet-wide,** hence the mandatory impact preview (§12.9).
 - **Pre-granted reserved keys switch on silently** when their module ships. Call them out in the
   `DEFAULTS_MIGRATIONS` note and the release notes.
@@ -1454,8 +1577,17 @@ Put this checklist verbatim in the header comment of `catalog.ts`.
   the Preset column must make the winning assignment obvious.
 - **Notifications leak titles after access is revoked.** Existing notification rows keep record
   titles; filtering needs `projectId` on `Notification`, which belongs with Bridge Phase 3.
-- **React `cache` versus Vitest, and Gate 8 (Next 16).** Keep impure code out of anything tests
-  import; the async request APIs in Next 16 will touch `session.ts` and `resolver.ts`.
+- **Holder lookups change meaning (9.7).** `usersWithPermissionOnProject` moves from "any covering
+  assignment grants it" to most-specific-wins plus overrides. A user with an unscoped YARD_PM
+  assignment and a narrower one on p1 is no longer notified as a quote issuer on p1 unless the
+  narrower set also holds the key. That is the intended D-5 behaviour, but it changes who gets
+  notifications, so say so in the commit message.
+- **`admin.users` becomes account-scope.** A project-scoped PM (like `scoped@`) loses the fleet
+  user directory on `/admin` and manages their people through `/admin/access` instead. That is
+  intended (D15), and the seeded unscoped OWNER, OWNERS_REP and PM accounts keep it.
+- **Gate 8 (Next 16).** The async request APIs will touch `getCurrentUser`, any `session.ts`, and
+  `resolver.ts`. Keep impure code out of anything unit tests import; `requestCache` already falls
+  back cleanly under Vitest.
 - **Behaviour change from D-4:** some senior crew lose sight of job prices. Communicate it before
   release; admins can grant it back per person in one click.
 
@@ -1473,5 +1605,5 @@ Put this checklist verbatim in the header comment of `catalog.ts`.
 - [ ] Sensitive and critical grants require a reason; every change is audited with a diff.
 - [ ] SoD blocks cannot be saved; warnings need an acknowledgement.
 - [ ] The matrix meets the keyboard, ARIA and performance targets in §12.11–12.12.
-- [ ] `npm run build`, `npm run typecheck`, `npm test` and `npm run test:e2e` pass twice in a row
-  on the same database.
+- [ ] `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, `npm run test:e2e` and
+  `npm run qa` pass, and the e2e suite passes twice in a row on the same database.
