@@ -24,6 +24,7 @@ import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
 import { cumulativeByDate } from "@/lib/charts/geometry";
 import { projectTiming } from "@/lib/metrics/project";
 import { getActiveProject } from "@/lib/project";
+import { VesselStrip } from "@/components/vessel/VesselStrip";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,8 @@ export default async function DashboardPage() {
         title="Project dashboard"
         subtitle="Live operational view across all active vessels and projects."
       />
+
+      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} />}
 
       {/* Stat row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">
