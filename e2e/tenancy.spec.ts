@@ -70,4 +70,15 @@ test.describe("project scoping", () => {
     await page.waitForURL((url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
     await expect(page.getByRole("banner").getByText("M/Y Solstice", { exact: false })).toBeVisible();
   });
+
+  test("the project admin list omits another project", async ({ page }) => {
+    // SCOPED holds project.edit on p1 only. The save path already refused p2;
+    // the list must not show it either.
+    await signIn(page, SCOPED);
+    await page.goto("/admin/projects");
+    // Its own project is listed; the page-wide checks below are the real assertion.
+    await expect(page.getByRole("main").getByRole("link", { name: /R-00721/ })).toBeVisible();
+    await expect(page.getByText(/R-00806/)).toHaveCount(0);
+    await expect(page.getByText(/Winter Maintenance Period/)).toHaveCount(0);
+  });
 });
