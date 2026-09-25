@@ -12,6 +12,7 @@ import {
   fillBlanks,
   gapFingerprint,
   observationFingerprint,
+  valuesFromEvidence,
 } from "@/lib/vessels/importRegister";
 import { EVIDENCE_FIELD_MAP, isValidImo, isValidMmsi } from "@/lib/vessels/fields";
 
@@ -188,6 +189,33 @@ describe("import", () => {
       yardNumberBasis: "AIS database / historical",
       verification: "PUBLIC_SOURCE",
     });
+  });
+
+  it("fills fields only the evidence answers", () => {
+    const records = new Map(buildVesselRecords(register).map((r) => [r.yardNumber, r]));
+    expect(records.get("Y701")?.deadweight).toBe(395);
+    expect(records.get("Y702")?.generators).toBe("3 x MTU 332 kW");
+    expect(records.get("Y712")?.sailArea).toBe(2877);
+  });
+
+  it("leaves a field empty when the evidence is ambiguous or disagrees", () => {
+    // AQuiJo's 17 kn is published without saying whether under sail or power.
+    const aquijo = buildVesselRecords(register).find((r) => r.yardNumber === "Y711")!;
+    expect(aquijo.maxSpeed).toBeNull();
+
+    expect(
+      valuesFromEvidence({ deadweight: null }, [
+        { fieldLabel: "Database deadweight", value: "395" },
+        { fieldLabel: "Database deadweight", value: "401" },
+      ])
+    ).toEqual({});
+  });
+
+  it("never replaces a value the register sheets already give", () => {
+    // Builder beam 14.2 m is preferred over the database's 12 m.
+    const batello = buildVesselRecords(register).find((r) => r.yardNumber === "Y701")!;
+    expect(batello.beam).toBe(14.2);
+    expect(valuesFromEvidence({ beam: 14.2 }, [{ fieldLabel: "Database static beam", value: "12" }])).toEqual({});
   });
 
   it("fills blanks and leaves held values alone", () => {

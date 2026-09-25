@@ -9,8 +9,15 @@
 
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { EVIDENCE_FIELD_MAP, isBlank, type VesselParticulars } from "./fields";
-import { gapVessels, type VesselRegister } from "./workbook";
+import {
+  EVIDENCE_FIELD_MAP,
+  isBlank,
+  isVesselFieldKey,
+  vesselField,
+  type VesselFieldKey,
+  type VesselParticulars,
+} from "./fields";
+import { gapVessels, type RegisterObservation, type VesselRegister } from "./workbook";
 
 export type ImportOptions = {
   /** Replace values already held with the workbook's. Off by default. */
@@ -45,7 +52,61 @@ type VesselData = Omit<Partial<VesselParticulars>, "name"> & {
   verification: string;
 };
 
-/** One record per vessel: register, technical and build-sequence rows joined by yard number. */
+/**
+ * Evidence labels too loose to fill a field with: a maximum speed "mode
+ * unspecified" on a sailing yacht could be under sail or under power. These
+ * stay as evidence, shown beside the field as a lead.
+ */
+const AMBIGUOUS_EVIDENCE = new Set(["Published maximum speed (mode unspecified)"]);
+
+function evidenceValue(key: VesselFieldKey, text: string): string | number | null {
+  const field = vesselField(key);
+  switch (field.kind) {
+    case "int":
+    case "year":
+    case "decimal": {
+      const n = Number(text.replace(/,/g, "").trim());
+      if (!Number.isFinite(n)) return null;
+      return field.kind === "decimal" ? n : Math.round(n);
+    }
+    case "text":
+    case "longtext":
+      return text.trim() || null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Values for fields the register and technical sheets leave empty but the
+ * field evidence answers: deadweight, generators and sail area are published
+ * only there. A field is filled only when every observation of it agrees; if
+ * sources disagree it stays empty and the disagreement stays visible.
+ */
+export function valuesFromEvidence(
+  record: Partial<VesselParticulars>,
+  observations: Pick<RegisterObservation, "fieldLabel" | "value">[]
+): Partial<VesselParticulars> {
+  const byKey = new Map<VesselFieldKey, Set<string>>();
+  for (const o of observations) {
+    const key = EVIDENCE_FIELD_MAP[o.fieldLabel];
+    if (!key || !isVesselFieldKey(key) || AMBIGUOUS_EVIDENCE.has(o.fieldLabel) || isBlank(o.value)) continue;
+    byKey.set(key, (byKey.get(key) ?? new Set()).add(o.value.trim()));
+  }
+
+  const filled: Record<string, string | number> = {};
+  for (const [key, values] of byKey) {
+    if (!isBlank(record[key] as never) || values.size !== 1) continue;
+    const value = evidenceValue(key, [...values][0]);
+    if (value != null) filled[key] = value;
+  }
+  return filled as Partial<VesselParticulars>;
+}
+
+/**
+ * One record per vessel: register, technical and build-sequence rows joined
+ * by yard number, with any field they leave empty filled from the evidence.
+ */
 export function buildVesselRecords(register: VesselRegister, builder: string = IMPORT_DEFAULTS.builder): VesselData[] {
   const technical = new Map(register.technical.map((t) => [t.yardNumber, t]));
   const slots = new Map(register.buildSequence.map((b) => [b.yardNumber, b]));
@@ -53,7 +114,7 @@ export function buildVesselRecords(register: VesselRegister, builder: string = I
   return register.vessels.map((v) => {
     const t = technical.get(v.yardNumber);
     const slot = slots.get(v.yardNumber);
-    return {
+    const record: VesselData = {
       name: v.name,
       yardNumber: v.yardNumber,
       builder,
@@ -98,6 +159,9 @@ export function buildVesselRecords(register: VesselRegister, builder: string = I
       yardNumberNote: slot?.qualification ?? null,
       verification: "PUBLIC_SOURCE",
     };
+    const evidence = register.observations.filter((o) => o.imo === v.imo);
+    // Only blank fields are filled, so name, IMO and yard number stay as they are.
+    return { ...record, ...valuesFromEvidence(record, evidence) } as VesselData;
   });
 }
 
