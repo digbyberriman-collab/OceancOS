@@ -234,7 +234,7 @@ the notification lookups.
 Severity: Low
 Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :224, `setJobProgress` :566,
 `addJobComment` :630); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :52,
-`confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :88;
+`confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :89;
 `crew-requests/actions.ts` `assignCrewRequest` :125; `admin/projects/actions.ts`
 `updateProjectAction` :39
 Found by: permission-matrix planning, after Gate 7
@@ -255,7 +255,7 @@ Suggested fix: Gate 10, item 10.1 — load, then `assertPermissionOn(user, key, 
 
 ### [RBAC] — The Approvals page has no page gate and re-declares the stage map with `as any`
 Severity: Low
-Location: `src/app/(app)/approvals/page.tsx:16,30`; `src/app/(app)/change-orders/actions.ts:268`
+Location: `src/app/(app)/approvals/page.tsx:16,30`; `src/app/(app)/change-orders/actions.ts:311`
 Found by: permission-matrix planning, after Gate 7
 
 Description:

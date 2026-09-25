@@ -299,7 +299,7 @@ Independent of Gate 8.
 | **10.4** | Dedicated comment keys for change orders and crew requests. |
 | **10.5** | Per-module export keys; money in exports by price keys; PDF routes checked before render. |
 | **10.6** | Money redaction by price/cost keys on every page that shows it. |
-| **10.7** | Project-scoped audit log and Recent activity; `/admin` directory account-scoped; `/admin/projects` scoped and capped. |
+| **10.7** | Project-scoped audit log and Recent activity; `/admin` directory account-scoped; `/admin/projects` narrowed to projects the user can edit. |
 | **10.8** | Approvals page gate and typed stage map; crew-request progress key. |
 | **10.9** | Static coverage test: every enforced key guarded, every page and action guarded. |
 
