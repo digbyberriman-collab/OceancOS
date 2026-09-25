@@ -149,3 +149,212 @@ that doesn't exist yet needs that work done first.
 Suggested fix: add `currency` to `Contractor` (default matching the platform's primary currency)
 once a create/edit flow exists for the model to set it through, and thread it into both call sites
 the same way every other page in G3.10 was.
+
+---
+
+The entries below were found after Gate 7, while baselining `PERMISSIONS_MATRIX_MASTER_PROMPT.md`
+on this tree. Each is fixed by an item in the permission gates (ACTION_PLAN Gates 9–11); the item
+is named in its suggested fix.
+
+---
+
+### [RBAC] — Permissions are unioned across every assignment, ignoring its project or vessel scope
+Severity: High
+Location: `src/lib/auth.ts:75-77`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+`getCurrentUser` builds `permissions` from every `UserRole` row the user has, with no regard to
+the row's `projectId` or `vesselId`. Project *reachability* is scoped (`listProjectsForUser`,
+`requireProjectAccess`), but the permission set is global. A user who is CAPTAIN scoped to p1 and
+CREW scoped to p2 holds `change_order.approve.captain` on p2 as well, and every
+`hasPermission` / `assertPermission` call honours it there.
+
+No test covers this. `e2e/tenancy.spec.ts` checks reachability only, and `tests/rbac.test.ts` checks
+the static matrix, which is why the Gate 7 role walkthrough (all accounts unscoped) could not see
+it.
+
+Impact:
+
+Any per-project role assignment leaks its permissions onto every other project the user can reach.
+That includes approval stages and quote signatures, the two paths that commit money.
+
+Suggested fix: Gate 9, item 9.6 — resolve permissions per project (most specific assignment wins),
+with the CAPTAIN-on-p1 / CREW-on-p2 seed user as the regression case.
+
+---
+
+### [RBAC] — The seed wipes and rebuilds every role's permissions
+Severity: Medium
+Location: `prisma/seed.ts:51-52`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+For every role, the seed deletes its `RolePermission` rows and recreates them from
+`ROLE_PERMISSIONS`. That is harmless while nothing else writes those rows. It becomes data loss
+the moment an administrator can edit a role's permissions: the next seed or deploy silently
+reverts every edit.
+
+Impact:
+
+Latent today; it blocks any admin-editable access model.
+
+Suggested fix: Gate 9, item 9.4 — a pure `planSync` that re-applies defaults only to unedited
+system sets and applies additive migrations to customised ones.
+
+---
+
+### [TENANCY] — The quote authoriser is chosen and validated platform-wide
+Severity: Medium
+Location: `src/app/(app)/jobs/new/page.tsx:39`, `src/app/(app)/jobs/actions.ts:126-133`,
+`src/lib/project.ts:208`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+The "who may authorise this quote" dropdown lists every active user holding `job.accept` on any
+project. `createJobRequest` then accepts any of them, checking the permission in memory across all
+of the authoriser's roles. Separately, `usersWithPermissionOnProject` (used for notifications) is
+scope-aware but treats any covering assignment as granting, while `hasPermission` is global, so the
+three answers to "who holds X on this project?" disagree.
+
+Impact:
+
+A quote can be addressed to someone with no access to the project, who then cannot open it. People
+on other refits appear in the list.
+
+Suggested fix: Gate 9, item 9.7 — one `holdersOf` / `canOn` used by the dropdown, the validation and
+the notification lookups.
+
+---
+
+### [RBAC] — Nine actions check the permission before loading the record
+Severity: Low
+Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :224, `setJobProgress` :566,
+`addJobComment` :630); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :52,
+`confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :88;
+`crew-requests/actions.ts` `assignCrewRequest` :125; `admin/projects/actions.ts`
+`updateProjectAction` :39
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+Each asserts the permission first and loads the record (and checks its project) afterwards. With
+today's global permissions that order is harmless. Once permissions are per project, the check
+must run against the record's project, which is only known after the load.
+
+Impact:
+
+None today; it blocks per-project permission checks.
+
+Suggested fix: Gate 10, item 10.1 — load, then `assertPermissionOn(user, key, record.projectId)`.
+
+---
+
+### [RBAC] — The Approvals page has no page gate and re-declares the stage map with `as any`
+Severity: Low
+Location: `src/app/(app)/approvals/page.tsx:16,30`; `src/app/(app)/change-orders/actions.ts:268`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+`approvals/page.tsx` requires only a session. It declares its own `STAGE_PERM:
+Record<string, string>` instead of importing the typed `CO_STAGE_PERMISSION`, and casts at the call
+site. `decideChangeOrderApproval` casts `permKey as any` even though `CO_STAGE_PERMISSION` is
+already typed.
+
+Impact:
+
+A typo in the local map would compile and fail open or closed silently. Every user can open the
+page.
+
+Suggested fix: Gate 10, item 10.8.
+
+---
+
+### [RBAC] — Money visibility is gated in the wrong places, and inconsistently
+Severity: Medium
+Location: `fmtMoney` call sites in `jobs/page.tsx`, `jobs/[id]/page.tsx`,
+`change-orders/page.tsx`, `change-orders/[id]/page.tsx`, `approvals/page.tsx`,
+`crew-requests/[id]/page.tsx:127`, `print/jobs/[id]/page.tsx`; `api/export/jobs/route.ts:46`,
+`api/export/change-orders/route.ts`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+Only the dashboard budget panels, the CO print view, `/financials` and the two spreadsheet exports
+gate money, all on `financial.view`. Job, change-order, approval and crew-request pages show prices
+and costs to anyone who can open them. The exports are too strict in the other direction: YARD_PM
+lacks `financial.view`, so the yard's export of its own quotes has no prices. The job PDF renders
+`print/jobs/[id]`, which shows money the jobs spreadsheet hides for the same user.
+
+Impact:
+
+Crew and contractors see commercial figures; the yard cannot export its own prices; two exports of
+the same job disagree.
+
+Suggested fix: Gate 10, items 10.5 and 10.6 — dedicated `job.price.view` / `change_order.cost.view`
+/ `crew_request.cost.view` keys and one `canSeeMoney` helper.
+
+---
+
+### [EXPOSURE] — The dashboard's Recent activity shows the platform-wide audit log to every user
+Severity: Medium
+Location: `src/app/(app)/dashboard/page.tsx:77` (query), `:390` (panel)
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+The dashboard lists the last ten `AuditLog` rows with no scope and no `audit.view` check; the page's
+own comment calls it a deliberate exception. `AuditLog` has no `projectId`, so it cannot be scoped
+as it stands.
+
+Impact:
+
+Every user, including crew, suppliers and guests, sees who did what on every project, which
+contradicts `CLAUDE.md`'s rule that everything is project-scoped.
+
+Suggested fix: Gate 10, item 10.7 — `AuditLog.projectId`, and filter the panel by project and by
+module view key.
+
+---
+
+### [UI] — The TopBar shows the user's first role, not their role on the active project
+Severity: Low
+Location: `src/components/layout/TopBar.tsx:66`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+`roleKeys[0]` is the first of all the user's role rows in database order. For a user with different
+roles on different projects it is arbitrary.
+
+Impact:
+
+Cosmetic today; misleading once roles are per project.
+
+Suggested fix: Gate 9, item 9.6 — show the winning access sets on the active project.
+
+---
+
+### [EXPOSURE] — Since G6.9, every project manager sees the platform-wide user, vessel and project directory
+Severity: Medium
+Location: `src/app/(app)/admin/page.tsx:19,26-41`
+Found by: permission-matrix planning, after Gate 7
+
+Description:
+
+G6.9 granted `admin.users` to OWNER, OWNERS_REP and PROJECT_MANAGER. `/admin` shows the full user
+directory (names and emails), every vessel and every project to any holder, with no scope. A PM
+assigned to one refit (for example `scoped@oceancos.dev`) therefore sees every user on the
+platform.
+
+Impact:
+
+Cross-project disclosure of personal data (names, emails) and of the project portfolio to
+project-scoped staff.
+
+Suggested fix: Gate 10, item 10.7 — `admin.users` becomes account-scope (effective only from an
+unscoped assignment), and the vessel and project lists are scoped to the viewer's reach.
