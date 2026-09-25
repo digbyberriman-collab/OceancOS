@@ -184,6 +184,13 @@ describe("canDecideApproval", () => {
     expect(canDecideApproval(rows[1], rows)).toBe(false);
   });
 
+  it("blocks a later stage while an earlier required stage has asked for more information", () => {
+    // The stage that asked has not approved; the rest of the chain waits for
+    // the answer instead of deciding around it.
+    const rows = chain([{ id: "a0", order: 0, decision: "MORE_INFO" }, { id: "a1", order: 1 }]);
+    expect(canDecideApproval(rows[1], rows)).toBe(false);
+  });
+
   it("allows a later stage once the earlier one has decided, whichever way", () => {
     const approved = chain([{ id: "a0", order: 0, decision: "APPROVED" }, { id: "a1", order: 1 }]);
     expect(canDecideApproval(approved[1], approved)).toBe(true);
@@ -238,6 +245,15 @@ describe("nextChangeOrderStatus", () => {
   it("completes to APPROVED once every required row is APPROVED", () => {
     const siblings = [row("APPROVED"), row("APPROVED", 1), row("APPROVED", 2)];
     expect(nextChangeOrderStatus("UNDER_REVIEW", "APPROVED", siblings)).toBe("APPROVED");
+  });
+
+  it("does not complete while a required stage is still at MORE_INFO", () => {
+    // The bypass: the first stage asks a question, every later stage
+    // approves. Nothing is PENDING any more, but the stage that asked has not
+    // approved, so the change order must not become APPROVED.
+    const siblings = [row("MORE_INFO"), row("APPROVED", 1), row("APPROVED", 2)];
+    expect(nextChangeOrderStatus("UNDER_REVIEW", "APPROVED", siblings)).toBeNull();
+    expect(nextChangeOrderStatus("MORE_INFO", "APPROVED", siblings)).toBe("UNDER_REVIEW");
   });
 
   it("ignores an optional row still pending when deciding completeness", () => {

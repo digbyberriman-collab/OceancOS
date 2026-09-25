@@ -187,6 +187,19 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
         data: { decision: "PENDING", decidedById: null, decidedAt: null, comment: null },
       });
     }
+
+    // "Resume review" (MORE_INFO → UNDER_REVIEW) answers the question without
+    // restarting the chain: the stages that already approved keep their
+    // decision, and the stage that asked goes back to PENDING so it can
+    // actually decide. Left at MORE_INFO it could never be decided again
+    // (canDecideApproval only takes PENDING rows) and would block the chain
+    // for good.
+    if (co.status === "MORE_INFO" && target === "UNDER_REVIEW") {
+      await tx.changeOrderApproval.updateMany({
+        where: { changeOrderId: id, decision: "MORE_INFO" },
+        data: { decision: "PENDING", decidedById: null, decidedAt: null },
+      });
+    }
   });
 
   await recordAudit({
