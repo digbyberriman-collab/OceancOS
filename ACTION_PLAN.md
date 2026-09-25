@@ -15,6 +15,43 @@ Execution rules, carried from the protocol and not negotiable during Phase 5:
 Numbering is `G<gate>.<item>`. Gates are ordered; items inside a gate are ordered but may be
 parallelised where noted.
 
+### Phase 2b additions
+
+`AUDIT_REPORT_ADDENDUM.md` consolidates five further findings files into 35 new distinct defects,
+three of them Critical (C15–C17). They are sequenced into the gates below by the same rule. No
+existing item is renumbered, reworded or removed. Each addition takes the next free number in its
+gate and is marked *(Phase 2b)*. The IDs `N*` and `R*` are the addendum's.
+
+Where the Criticals went, and why:
+
+- **C15 (dashboard and Approvals Centre ungated) → G2.9, in Gate 2 and not a gate of its own.**
+  It needs no machinery: `hasPermission` and `EmptyState` exist, and a page that returns
+  `EmptyState` never throws, so it does not depend on Gate 1 at all. It is the same early-return
+  every module page already carries. It sits in Gate 2 marked independent, as C3 does (G2.5). It
+  is not in Gate 0, which has been executed and held the anonymous-visitor exposure. Run it first
+  among the remaining work.
+- **[X2] (crew-request workflow buttons) → no new item.** It is C6. G2.4 already closes
+  workflow-logic's finding that the detail page renders every transition unfiltered, and [X2] is
+  the live confirmation. See the note after G2.12.
+- **C16 (unscoped assignment fails open) → G1.4, in Gate 1.** G2.1 applies
+  `listProjectsForUser` everywhere. While that function returns every project for an unscoped
+  yard or external role, G2.1 changes nothing for those roles, so C16 is a foundation as well as a
+  Critical.
+- **C17 (designated authoriser not enforced) → G2.11.** G2.3 closes the `transitionJob` side
+  door. C17 is the ceremony's own door admitting the wrong signer. **G2.3 as scoped does not fix
+  it.**
+
+Other placements:
+
+- Seven existing defects that Phase 2b re-observed had no closing item. The ungated comment
+  actions, now seen on seven roles, go to G2.12. The admin directory rendering and the unguarded
+  suppliers page go to G2.9. The remaining four land in G3.17–G3.19.
+- GUEST's `change_order.view` and the other grant-fit findings go to one review (G3.15). That
+  review must precede G6.7, which removes the 14 dead keys (the notifications pass's twelve are
+  among them), and G6.9, which seeds GUEST.
+- The design-consistency work sits in Gate 3 (G3.17–G3.19), because it changes markup that
+  Gate 5 measures.
+
 ---
 
 ## Gate 0 — Stop the bleeding (no dependencies, ship immediately)
@@ -81,6 +118,30 @@ Blocks: C2, C5, C7, C8 — four Criticals that are all the same defect.
   screen genuinely cannot disagree — the thing `lib/jobs/workflow.ts`'s header comment already
   claims.
 
+### G1.4 — Unscoped role assignments fail closed *(Phase 2b)*
+
+Blocks: C16, and G2.1's effect for every yard, external and vessel-side account. Parallel with
+G1.2; must land before G2.1. Unlike G1.1–G1.3, this item is itself a Critical. It sits here because
+G2.1 depends on it.
+
+- `listProjectsForUser` grants every active project to any assignment that names neither project
+  nor vessel, for any role (`src/lib/project.ts:36-39`). Limit that branch to an explicit list of
+  platform-wide role keys. The file's own comment says owner-side staff. Which roles belong on the
+  list is a product decision, and it should be recorded in code rather than left as the default.
+  Any other unscoped assignment resolves to no project, through the existing zero-project path
+  (`:49`), which G1.2's `scopedProjectFilter` already turns into a never-matching filter.
+- Scope the seed. Every yard, external and vessel-side account gets a `projectId` or `vesselId`;
+  `prisma/seed.ts:164` currently sets neither. The seven accounts G6.9 adds follow the same rule.
+- No in-product path exists to set a scope (`/admin` is read-only; see auth-security's admin
+  finding). Seed and SQL stay the provisioning path, and G6.3's README says so. Do not wait for an
+  admin UI.
+- Unit tests alongside G1.2's:
+  - an unscoped external role resolves to no project;
+  - an unscoped platform-wide role resolves to every project (unchanged);
+  - a scoped role resolves to its own project only.
+
+Closes: C16.
+
 ---
 
 ## Gate 2 — The Criticals (depend on Gate 1)
@@ -140,6 +201,89 @@ becomes `undefined` before coercion. Fixes the blank due date outright and stops
 where `NULL` belongs. A data migration for rows already written with `""`.
 Closes: C13, forms-validation `[REQUIRED-FIELDS] × 2`.
 
+### Phase 2b additions to Gate 2
+
+`dashboard/page.tsx:35-77` and `approvals/page.tsx:33-61` are in data-api's C4 location list but
+not among G2.1's enumerated sites. G2.9 below adds only the permission half. Those two pages still
+need G1.2's scoped filter in the same pass as G2.1.
+
+### G2.9 — Every page gates on the permission of the data it renders *(Phase 2b)*
+Independent of Gate 1; may run immediately, ahead of G1.2. Follows `DESIGN_CONSISTENCY_SPEC.md`
+§4: return `EmptyState`, or omit the panel, before any query runs, and never throw from the page.
+- `/dashboard`:
+  - change-order stats and the status donut under `CO_VIEW`;
+  - crew-request stats under `CR_VIEW`;
+  - upcoming milestones under `SCH_VIEW`;
+  - the approvals table under `CO_VIEW`, filtered to what its title claims;
+  - top risks under `RSK_VIEW`;
+  - recent activity under `AUDIT_VIEW`.
+
+  Skip each query when the permission is absent rather than fetching and hiding; G4.4 inherits the
+  saving.
+- `/approvals`: a page gate on `CO_VIEW`. "Pending with Other Approvers" must not fall through to
+  every stage for a user who holds none.
+- `/suppliers` and the search supplier branch: add a `SUP_VIEW` key, grant it where `CON_VIEW` is
+  granted, and let G3.15 revisit the grant.
+- `/admin`: render the user directory only under `ADM_USERS`, and the audit log only under
+  `AUDIT_VIEW`. Until G6.9 grants `admin.users`, nobody sees the directory, which is the
+  fail-closed outcome.
+- e2e: as `crew@`, `/dashboard` shows no change-order number, risk title or audit row, and
+  `/approvals` renders the no-access state.
+Closes: C15, workflow-functional `[APPROVALS]`, auth-security `[RBAC]` suppliers page,
+auth-security `[RBAC]` admin directory (the rendering half; the grant decision stays with G6.9).
+
+### G2.10 — Money renders only under `FIN_VIEW` *(Phase 2b)*
+Independent; runs after G2.9, which touches the same files. Mirror `canSeeMoney` from
+`print/change-orders/[id]/page.tsx:39` on:
+- `change-orders/page.tsx:170`;
+- `change-orders/[id]/page.tsx:112,115`;
+- `approvals/page.tsx:134,208,261`;
+- the dashboard approvals table;
+- `crew-requests/[id]/page.tsx:109`.
+
+Ten roles hold `CO_VIEW` without `FIN_VIEW`, and today they see every figure the print page and
+the export withhold.
+Closes: N1.
+
+### G2.11 — The ceremony checks the signer is the designated authoriser *(Phase 2b)*
+Independent of Gate 1 and of G2.3. Land it in the same release as G2.3 so that both doors into the
+ceremony close together. **G2.3 as scoped does not fix this.** G2.3 makes `CLIENT_ACCEPTED`
+unreachable from `transitionJob`, but C17 runs through the ceremony itself with every internal
+check passing.
+- Require `job.designatedAuthoriserId === user.id` in:
+  - `accept/page.tsx:30`;
+  - `requestAcceptanceCode` (`accept/actions.ts:50`);
+  - `confirmAcceptance` (`:127`);
+  - the job page's Authorise panel (`jobs/[id]/page.tsx:493`).
+- `rejectQuote` (`:261`) gets the same check. It is gated on `JOB_CANCEL`, which YARD_PM holds.
+- Delegation is a product decision. If it is allowed, make it explicit: a named override (for
+  example, OWNERS_REP), recorded as a delegation in the `APPROVE` audit row, with the named
+  authoriser notified. Otherwise refuse.
+- e2e: `pm@` is refused on a quote addressed to `captain@`.
+Closes: C17.
+
+### G2.12 — Gate the change-order and crew-request comment actions *(Phase 2b)*
+Depends on G1.2. Runs after G2.2 and G2.4, which touch the same files and supply the record
+loaders. auth-security's fixes for both C5 (`loadChangeOrder` "…and `addChangeOrderComment`") and
+C6 ("all four crew-request actions") name the comment actions, but G2.2's and G2.4's bullets do
+not. The change:
+- assert `CO_VIEW` / `CR_VIEW`;
+- load the parent;
+- apply `requireProjectAccess`;
+- refuse a missing parent rather than writing an orphan row;
+- render the comment forms on both detail pages only for users who pass the same check.
+
+Closes: auth-security `[RBAC]` comment actions (Medium, **[verified]**; re-observed on CONTRACTOR,
+CLASS_SURVEYOR, FLAG_SURVEYOR, AUDITOR and OWNER), and the authorisation half of data-api
+`[VALIDATION]` "Four write paths".
+
+**Note on G2.4 ([X2]).** G2.4 closes workflow-logic `[CREW REQUESTS]` "Four of the nine
+transitions", whose fix includes filtering the detail page's buttons by permission
+(`crew-requests/[id]/page.tsx:137-149`). [X2] confirms that this half is live through the ordinary
+UI: CREW is shown Start Work, Mark Blocked and Await Approval. Source shows the server would
+accept all three; the walkthrough did not click them. It stays inside G2.4, which is not done
+until a CREW session is shown no transition it cannot perform.
+
 ---
 
 ## Gate 3 — Integrity and correctness (depend on Gate 2)
@@ -158,6 +302,21 @@ Sequenced after Gate 2 because several of these touch the same files the Critica
 | **G3.8** | **Loading states**: `loading.tsx` per route segment and `<Suspense>` around the slow panels. | ui-ux `[LOADING STATES]` |
 | **G3.9** | **Workflow gaps that are not security**: `EXPIRED` is never set by anything (and the acceptance audit records a false `wasExpired`); `MINOR_DEFICIENCY` has no route back to the yard; progress can be set on any job in any status; a quote can never be revised or re-issued; "Request more information" and "Revise" lead nowhere. | workflow-logic, 5 × High/Medium |
 | **G3.10** | **Currency.** Money renders as euros everywhere regardless of the project's configured currency. | ui-ux `[CURRENCY]` |
+
+### Phase 2b additions to Gate 3
+
+Numbered in dependency order. G3.15 must precede G3.16 and G3.17, and G3.18 must precede G3.19.
+
+| | Item | Closes |
+|---|---|---|
+| **G3.12** | **Every decision records why** *(Phase 2b)*. Add the comment field to the Approvals Centre's inline decision form; G2.2's `ApprovalDecisionSchema` already carries `comment`. Thread a reason through every crew-request transition, required for Reject and Block; the action already accepts `comment` and no caller passes one. Make the cancellation reason required. Give Report minor deficiency a required description, and add a column for it in its own migration after G3.1. Land the deficiency part with G3.9, so the description travels in the yard notification G3.9 adds. Depends on G1.3, G2.2, G2.4. | N3, N4, N5, N13 |
+| **G3.13** | **The countersignature as its own action** *(Phase 2b)*. Take `ACCEPTED` out of the generic `transitionJob` button and give it a dedicated action with a required note and an `APPROVE`-class audit row, matching the evidential weight of the client ceremony without requiring a second factor. Depends on G1.3, G2.3. | N6 |
+| **G3.14** | **Crew-request assignment** *(Phase 2b)*. Limit the assignee list to users who hold a crew-request permission on the request's project; `assignCrewRequest` validates the id against the same list. Make the create form's caption state that choosing an assignee skips triage. Depends on G2.1, G2.4. | N7, N14 |
+| **G3.15** | **Role-grant review** *(Phase 2b)*. One pass with a product owner over R1–R13, recorded as the decision behind each change to `ROLE_PERMISSIONS`. Includes GUEST's `CO_VIEW`, SUPPLIER's purpose, the `SUP_VIEW` grant from G2.9, and whether `EXPORT` is wired or removed. Depends on G1.4, G2.9, G2.10, so that a new view grant never widens a surface that is still ungated. **Precedes G6.7 and G6.9.** G6.7 must not delete a key this review keeps, and G6.9 must not seed GUEST, SUPPLIER and the other five roles with grants this review rejects. | R1–R13 |
+| **G3.16** | **Scope below the project** *(Phase 2b)*. Decide which of department (HOD, using the unused `UserRole.departmentId`), trade (YARD_TRADE_LEAD) and contracted scope (CONTRACTOR, a job-to-party assignment) exist. Add them to the G1.2 primitive, and bound `JOB_VIEW`, `JOB_PROGRESS` and `CR_VIEW` by them. Its own migration. Depends on G1.2, G1.4, G2.1, G3.1, G3.15. | N2 |
+| **G3.17** | **One no-access experience** *(Phase 2b)*. One shell for "you cannot do this", with the copy naming who to ask. Drop "Try again" from the `forbidden` branch of `(app)/error.tsx`. Page components check `hasPermission` before any `assertPermission` (`DESIGN_CONSISTENCY_SPEC.md` §4). Filter the sidebar by permission. On `/approvals`, distinguish "you hold no approval stage" from "all caught up". Show "No role" rather than "GUEST" in the top bar. Depends on G3.6, G3.15. | N8, N12, N15, R13 (copy), ui-ux `[CONSISTENCY]` four wordings, auth-security `[RBAC]` sidebar |
+| **G3.18** | **Rebuild the change-order and crew-request create forms** *(Phase 2b)* on `SectionCard`, with the `jobs/new` submit row (primary + Cancel, left-aligned), per `DESIGN_CONSISTENCY_SPEC.md` §7. Depends on G3.5 and G3.6, which rewrite the same two forms. | N10, ui-ux `[CONSISTENCY]` no Cancel |
+| **G3.19** | **Design-spec conformance** *(Phase 2b)*, per `DESIGN_CONSISTENCY_SPEC.md`: `SectionCard` as the one titled section (retire `Panel`, keep `.eyebrow` above `<h1>` only); `MiniStat` for the seven stat-tile copies; `FilterBar` on jobs and inventory; the auth pages' card wrapper; delete the bottom back links; `row-hover` only where the whole row navigates; a `ConfirmButton` for every destructive transition, composed with G3.5's `SubmitButton`. Depends on G3.8, G3.11, G3.18. **Precedes Gate 5**, which measures this markup. | N9, N11, N16–N19, accessibility `[SEMANTICS]` `row-hover` |
 
 ---
 
@@ -206,6 +365,13 @@ Deliberately after Gate 3: `faint` has 98 uses across 34 files and G3.7/G3.8 wil
 | **G6.8** | Remove the invented customer logos from the marketing page and the roadmap notes shipped in user-facing subtitles. |
 | **G6.9** | Grant `admin.users` / `admin.roles` / `admin.settings` to a role, or delete them. Seed the seven roles that have no account, so a role walkthrough can actually exercise them. |
 
+*(Phase 2b)* Two constraints from the additions:
+- **G6.7.** The 14 unenforced keys include the notifications-permissions pass's twelve
+  granted-but-unchecked keys. `PERMISSION_MATRIX.md` gives the per-role grant lines. G6.7 runs
+  after G3.15 and removes only the keys that review did not keep.
+- **G6.9.** It seeds the seven accounts scoped per G1.4 and with G3.15's grants. Seeding GUEST or
+  SUPPLIER before G2.9 and G3.15 would turn C15 and R10 into live exposures.
+
 ---
 
 ## Gate 7 — Regression (Phase 6)
@@ -217,6 +383,10 @@ Not a fix gate. After Gate 6:
 - Re-run all nine specialist audits against the fixed tree and diff the findings.
 - Confirm every closed item and record anything that regressed.
 - Verify `audit/findings-phase5.md` is empty or triaged.
+- *(Phase 2b)* The role walk now has a baseline: `audit/findings-role-walkthrough-vessel.md` and
+  `audit/findings-role-walkthrough-yard-external.md`. Diff against them. Their seven reasoned
+  sections become live walks once G6.9 seeds the missing accounts. Re-check C15, C16 and the G3.15
+  grant decisions for every role.
 
 ---
 
