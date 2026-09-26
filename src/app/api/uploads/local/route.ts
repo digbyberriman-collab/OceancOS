@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { hasPermission, PERMISSIONS, type PermissionKey } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import {
   getObject,
   isSafeObjectKey,
@@ -10,6 +13,49 @@ import {
 } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Resolve a storage key to the record it belongs to and the permission
+ * viewing it requires — the check the GET handler used to skip entirely
+ * (auth-security [UPLOADS]: "checks only that a session exists and that the
+ * key is syntactically safe... never looks up the owning Attachment or
+ * Document, never checks project access, never checks a permission"). Keys
+ * are structured and largely guessable (`projects/<projectId>/<resource>/
+ * <resourceId>/...`), so syntactic safety alone let any signed-in user read
+ * any project's files.
+ */
+async function resolveAttachmentAccess(
+  key: string
+): Promise<{ projectId: string; permission: PermissionKey } | null> {
+  const attachment = await prisma.attachment.findFirst({
+    where: { storageKey: key },
+    select: { jobId: true, changeOrderId: true, crewRequestId: true },
+  });
+  if (!attachment) return null;
+
+  if (attachment.jobId) {
+    const job = await prisma.job.findUnique({
+      where: { id: attachment.jobId },
+      select: { projectId: true },
+    });
+    return job ? { projectId: job.projectId, permission: PERMISSIONS.JOB_VIEW } : null;
+  }
+  if (attachment.changeOrderId) {
+    const co = await prisma.changeOrder.findUnique({
+      where: { id: attachment.changeOrderId },
+      select: { projectId: true },
+    });
+    return co ? { projectId: co.projectId, permission: PERMISSIONS.CO_VIEW } : null;
+  }
+  if (attachment.crewRequestId) {
+    const cr = await prisma.crewRequest.findUnique({
+      where: { id: attachment.crewRequestId },
+      select: { projectId: true },
+    });
+    return cr ? { projectId: cr.projectId, permission: PERMISSIONS.CR_VIEW } : null;
+  }
+  return null;
+}
 
 /**
  * Local-disk storage endpoint, used when STORAGE_DRIVER is "local".
@@ -60,6 +106,16 @@ export async function GET(request: Request) {
   const key = new URL(request.url).searchParams.get("key") ?? "";
   if (!isSafeObjectKey(key)) {
     return NextResponse.json({ error: "Invalid key" }, { status: 400 });
+  }
+
+  const access = await resolveAttachmentAccess(key);
+  if (!access) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === access.projectId) || !hasPermission(user, access.permission)) {
+    // 404, not 403: a key that resolves to a real file in a project this
+    // user cannot reach should read exactly like one that does not exist.
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const body = await getObject(key);

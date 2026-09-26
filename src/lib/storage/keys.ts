@@ -73,6 +73,19 @@ export type UploadTarget = {
 };
 
 /**
+ * The fixed part of every key for a given project/resource/record — everything
+ * before the random segment and filename. Shared by `buildObjectKey` (which
+ * mints a key at sign time) and by `attachUploads`'s validation (which checks a
+ * client-supplied key was actually issued for the record it claims), so the two
+ * can never drift apart.
+ */
+export function objectKeyPrefix(target: Omit<UploadTarget, "filename">): string {
+  return ["projects", slug(target.projectId), slug(target.resource), slug(target.resourceId)].join(
+    "/"
+  ) + "/";
+}
+
+/**
  * Build the object key for an upload.
  *
  * Keys are grouped by project then resource so a project's media can be listed,
@@ -80,14 +93,7 @@ export type UploadTarget = {
  * and stops one upload from overwriting another with the same filename.
  */
 export function buildObjectKey(target: UploadTarget, random: string = randomSegment()): string {
-  const parts = [
-    "projects",
-    slug(target.projectId),
-    slug(target.resource),
-    slug(target.resourceId),
-    `${random}-${safeFilename(target.filename)}`,
-  ];
-  return parts.join("/");
+  return objectKeyPrefix(target) + `${random}-${safeFilename(target.filename)}`;
 }
 
 /** Reject keys that try to escape their prefix or address another bucket path. */

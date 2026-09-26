@@ -126,7 +126,9 @@ test.describe("uploads", () => {
     expect(res.status()).toBe(401);
   });
 
-  test("signs, stores and serves a file back", async ({ page }) => {
+  test("stores a file, but refuses to serve it back until it is attached to a real record", async ({
+    page,
+  }) => {
     await signIn(page, PM);
 
     // The whole round trip runs in the browser so the session cookie is used
@@ -156,19 +158,49 @@ test.describe("uploads", () => {
       if (!putRes.ok) return { step: "put", status: putRes.status, key: signed.key };
 
       const getRes = await fetch(`/api/uploads/local?key=${encodeURIComponent(signed.key)}`);
-      return {
-        step: "done",
-        status: getRes.status,
-        key: signed.key,
-        text: await getRes.text(),
-      };
+      return { step: "done", status: getRes.status, key: signed.key };
     });
 
     expect(result.step).toBe("done");
-    expect(result.status).toBe(200);
-    expect(result.text).toBe("hello from the yard");
     // Keys are namespaced by project and resource, with the filename sanitised.
     expect(result.key).toMatch(/^projects\/p1\/Job\/j1\/[a-f0-9]{16}-survey-report\.pdf$/);
+    // Signing and storing a file no longer entitles anyone to read it back —
+    // only a real Attachment row pointing at it does (G2.5, C3). This key was
+    // never attached to anything, so it reads exactly like one that was never
+    // uploaded at all.
+    expect(result.status).toBe(404);
+  });
+
+  test("serves a file back once it is attached to a job the caller can reach", async ({ page }) => {
+    await signIn(page, PM);
+    await page.goto("/jobs/new");
+
+    await page.getByLabel("Job title").fill(`Upload round trip ${Date.now()}`);
+    await page
+      .getByLabel("Job description")
+      .fill("Confirm an attachment can be read back once it belongs to a real job.");
+    await page.getByLabel(/designated authoriser/i).selectOption({ label: "Cara Captain" });
+
+    // A real browse-and-upload through FileDrop's own file input — not a raw
+    // fetch — so this exercises exactly the path a user's browser takes:
+    // sign, PUT to storage, then post the resulting key as a hidden field
+    // alongside the rest of the form.
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles({ name: "survey.txt", mimeType: "text/plain", buffer: Buffer.from("hello from the yard") });
+    const keyInput = page.locator('input[name="attachments"]');
+    await expect(keyInput).toHaveCount(1, { timeout: 10_000 });
+    const { key } = JSON.parse(await keyInput.inputValue());
+    expect(key).toMatch(/^projects\/p1\/Job\/new\/[a-f0-9]{16}-survey\.txt$/);
+
+    await page.getByRole("button", { name: /send request/i }).click();
+    await page.waitForURL((url) => /^\/jobs\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
+
+    const status = await page.evaluate(
+      async (k) => (await fetch(`/api/uploads/local?key=${encodeURIComponent(k)}`)).status,
+      key
+    );
+    expect(status).toBe(200);
   });
 
   test("rejects a disallowed file type", async ({ page }) => {
