@@ -5,18 +5,22 @@ import { Search, Bell, Menu } from "lucide-react";
 import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SubmitButton } from "@/components/ui/SubmitButton";
+import { UserMenu } from "./UserMenu";
 import type { ProjectSummary } from "@/lib/project";
+import type { Theme } from "@/lib/theme";
 
 export function TopBar({
   user,
   projects,
   activeProjectId,
   onOpenNav,
+  theme,
 }: {
   user: { name: string; email: string; roleKeys: string[] };
   projects: ProjectSummary[];
   activeProjectId: string | null;
   onOpenNav: () => void;
+  theme: Theme;
 }) {
   const initials = user.name
     .split(" ")
@@ -57,15 +61,13 @@ export function TopBar({
         >
           <Bell className="h-4 w-4" aria-hidden />
         </Link>
-        <div className="flex items-center gap-2.5 pl-2 ml-1 border-l border-line">
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-ink-700 text-xs font-semibold text-white ring-1 ring-line-strong">
-            {initials || "U"}
-          </div>
-          <div className="text-right text-xs leading-tight hidden sm:block">
-            <div className="text-white font-medium">{user.name}</div>
-            <div className="text-faint">{user.roleKeys[0] ?? "GUEST"}</div>
-          </div>
-        </div>
+        <UserMenu
+          name={user.name}
+          email={user.email}
+          role={user.roleKeys[0] ?? "GUEST"}
+          initials={initials || "U"}
+          theme={theme}
+        />
         <form action={logoutAction}>
           <SubmitButton className="btn-ghost text-xs" pendingText="Signing out…">
             Sign out
