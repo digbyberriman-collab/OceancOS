@@ -110,6 +110,18 @@ describe("separation of duties", () => {
     }
   });
 
+  it("lets the captain run a crew request end to end, including raising one", () => {
+    for (const perm of [
+      PERMISSIONS.CR_VIEW,
+      PERMISSIONS.CR_CREATE,
+      PERMISSIONS.CR_TRIAGE,
+      PERMISSIONS.CR_ASSIGN,
+      PERMISSIONS.CR_COMPLETE,
+    ]) {
+      expect(ROLE_PERMISSIONS.CAPTAIN, `captain should hold ${perm}`).toContain(perm);
+    }
+  });
+
   it("restricts contractors and suppliers to a narrow surface", () => {
     expect(ROLE_PERMISSIONS.SUPPLIER.length).toBeLessThanOrEqual(3);
     expect(ROLE_PERMISSIONS.CONTRACTOR).not.toContain(PERMISSIONS.FIN_VIEW);
