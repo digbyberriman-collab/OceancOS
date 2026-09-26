@@ -45,3 +45,19 @@ Found by: orchestrator, during G1.1
 
 Related to the above and to the existing docs finding that `npm run test:e2e` cannot work from a
 clean clone as documented. Fold into G6.3.
+
+---
+
+### [SORTING] — Crew requests sort CRITICAL last
+Severity: Medium
+Location: `src/app/(app)/crew-requests/page.tsx:48`
+Found by: UI/UX elevation audit (`audit/UI_UX_ELEVATION.md`, E38)
+
+Description:
+
+The list orders by `[{ priority: "desc" }, { createdAt: "desc" }]`. `priority` is a string column, so
+descending order is alphabetical: MEDIUM, LOW, HIGH, CRITICAL. The most urgent requests land at the
+bottom of the list, which is the opposite of the intent.
+
+Suggested fix: order by a rank — a raw `CASE` expression, or an integer `priorityRank` column written
+alongside `priority` — and add a unit test asserting CRITICAL sorts first.
