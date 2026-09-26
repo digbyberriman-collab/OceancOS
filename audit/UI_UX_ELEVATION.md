@@ -7,6 +7,9 @@ in the market**, and separates what can be done without touching functionality f
 Where a finding overlaps an item already in `ACTION_PLAN.md`, the ID is given and the defect is not
 re-described.
 
+A visual version, with the captured screens next to working mockups of the proposals, is at
+https://claude.ai/artifact/QKsWUndwcHvV66Wd7LLGKQ. It is private until shared.
+
 ## How this was done
 
 - **The running app.** A production build on seed data (PostgreSQL 16, `next start`). Before capturing,
@@ -34,10 +37,13 @@ re-described.
 
 ## Count by tier
 
-- **Tier 1: 26**
-- **Tier 2: 8**
-- **Tier 3: 7**
+- **Tier 1: 27**
+- **Tier 2: 9**
+- **Tier 3: 5**
 - **Total: 41**
+
+A finding that mixes tiers is counted at its highest (E27, E29, E31). E35 is counted as Tier 2; its
+exclusions checkbox is an optional Tier 3 element.
 
 ## Verdict
 
@@ -89,6 +95,9 @@ rather than lightens.
 - **New `line-control` token, `#566894`**, for input and secondary-button boundaries. It measures
   **3.49** on cards and 3.14 against the button fill. The previous audit proposed `#3a4a74`, which
   only reaches **2.21:1** and so would not have fixed 1.4.11.
+- **`muted`** `#8294b3` → **`#a6b3ca`** (9.04:1 on cards). Once `faint` rises to 5.74:1, the old
+  `muted` at 6.23:1 would be indistinguishable from it. This gives three distinct text steps:
+  16.1, 9.0 and 5.7.
 - Keep `line` and `line-soft` for decorative dividers. Keep `marine` as the single focus and
   active signal (9.29:1).
 
@@ -372,7 +381,7 @@ How:
 - Estimated and approved cost sit side by side with the variance.
 
 ### E27 — Crew-request detail
-**Tier 1/2 · Effort S** · Where: `crew-requests/[id]/page.tsx:139-146` (up to four equal primary
+**Tier 2 (parts Tier 1) · Effort S** · Where: `crew-requests/[id]/page.tsx:139-146` (up to four equal primary
 buttons), `:157-163` (assignee list of all 12 users, surveyors included)
 
 How: one primary next step with the rest in "More", an "Assign to me" button, and an assignee list
@@ -403,7 +412,7 @@ How:
 ## F. Lists and registers
 
 ### E29 — The jobs list
-**Tier 1/2 · Effort M** · Where: `jobs/page.tsx:109-180` (two stacked tab styles), `:207-229`
+**Tier 2 (parts Tier 1) · Effort M** · Where: `jobs/page.tsx:109-180` (two stacked tab styles), `:207-229`
 (group header), `:232-239` (`sr-only` header row), `:253-259` (two badges per row)
 
 What:
@@ -430,7 +439,7 @@ How: an approval-progress pip per row (●●●○○), the cost labelled Estim
 "Awaiting me" filter chip.
 
 ### E31 — Registers that say what to do
-**Tier 1/2 · Effort M** · Where:
+**Tier 2 (parts Tier 1) · Effort M** · Where:
 - Stat strips on `documents/page.tsx:47-68`, `drawings/page.tsx:43-64`,
   `contractors/page.tsx:37-57`, `meetings/page.tsx:45-61`, `admin/page.tsx:41-62`
 - `inventory/page.tsx:84-89,168-179`, `risks/page.tsx:54-89`, `meetings/page.tsx`,
