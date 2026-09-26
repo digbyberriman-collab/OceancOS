@@ -58,10 +58,15 @@ async function resolveAttachmentAccess(
 }
 
 /**
- * Local-disk storage endpoint, used when STORAGE_DRIVER is "local".
- *
- * In production the s3 driver is used instead and the browser talks to
- * Cloudflare R2 directly, so this route never handles the bytes.
+ * Local-disk storage endpoint, active only when STORAGE_DRIVER=local — a
+ * choice for development and CI, where files do not need to survive a
+ * restart or a redeploy. Everything else sets STORAGE_DRIVER=s3, where the
+ * browser talks to the S3-compatible bucket directly and this route stays
+ * dark (`localOnly()` below actually enforces that; docs [ENV] flagged the
+ * previous comment here as describing a wish rather than a check — this
+ * route did handle bytes if a deployment ever set no driver at all, since
+ * `storageDriverName()` used to infer "local" silently. See
+ * `storageDriverName()`'s own comment and G2.6 in ACTION_PLAN.md).
  */
 
 function localOnly() {

@@ -30,11 +30,28 @@ export type SignedUpload = {
 
 export type StorageDriverName = "s3" | "local";
 
+/**
+ * No default, and nothing inferred from whether S3_BUCKET happens to be set.
+ *
+ * Before this, an unset STORAGE_DRIVER silently resolved to "local" — the
+ * `.env.example` comment even documented that as the rule. A deployment that
+ * copied `.env.example`, filled in DATABASE_URL and SESSION_SECRET, and never
+ * touched this line got a running, apparently healthy app that wrote every
+ * drawing, quote attachment and document to container-local disk. On any
+ * redeploy or restart those files are gone while the Attachment/JobNote rows
+ * still reference the keys, and uploads then 404 with nothing to explain why
+ * (C14 in AUDIT_REPORT.md; docs [ENV] — "the silent production default").
+ * Failing here the moment anything asks which driver to use forces a
+ * conscious choice instead.
+ */
 export function storageDriverName(): StorageDriverName {
   const explicit = process.env.STORAGE_DRIVER;
   if (explicit === "s3" || explicit === "local") return explicit;
-  // Infer: if a bucket is configured, use it; otherwise fall back to local disk.
-  return process.env.S3_BUCKET ? "s3" : "local";
+  throw new Error(
+    "STORAGE_DRIVER is not set. Set STORAGE_DRIVER=local for development and CI only " +
+      "— those files do not survive a restart or a redeploy. Every other deployment " +
+      "must set STORAGE_DRIVER=s3 and fill in the S3_* block in .env.example."
+  );
 }
 
 const UPLOAD_URL_TTL = 15 * 60; // seconds
