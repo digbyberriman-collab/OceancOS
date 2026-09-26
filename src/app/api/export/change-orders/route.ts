@@ -10,9 +10,17 @@ export const dynamic = "force-dynamic";
 
 type Row = Awaited<ReturnType<typeof loadRows>>[number];
 
-async function loadRows(projectId?: string) {
+/**
+ * `projectId` is null, never undefined, for a user who can reach no
+ * project — `{ in: [] }` matches no row. The ternary this replaced
+ * (`projectId ? { projectId } : undefined`) fell to `undefined` for that
+ * exact case, which Prisma drops from `where` entirely rather than
+ * treating as "match nothing", so that user exported every change order in
+ * the database. See C4 in AUDIT_REPORT.md and G1.2's scopedProjectFilter.
+ */
+async function loadRows(projectId: string | null) {
   return prisma.changeOrder.findMany({
-    where: projectId ? { projectId } : undefined,
+    where: { projectId: projectId ? projectId : { in: [] }, archivedAt: null },
     include: { project: { include: { vessel: true } } },
     orderBy: { number: "asc" },
   });
@@ -32,7 +40,7 @@ export async function GET(request: Request) {
 
   const format = new URL(request.url).searchParams.get("format") === "csv" ? "csv" : "xlsx";
   const project = await getActiveProject(user.id);
-  const rows = await loadRows(project?.id);
+  const rows = await loadRows(project?.id ?? null);
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const sheet: Sheet<Row> = {

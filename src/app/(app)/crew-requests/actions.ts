@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { getActiveProject } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
@@ -13,6 +14,12 @@ import { conflict, invalid, notFound } from "@/lib/errors";
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_CREATE);
+
+  // The project comes from the caller's active project, never the form —
+  // see the matching note on createChangeOrder.
+  const project = await getActiveProject(user.id);
+  if (!project) throw invalid("Choose a project before creating a crew request.");
+
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
@@ -20,6 +27,7 @@ export async function createCrewRequest(formData: FormData) {
   const cr = await prisma.crewRequest.create({
     data: {
       ...data,
+      projectId: project.id,
       number,
       requestedById: user.id,
       createdById: user.id,

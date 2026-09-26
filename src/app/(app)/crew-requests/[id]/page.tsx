@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge } from "@/components/ui/Badge";
 import { Field, Select, Textarea } from "@/components/ui/Form";
@@ -27,6 +28,9 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
     },
   });
   if (!cr) return notFound();
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === cr.projectId)) return notFound();
 
   const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const userMap = new Map(users.map((u) => [u.id, u.name]));

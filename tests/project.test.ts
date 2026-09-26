@@ -19,7 +19,12 @@ vi.mock("next/headers", () => ({
   cookies: () => ({ get: () => undefined }),
 }));
 
-import { listProjectsForUser, requireProjectAccess, scopedProjectFilter } from "@/lib/project";
+import {
+  listProjectsForUser,
+  requireProjectAccess,
+  scopedProjectFilter,
+  usersReachingProject,
+} from "@/lib/project";
 import { isActionError } from "@/lib/errors";
 
 function project(id: string) {
@@ -172,6 +177,46 @@ describe("requireProjectAccess — G1.2 write-path guard", () => {
     projectFindMany.mockResolvedValue([project("p1"), project("p2")]);
 
     await expect(requireProjectAccess(fakeUser("u1"), "p2")).resolves.toBeUndefined();
+  });
+});
+
+describe("usersReachingProject — G2.1 notification fan-out scoping", () => {
+  it("keeps only candidates who can actually reach the project", async () => {
+    userRoleFindMany.mockImplementation(async (args: any) => {
+      const userId = args.where.userId;
+      if (userId === "scoped-to-p1") {
+        return [{ projectId: "p1", vesselId: null, role: { key: "YARD_PM" } }];
+      }
+      if (userId === "scoped-to-p2") {
+        return [{ projectId: "p2", vesselId: null, role: { key: "YARD_PM" } }];
+      }
+      if (userId === "platform-wide") {
+        return [{ projectId: null, vesselId: null, role: { key: "OWNER" } }];
+      }
+      return [];
+    });
+    projectFindMany.mockImplementation(async (args: any) => {
+      const all = [project("p1"), project("p2")];
+      if (!args.where.OR) return all; // the unscoped-platform-role branch
+      const ids: string[] = args.where.OR[0]?.id?.in ?? [];
+      return all.filter((p) => ids.includes(p.id));
+    });
+
+    const result = await usersReachingProject(
+      ["scoped-to-p1", "scoped-to-p2", "platform-wide", "no-roles"],
+      "p1"
+    );
+
+    expect(result.sort()).toEqual(["platform-wide", "scoped-to-p1"].sort());
+  });
+
+  it("returns an empty list when nobody in the candidate set can reach the project", async () => {
+    userRoleFindMany.mockResolvedValue([{ projectId: "p2", vesselId: null, role: { key: "YARD_PM" } }]);
+    projectFindMany.mockResolvedValue([project("p2")]);
+
+    const result = await usersReachingProject(["u1"], "p1");
+
+    expect(result).toEqual([]);
   });
 });
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { getActiveProject, usersReachingProject } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
@@ -27,6 +28,12 @@ export async function createChangeOrder(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CO_CREATE);
 
+  // The project comes from the caller's active project, never the form —
+  // the project <select> this used to read from listed every project in
+  // the database, unfiltered by what the caller could reach (C4).
+  const project = await getActiveProject(user.id);
+  if (!project) throw invalid("Choose a project before creating a change order.");
+
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
@@ -38,6 +45,7 @@ export async function createChangeOrder(formData: FormData) {
   const co = await prisma.changeOrder.create({
     data: {
       ...data,
+      projectId: project.id,
       number,
       createdById: user.id,
       updatedById: user.id,
@@ -128,8 +136,9 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
         },
         select: { id: true },
       });
+      const recipients = await usersReachingProject(approvers.map((u) => u.id), co.projectId);
       await notify({
-        userIds: approvers.map((u) => u.id),
+        userIds: recipients,
         kind: "APPROVAL_REQUIRED",
         priority: "HIGH",
         title: `Approval required: ${co.number} (${firstPending.stage})`,

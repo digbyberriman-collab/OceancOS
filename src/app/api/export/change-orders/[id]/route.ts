@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { appBaseUrl, renderPdf } from "@/lib/export/pdf";
 import { exportFilename } from "@/lib/export/table";
 
@@ -27,9 +28,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
-    select: { id: true, number: true },
+    select: { id: true, number: true, projectId: true },
   });
   if (!co) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === co.projectId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const sessionToken = cookies().get("oc_session")?.value;
 

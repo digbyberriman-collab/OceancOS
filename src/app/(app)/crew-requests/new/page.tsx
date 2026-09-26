@@ -2,21 +2,39 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/EmptyState";
+import { getActiveProject } from "@/lib/project";
+import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { CREW_REQUEST_CATEGORIES, DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createCrewRequest } from "../actions";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewCrewRequest() {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_CREATE);
-  const projects = await prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true } });
+
+  // The project is the caller's active one, chosen in the header — never a
+  // form field. See the matching note on the change-order create page.
+  const project = await getActiveProject(user.id);
+  if (!project) {
+    return (
+      <EmptyState
+        title="No active project"
+        hint="Choose a project from the switcher in the header before creating a crew request."
+        icon={<FolderOpen size={20} />}
+      />
+    );
+  }
+
   const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-  const areas = await prisma.vesselArea.findMany();
-  const cos = await prisma.changeOrder.findMany({ where: { status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, take: 50 });
+  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
+  const cos = await prisma.changeOrder.findMany({
+    where: { projectId: project.id, status: { notIn: ["CLOSED", "CANCELLED"] } },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
 
   return (
     <div className="animate-fade-up">
@@ -36,15 +54,13 @@ export default async function NewCrewRequest() {
       </div>
 
       <form action={createCrewRequest} className="max-w-2xl space-y-0">
-        {/* Project & core */}
+        {/* Project — the caller's active project, not a choice on this form */}
         <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
           <div className="eyebrow mb-1">Project</div>
           <Field label="Project">
-            <Select name="projectId" required>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.vessel.name} — {p.name}</option>
-              ))}
-            </Select>
+            <div className="input-base flex items-center text-white">
+              {project.vessel.name} — {project.name}
+            </div>
           </Field>
         </div>
 

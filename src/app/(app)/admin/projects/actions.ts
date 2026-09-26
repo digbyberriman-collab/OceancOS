@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
+import { requireProjectAccess } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import {
   normaliseProjectCode,
@@ -27,6 +28,10 @@ export async function updateProjectAction(formData: FormData) {
 
   const existing = await prisma.project.findUnique({ where: { id } });
   if (!existing) redirect("/admin/projects?err=missing");
+
+  // PROJ_EDIT alone does not imply this project — the plain permission check
+  // above says nothing about which project the caller may reach.
+  await requireProjectAccess(user, id);
 
   const dates = {
     arrivalDate: parseDateField(formData.get("arrivalDate")),

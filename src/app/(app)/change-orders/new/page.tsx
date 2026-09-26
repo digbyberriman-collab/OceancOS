@@ -2,19 +2,34 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/EmptyState";
+import { getActiveProject } from "@/lib/project";
+import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
 import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createChangeOrder } from "../actions";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewChangeOrderPage() {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CO_CREATE);
-  const projects = await prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true } });
-  const areas = await prisma.vesselArea.findMany();
+
+  // The project is the caller's active one, chosen in the header — never a
+  // form field. The old <select> here listed every project in the
+  // database, unfiltered by what the caller could reach (C4).
+  const project = await getActiveProject(user.id);
+  if (!project) {
+    return (
+      <EmptyState
+        title="No active project"
+        hint="Choose a project from the switcher in the header before creating a change order."
+        icon={<FolderOpen size={20} />}
+      />
+    );
+  }
+
+  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
 
   return (
     <div className="animate-fade-up">
@@ -34,17 +49,13 @@ export default async function NewChangeOrderPage() {
       </div>
 
       <form action={createChangeOrder} className="max-w-2xl space-y-0">
-        {/* Project */}
+        {/* Project — the caller's active project, not a choice on this form */}
         <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
           <div className="eyebrow mb-1">Project</div>
           <Field label="Project">
-            <Select name="projectId" required>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.vessel.name} — {p.name}
-                </option>
-              ))}
-            </Select>
+            <div className="input-base flex items-center text-white">
+              {project.vessel.name} — {project.name}
+            </div>
           </Field>
         </div>
 

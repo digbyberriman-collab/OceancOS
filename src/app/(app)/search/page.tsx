@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { scopedProjectFilter } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Search, SearchX } from "lucide-react";
 
@@ -41,16 +42,23 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
   }
 
   const like = q;
+  const projectScope = await scopedProjectFilter(user);
   const [cos, crs, drawings, docs, suppliers, contractors, inv] = await Promise.all([
     hasPermission(user, PERMISSIONS.CO_VIEW)
       ? prisma.changeOrder.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: {
+            ...projectScope,
+            OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }],
+          },
           take: 20,
         })
       : [],
     hasPermission(user, PERMISSIONS.CR_VIEW)
       ? prisma.crewRequest.findMany({
-          where: { OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }] },
+          where: {
+            ...projectScope,
+            OR: [{ title: { contains: like, mode: "insensitive" } }, { number: { contains: like, mode: "insensitive" } }, { description: { contains: like, mode: "insensitive" } }],
+          },
           take: 20,
         })
       : [],

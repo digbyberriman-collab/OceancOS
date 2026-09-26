@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { appBaseUrl, renderPdf } from "@/lib/export/pdf";
 import { exportFilename } from "@/lib/export/table";
 
@@ -19,9 +20,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },
-    select: { id: true, code: true },
+    select: { id: true, code: true, projectId: true },
   });
   if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === job.projectId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   try {
     const pdf = await renderPdf({

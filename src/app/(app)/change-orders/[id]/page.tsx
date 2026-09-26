@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
 import { Field, Textarea } from "@/components/ui/Form";
@@ -47,6 +48,9 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
     },
   });
   if (!co) return notFound();
+
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === co.projectId)) return notFound();
 
   // map authorIds to names for comments and history
   const userIds = Array.from(new Set([

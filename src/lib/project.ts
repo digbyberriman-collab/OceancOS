@@ -147,6 +147,20 @@ export async function getActiveProject(userId: string) {
   return project;
 }
 
+/**
+ * Filter a candidate list of user ids down to those who can reach
+ * `projectId` — for a role-based notification fan-out, so "everyone
+ * holding this permission" does not mean "everyone on the platform"
+ * (workflow-logic `[NOTIFICATIONS]` — recipient lookups are global, not
+ * scoped to the project).
+ */
+export async function usersReachingProject(userIds: string[], projectId: string): Promise<string[]> {
+  const reach = await Promise.all(
+    userIds.map(async (id) => ((await listProjectsForUser(id)).some((p) => p.id === projectId) ? id : null))
+  );
+  return reach.filter((id): id is string => !!id);
+}
+
 /** Persist the selection against the current session. */
 export async function storeActiveProject(userId: string, projectId: string) {
   const token = cookies().get(SESSION_COOKIE)?.value;

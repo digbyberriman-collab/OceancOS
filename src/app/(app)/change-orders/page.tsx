@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { scopedProjectFilter } from "@/lib/project";
 import { FileSpreadsheet } from "lucide-react";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge } from "@/components/ui/Badge";
@@ -28,7 +29,7 @@ export default async function ChangeOrdersPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await scopedProjectFilter(user)) };
   if (searchParams.status) where.status = searchParams.status;
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.q) {
