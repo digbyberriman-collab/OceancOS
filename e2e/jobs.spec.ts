@@ -247,6 +247,50 @@ test.describe("the commercial loop", () => {
   });
 });
 
+test.describe("workflow guardrails", () => {
+  test("refuses a crafted request that posts CLIENT_ACCEPTED through the generic transition action", async ({
+    page,
+  }) => {
+    // CLIENT_ACCEPTED must only be reachable through the acceptance ceremony
+    // in jobs/[id]/accept/actions.ts (the confirmation-code flow exercised in
+    // "the commercial loop" above) — never through the generic transitionJob
+    // action a status button posts to. This was C2: transitionJob used to
+    // accept CLIENT_ACCEPTED directly from anyone holding JOB_ACCEPT, which
+    // CAPTAIN does. The fix (applyTransition's JOB_GENERIC_UNREACHABLE
+    // refusal, G1.3) is unit-tested in tests/applyTransition.test.ts; this is
+    // the end-to-end regression the plan calls for, posting the transition
+    // the way a crafted request would rather than a real client ever could.
+    await signIn(page, CAPTAIN);
+    await page.goto("/jobs?view=pending");
+    await page.getByRole("link", { name: /Additional exterior covers/ }).click();
+    await page.waitForURL(/\/jobs\/[^/]+$/);
+    const jobUrl = page.url();
+    await expect(page.getByText("Quote sent", { exact: true }).first()).toBeVisible();
+
+    // The only transition button CAPTAIN is offered here is "Cancel quote"
+    // (JOB_CANCEL) — CLIENT_ACCEPTED and EXPIRED are never rendered as
+    // buttons at all (JOB_GENERIC_UNREACHABLE). Forge the hidden `to` field
+    // on that real, server-bound form before submitting it: the server
+    // computes which permission `to` requires and whether `to` is
+    // reachable this way entirely from what the request carries, not from
+    // which button was drawn.
+    const toInput = page.locator('input[name="to"][value="CANCELLED_QUOTE"]');
+    await expect(toInput).toHaveCount(1);
+    await toInput.evaluate((el: HTMLInputElement) => {
+      el.value = "CLIENT_ACCEPTED";
+    });
+    await page.getByRole("button", { name: /cancel quote/i }).click();
+
+    await expect(page.getByRole("heading", { name: /not permitted/i })).toBeVisible();
+    await expect(page.getByText(/can only be reached its own way/i)).toBeVisible();
+
+    // Nothing moved: reloading the job shows it still sitting at QUOTE_SENT,
+    // not CLIENT_ACCEPTED.
+    await page.goto(jobUrl);
+    await expect(page.getByText("Quote sent", { exact: true }).first()).toBeVisible();
+  });
+});
+
 test.describe("exports", () => {
   test("downloads the worklist as a workbook", async ({ page }) => {
     await signIn(page, PM);
