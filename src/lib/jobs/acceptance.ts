@@ -77,12 +77,61 @@ export function challengeProblemMessage(problem: ChallengeProblem): string {
   }
 }
 
+type NoteRow = { id: string; kind: string; sort: number; text: string };
+
+/**
+ * The exclusions a signer is shown, in the order they are shown.
+ *
+ * The page, the code request and the confirmation all call this, so the order
+ * behind the acknowledgement can never differ between them. Ties on `sort`
+ * break on id because the database gives no order for equal keys.
+ */
+export function exclusionNotes<T extends NoteRow>(notes: T[]): T[] {
+  return notes
+    .filter((n) => n.kind === "EXCLUSION")
+    .sort((a, b) => a.sort - b.sort || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+export function exclusionTexts(notes: NoteRow[]): string[] {
+  return exclusionNotes(notes).map((n) => n.text);
+}
+
+/**
+ * Fingerprint of the exclusions as read, or null when there are none.
+ *
+ * JSON rather than a join, so ["a,b"] and ["a", "b"] cannot collide.
+ */
+export function exclusionsFingerprint(texts: string[]): string | null {
+  if (texts.length === 0) return null;
+  return createHash("sha256").update(JSON.stringify(texts)).digest("hex");
+}
+
+export type AcknowledgementProblem = "missing" | "stale";
+
+/**
+ * Whether the signer confirmed the exclusions they were actually shown.
+ *
+ * The checkbox carries the fingerprint of the list on screen, so a list that
+ * changed after the page was rendered reads as stale rather than acknowledged.
+ */
+export function exclusionsAcknowledgementProblem(
+  expected: string | null,
+  given: unknown
+): AcknowledgementProblem | null {
+  if (!expected) return null;
+  if (typeof given !== "string" || given === "") return "missing";
+  return given === expected ? null : "stale";
+}
+
 /**
  * Fingerprint of exactly what is being signed.
  *
  * Recorded with the acceptance so it can be proved later that the quote was not
  * altered between the code being sent and the signature landing. A change to
- * any line, the total or the validity produces a different hash.
+ * any line, the total, the validity or an exclusion produces a different hash.
+ *
+ * Exclusions are appended only when there are some, so a quote without any
+ * hashes exactly as it did before they were covered.
  */
 export function quoteFingerprint(job: {
   code: string;
@@ -90,15 +139,17 @@ export function quoteFingerprint(job: {
   currency: string;
   validityDays?: number | null;
   lines: { description: string; quantity: number; unit: string; unitPrice: number }[];
+  exclusions?: string[];
 }): string {
-  const canonical = JSON.stringify({
+  const canonical: Record<string, unknown> = {
     code: job.code,
     total: job.total,
     currency: job.currency,
     validityDays: job.validityDays ?? null,
     lines: job.lines.map((l) => [l.description, l.quantity, l.unit, l.unitPrice]),
-  });
-  return createHash("sha256").update(canonical).digest("hex");
+  };
+  if (job.exclusions && job.exclusions.length > 0) canonical.exclusions = job.exclusions;
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
 export function acceptanceEmail(opts: {
