@@ -78,17 +78,25 @@ const ACTION_LABELS: Partial<Record<ChangeOrderStatus, string>> = {
 };
 
 /**
- * Transitions offered as buttons on the detail page.
+ * Legal edges that the generic transition action must never accept, however
+ * the UI is driven. `APPROVED`, `REJECTED` and `MORE_INFO` are reached by
+ * deciding the approval chain (`decideChangeOrderApproval`), not by a direct
+ * status write — and `permissionForTransition` falls through to the broad
+ * `CO_EDIT` for exactly these targets, so before this list was consulted by
+ * `applyTransition` as well as the button filter, any OWNERS_REP or
+ * PROJECT_MANAGER holding `CO_EDIT` could call the generic
+ * `transitionChangeOrder(id, "APPROVED")` directly and skip the entire
+ * multi-stage chain. Logged as a new finding during G1.3 in
+ * `audit/findings-phase5.md`, fixed the same way C2 is fixed for jobs.
  *
- * APPROVED, REJECTED and MORE_INFO are deliberately excluded: those are reached
- * by deciding the approval chain, not by a direct status button. Every other
- * legal edge is offered and then gated by the user's permission.
+ * This was `NOT_OFFERED_AS_BUTTON`, read only by `changeOrderActions()`
+ * below.
  */
-const NOT_OFFERED_AS_BUTTON: ChangeOrderStatus[] = ["APPROVED", "REJECTED", "MORE_INFO"];
+export const CO_GENERIC_UNREACHABLE: ChangeOrderStatus[] = ["APPROVED", "REJECTED", "MORE_INFO"];
 
 export function changeOrderActions(from: ChangeOrderStatus): ChangeOrderAction[] {
   return (CO_LEGAL_TRANSITIONS[from] ?? [])
-    .filter((to) => !NOT_OFFERED_AS_BUTTON.includes(to))
+    .filter((to) => !CO_GENERIC_UNREACHABLE.includes(to))
     .map((to) => ({
       to,
       label:

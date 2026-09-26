@@ -128,16 +128,30 @@ const ACTIONS: Record<JobStatus, Omit<JobAction, "to">> = {
 };
 
 /**
- * Transitions offered as buttons.
+ * Legal edges that the generic transition action must never accept, however
+ * the UI is driven — not merely edges the UI declines to render a button
+ * for. Two different reasons put a status here:
  *
- * EXPIRED is excluded: it is reached by the clock, not by anyone pressing a
- * button. Accept is excluded here too because it runs through the two-step
- * confirmation and emailed code in Phase 2 rather than a plain transition.
+ * - `CLIENT_ACCEPTED` needs the acceptance ceremony's confirmation code and
+ *   quote fingerprint (`jobs/[id]/accept/actions.ts`), not a plain status
+ *   write. Before this list was consulted by both the button filter and
+ *   `applyTransition` (`lib/workflow/applyTransition.ts`), it was consulted
+ *   only by the former — `transitionJob` would accept `CLIENT_ACCEPTED`
+ *   directly from anyone holding `JOB_ACCEPT`, skipping the ceremony
+ *   entirely. See C2 in AUDIT_REPORT.md and G1.3/G2.3 in ACTION_PLAN.md.
+ * - `EXPIRED` is reached by the clock, not by anyone pressing a button
+ *   (nothing currently runs that clock — see G3.9 — but the status still
+ *   should never be one a person sets by calling the generic action).
+ *
+ * This was `NOT_OFFERED`, read only by `jobActions()` below. Renamed and
+ * exported so the server enforces exactly what the screen offers, rather
+ * than the two silently drifting apart — the thing this file's own header
+ * comment already claimed before it was true.
  */
-const NOT_OFFERED: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED"];
+export const JOB_GENERIC_UNREACHABLE: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED"];
 
 export function jobActions(from: JobStatus): JobAction[] {
   return (JOB_LEGAL_TRANSITIONS[from] ?? [])
-    .filter((to) => !NOT_OFFERED.includes(to))
+    .filter((to) => !JOB_GENERIC_UNREACHABLE.includes(to))
     .map((to) => ({ to, ...ACTIONS[to] }));
 }

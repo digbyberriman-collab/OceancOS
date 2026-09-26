@@ -8,13 +8,13 @@ import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
-import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import type { CoApprovalStage } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
-  assertTransitionChangeOrder,
   permissionForTransition,
 } from "@/lib/workflow/changeOrder";
+import { applyTransition } from "@/lib/workflow/applyTransition";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -66,16 +66,23 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   if (!co) throw notFound("That change order");
 
   const target = ChangeOrderStatusSchema.parse(toStatus);
-  // Who can move it where — see lib/workflow/changeOrder.ts
-  assertPermission(user, permissionForTransition(target));
-  assertTransitionChangeOrder(co.status as ChangeOrderStatus, target);
 
-  await prisma.$transaction([
-    prisma.changeOrder.update({
-      where: { id },
-      data: { status: target, updatedById: user.id },
-    }),
-    prisma.changeOrderHistory.create({
+  // applyTransition asserts the permission and the legal move (and refuses
+  // APPROVED / REJECTED / MORE_INFO outright — only decideChangeOrderApproval
+  // may reach them, see CO_GENERIC_UNREACHABLE), and checks project access.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition({
+      entity: "ChangeOrder",
+      id,
+      projectId: co.projectId,
+      from: co.status,
+      to: target,
+      actor: user,
+      permission: permissionForTransition(target),
+      data: { updatedById: user.id },
+      db: tx,
+    });
+    await tx.changeOrderHistory.create({
       data: {
         changeOrderId: id,
         actorId: user.id,
@@ -84,8 +91,8 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
         toStatus: target,
         details: comment,
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,
