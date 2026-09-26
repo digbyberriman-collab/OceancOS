@@ -36,6 +36,22 @@ async function loadJobForAccept(userId: string, jobId: string) {
   if (!projects.some((p) => p.id === job.projectId)) {
     throw forbidden("That job belongs to a project you cannot reach.");
   }
+
+  // C17: every step of the ceremony — requesting a code, confirming it, and
+  // rejecting outright — ran through `hasPermission(user, JOB_ACCEPT)` (or,
+  // for rejection, JOB_CANCEL) alone, with nothing comparing the signer
+  // against `job.designatedAuthoriserId`. Any other authoriser, or a YARD_PM
+  // holding JOB_CANCEL, could accept or reject a quote addressed to someone
+  // else, and the ceremony wrote a correct-looking APPROVE/REJECT audit row
+  // under the actual caller's name — everything downstream of this check
+  // (the confirmation code, the fingerprint, the attempt counter) already
+  // worked correctly and is untouched. Delegation is not supported: this is
+  // a product decision (only the named authoriser may sign or decline, with
+  // no override), not an oversight, matching G1.4's PLATFORM_WIDE_ROLES
+  // precedent of making the call explicit rather than leaving it silent.
+  if (job.designatedAuthoriserId !== userId) {
+    throw forbidden("Only the designated authoriser can act on this quote.");
+  }
   return job;
 }
 

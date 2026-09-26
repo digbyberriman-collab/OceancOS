@@ -51,6 +51,21 @@ export default async function AcceptQuote({
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
 
+  // C17: JOB_ACCEPT only proves the caller can authorise quotes in general —
+  // it says nothing about whether this particular quote was addressed to
+  // them. Without this, any authoriser could open, review and sign a quote
+  // written to someone else's name; the ceremony itself (accept/actions.ts)
+  // enforces the same rule, but the page should not offer a ceremony the
+  // server will refuse. No delegation: only the named authoriser.
+  if (job.designatedAuthoriserId !== user.id) {
+    return (
+      <EmptyState
+        title="Not the designated authoriser"
+        hint="This quote is addressed to a different authoriser. Ask them to review and accept it, or have the request reissued with you named instead."
+      />
+    );
+  }
+
   if (!["QUOTE_SENT", "EXPIRED"].includes(job.status)) {
     return (
       <EmptyState

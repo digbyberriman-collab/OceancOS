@@ -490,7 +490,11 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
             </SectionCard>
           )}
 
+          {/* C17: JOB_ACCEPT alone does not mean this quote was addressed to
+              this user — see the matching check in accept/page.tsx and
+              accept/actions.ts's loadJobForAccept. */}
           {hasPermission(user, PERMISSIONS.JOB_ACCEPT) &&
+            job.designatedAuthoriserId === user.id &&
             ["QUOTE_SENT", "EXPIRED"].includes(job.status) && (
               <SectionCard title="Authorise">
                 <p className="mb-3 text-sm text-muted">
