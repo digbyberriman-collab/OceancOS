@@ -41,6 +41,7 @@ export default async function ApprovalsPage() {
     );
   }
 
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
   const scope = await scopedProjectFilter(user);
 
   const myStages = (Object.keys(STAGE_PERM) as (keyof typeof STAGE_PERM)[]).filter((s) =>
@@ -126,7 +127,7 @@ export default async function ApprovalsPage() {
                   <th>Stage</th>
                   <th>Change Order</th>
                   <th>Status</th>
-                  <th className="text-right">Cost</th>
+                  {canSeeMoney && <th className="text-right">Cost</th>}
                   <th className="text-right">Schedule&nbsp;Δ</th>
                   <th>Action</th>
                 </tr>
@@ -149,9 +150,11 @@ export default async function ApprovalsPage() {
                     <td>
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(a.changeOrder.estimatedCost)}
+                      </td>
+                    )}
                     <td className="text-right tnum">
                       {a.changeOrder.scheduleImpactDays ? (
                         <span className="text-warn">+{a.changeOrder.scheduleImpactDays}d</span>
@@ -201,7 +204,7 @@ export default async function ApprovalsPage() {
                   <th>Stage</th>
                   <th>Change Order</th>
                   <th>Status</th>
-                  <th className="text-right">Cost</th>
+                  {canSeeMoney && <th className="text-right">Cost</th>}
                   <th className="text-right">Raised</th>
                 </tr>
               </thead>
@@ -223,9 +226,11 @@ export default async function ApprovalsPage() {
                     <td>
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(a.changeOrder.estimatedCost)}
+                      </td>
+                    )}
                     <td className="text-right tnum text-muted text-xs">
                       {fmtDate(a.createdAt)}
                     </td>
@@ -264,7 +269,7 @@ export default async function ApprovalsPage() {
                 <tr>
                   <th>Resource</th>
                   <th>Stage</th>
-                  <th className="text-right">Cost&nbsp;Δ</th>
+                  {canSeeMoney && <th className="text-right">Cost&nbsp;Δ</th>}
                   <th className="text-right">Schedule&nbsp;Δ</th>
                   <th className="text-right">Due</th>
                   <th>Notes</th>
@@ -277,7 +282,7 @@ export default async function ApprovalsPage() {
                     <td>
                       <Badge tone="muted">{a.stage}</Badge>
                     </td>
-                    <td className="text-right tnum">{fmtMoney(a.costImpact)}</td>
+                    {canSeeMoney && <td className="text-right tnum">{fmtMoney(a.costImpact)}</td>}
                     <td className="text-right tnum">
                       {a.scheduleImpactDays ? (
                         <span className="text-warn">+{a.scheduleImpactDays}d</span>

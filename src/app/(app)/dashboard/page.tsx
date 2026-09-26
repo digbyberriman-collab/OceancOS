@@ -322,7 +322,7 @@ export default async function DashboardPage() {
                   <tr>
                     <th>Stage</th>
                     <th>Change order</th>
-                    <th className="text-right">Cost</th>
+                    {canViewFinancials && <th className="text-right">Cost</th>}
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -341,9 +341,11 @@ export default async function DashboardPage() {
                           {a.changeOrder.title}
                         </Link>
                       </td>
-                      <td className="text-right tnum text-white">
-                        {fmtMoney(a.changeOrder.estimatedCost)}
-                      </td>
+                      {canViewFinancials && (
+                        <td className="text-right tnum text-white">
+                          {fmtMoney(a.changeOrder.estimatedCost)}
+                        </td>
+                      )}
                       <td>
                         <StatusBadge value={a.changeOrder.status} />
                       </td>

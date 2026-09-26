@@ -19,6 +19,7 @@ export default async function ChangeOrdersPage({
   searchParams: { q?: string; status?: string; priority?: string };
 }) {
   const user = await requireUser();
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) {
     return (
       <EmptyState
@@ -135,7 +136,7 @@ export default async function ChangeOrdersPage({
                 <th>Title</th>
                 <th>Status</th>
                 <th>Priority</th>
-                <th className="text-right">Cost</th>
+                {canSeeMoney && <th className="text-right">Cost</th>}
                 <th className="text-right">Schedule&nbsp;Δ</th>
                 <th>Created</th>
               </tr>
@@ -167,9 +168,11 @@ export default async function ChangeOrdersPage({
                     <td>
                       <PriorityBadge value={co.priority} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(co.approvedCost ?? co.estimatedCost)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(co.approvedCost ?? co.estimatedCost)}
+                      </td>
+                    )}
                     <td className="text-right tnum">
                       {schedDays > 0 ? (
                         <span className="text-warn">+{schedDays}d</span>
