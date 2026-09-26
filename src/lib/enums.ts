@@ -23,6 +23,19 @@ export const ROLE_KEYS = [
 ] as const;
 export type RoleKey = (typeof ROLE_KEYS)[number];
 
+/**
+ * Roles whose unscoped assignment is deliberate: staff on the owner's side who
+ * work across the whole fleet, not one vessel or yard period. Everyone else —
+ * vessel crew tied to one ship, yard and external parties engaged per project —
+ * must be scoped explicitly by `projectId` or `vesselId` on their `UserRole`.
+ *
+ * This is a product decision, not a technical one (see G1.4 in
+ * ACTION_PLAN.md / C16 in AUDIT_REPORT_ADDENDUM.md). Consulted by
+ * `lib/project.ts` (which roles an unscoped assignment grants every project
+ * to) and `prisma/seed.ts` (which seeded accounts are left unscoped).
+ */
+export const PLATFORM_WIDE_ROLES: ReadonlySet<RoleKey> = new Set<RoleKey>(["OWNER", "OWNERS_REP"]);
+
 export const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
