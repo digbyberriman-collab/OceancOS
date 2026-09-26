@@ -14,6 +14,7 @@ export type ProjectSummary = {
   id: string;
   name: string;
   code: string | null;
+  vesselId: string;
   vesselName: string;
   status: string;
 };
@@ -51,13 +52,14 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
   const projects = await prisma.project.findMany({
     where,
     include: { vessel: { select: { name: true } } },
-    orderBy: [{ status: "asc" }, { name: "asc" }],
+    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
   });
 
   return projects.map((p) => ({
     id: p.id,
     name: p.name,
     code: p.code,
+    vesselId: p.vesselId,
     vesselName: p.vessel.name,
     status: p.status,
   }));

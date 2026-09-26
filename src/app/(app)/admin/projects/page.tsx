@@ -9,11 +9,18 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { toDateInputValue } from "@/lib/projectDates";
 import { projectTiming } from "@/lib/metrics/project";
 import { fmtDate } from "@/lib/utils";
+import { PROJECT_TYPES } from "@/lib/enums";
 import { updateProjectAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const CURRENCIES = ["EUR", "GBP", "USD", "AED"];
+
+const PROJECT_TYPE_LABELS: Record<(typeof PROJECT_TYPES)[number], string> = {
+  REFIT: "Refit",
+  NEW_BUILD: "New build",
+  CONVERSION: "Conversion",
+};
 
 export default async function AdminProjectsPage({
   searchParams,
@@ -33,7 +40,7 @@ export default async function AdminProjectsPage({
   const projects = await prisma.project.findMany({
     where: { archivedAt: null },
     include: { vessel: true },
-    orderBy: [{ status: "asc" }, { name: "asc" }],
+    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
   });
 
   if (!projects.length) {
@@ -100,9 +107,31 @@ export default async function AdminProjectsPage({
           })}
         </nav>
 
-        <SectionCard title={`${selected.vessel.name} — ${selected.name}`}>
+        <SectionCard
+          title={`${selected.vessel.name} — ${selected.name}`}
+          headerRight={
+            <Link href={`/vessels/${selected.vesselId}`} className="text-xs font-medium text-accent-bright hover:text-marine">
+              Vessel particulars
+            </Link>
+          }
+        >
           <form action={updateProjectAction} className="space-y-5">
             <input type="hidden" name="id" value={selected.id} />
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Field label="Project name" className="sm:col-span-2">
+                <Input name="name" defaultValue={selected.name} required maxLength={120} />
+              </Field>
+              <Field label="Type">
+                <Select name="type" defaultValue={selected.type}>
+                  {PROJECT_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {PROJECT_TYPE_LABELS[t]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project code" hint="Shown in the header switcher">

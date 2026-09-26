@@ -10,9 +10,10 @@ import {
   parseDateField,
   validateYardPeriod,
 } from "@/lib/projectDates";
+import { PROJECT_TYPES } from "@/lib/enums";
 
 /**
- * Update a project's identity and yard period.
+ * Update a project's name, type, code and yard period.
  *
  * These dates drive the Home timing cards and the time-progress ring, so an
  * out-of-order period is rejected rather than stored: it would make the
@@ -52,12 +53,21 @@ export async function updateProjectAction(formData: FormData) {
     }
   }
 
+  // Name and type are optional in the submission so older forms keep working.
+  const nameInput = formData.get("name");
+  const name = nameInput == null ? existing.name : String(nameInput).trim();
+  if (!name) redirect(`/admin/projects?id=${id}&err=${encodeURIComponent("A project needs a name.")}`);
+  const type = String(formData.get("type") ?? existing.type);
+  if (!(PROJECT_TYPES as readonly string[]).includes(type)) {
+    redirect(`/admin/projects?id=${id}&err=${encodeURIComponent("Choose a project type from the list.")}`);
+  }
+
   const yardName = String(formData.get("yardName") ?? "").trim() || null;
   const currency = String(formData.get("currency") ?? "EUR").trim().toUpperCase() || "EUR";
 
   await prisma.project.update({
     where: { id },
-    data: { ...dates, code, yardName, currency },
+    data: { ...dates, name, type, code, yardName, currency },
   });
 
   await recordAudit({
@@ -66,6 +76,8 @@ export async function updateProjectAction(formData: FormData) {
     resource: "Project",
     resourceId: id,
     details: {
+      name,
+      type,
       code,
       yardName,
       currency,

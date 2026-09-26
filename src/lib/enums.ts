@@ -179,6 +179,17 @@ export const DEPARTMENTS = [
 
 export const PROJECT_TYPES = ["REFIT", "NEW_BUILD", "CONVERSION"] as const;
 
+/** How far a vessel's particulars have been checked against its certificates. */
+export const VESSEL_VERIFICATION = ["UNVERIFIED", "PUBLIC_SOURCE", "CERTIFICATE_VERIFIED"] as const;
+export const VESSEL_VERIFICATION_LABELS: Record<(typeof VESSEL_VERIFICATION)[number], string> = {
+  UNVERIFIED: "Unverified",
+  PUBLIC_SOURCE: "Public source · not certificate-verified",
+  CERTIFICATE_VERIFIED: "Certificate-verified",
+};
+
+export const DATA_GAP_STATUSES = ["OPEN", "IN_PROGRESS", "CLOSED"] as const;
+export const DATA_GAP_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
+
 /** Labels for status keys that read badly raw. StatusBadge consults this. */
 export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS };
 
