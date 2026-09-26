@@ -514,6 +514,15 @@ How:
 requested. *Why:* it adds a required step, but it creates an evidential record that the signer saw
 the carve-outs. That is where refit disputes start.
 
+> **Decided and implemented (26 Sep 2026, `b4769d0`):** the checkbox only.
+> - **Enforcement.** The checkbox carries a fingerprint of the exclusions on screen, and the server
+>   refuses the code request when it is missing or stale.
+> - **Evidence.** The count and fingerprint are recorded with the code request and the signature.
+> - **A gap closed on the way.** The quote fingerprint now covers exclusions, so a change after the
+>   code is sent invalidates it.
+> - **Not yet done.** The step indicator, the signature statement, the six-box code input and the
+>   pinned phone button.
+
 ## H. Field conditions
 
 ### E36 — Touch targets
@@ -532,6 +541,14 @@ sundeck in Mediterranean sun.
 How: a high-contrast light theme, as a variable swap once E3 lands. Chosen per user, and the
 default stays dark. *Why functional:* it adds a user preference and a second theme to test.
 
+> **Decided and implemented (26 Sep 2026, `fc2433d`):** Dark (default) / Light / System, chosen
+> from the profile menu at the top right.
+> - **How.** It was done ahead of E3 by turning the palette tokens into variables.
+> - **Scope.** The choice is kept per browser in a cookie. Sign-in and marketing pages stay dark.
+> - **Contrast.** Every light text pair measures 4.5:1 or better.
+> - **Dark unchanged.** Dark mode was pixel-diffed against pre-change screenshots and is identical
+>   below the top bar.
+
 ## I. Functional issues found in passing
 
 ### E38 — Crew requests list CRITICAL last  *(new; logged in `findings-phase5.md`)*
@@ -543,13 +560,19 @@ MEDIUM, LOW, HIGH, CRITICAL.
 How: sort on a rank (a `CASE` expression, or an integer column). *Why functional:* the order
 changes. The current order is wrong.
 
-### E39 — The captain cannot raise a crew request  *(decision needed)*
+### E39 — The captain cannot raise a crew request  *(decided: the captain can; fixed in `6d50d3d`)*
 **Tier 3 · Effort S** · Where: `src/lib/rbac.ts:127-137`
 
 What: the CAPTAIN role has `CR_TRIAGE`, `CR_ASSIGN` and `CR_COMPLETE`, but not `CR_CREATE`.
 `/crew-requests/new` returns "Not permitted" to the captain. This may be intended (requests come
 from crew and heads of department), but it reads as an oversight. It is a product decision, not a
 UI one.
+
+> **Decided and implemented (26 Sep 2026, `6d50d3d`):**
+> - **The grant.** CAPTAIN holds `crew_request.create`.
+> - **The migration.** A data migration adds the grant to databases that are already seeded.
+> - **Knock-on.** `findings-auth-security.md` (holders of `crew_request.create` can create records
+>   in another owner's project) now covers the captain too. Its fix is G2.1.
 
 ### E40 — Notifications destroy unread state on render
 **Tier 3** · Already G3.7. An inbox (Bridge Phase 3) is impossible until it is fixed.
@@ -583,7 +606,7 @@ The effort figures are rough, for one developer.
 | **2. Design foundations (proposed G3.12)** | E3, E4, E7, E9, E16, E22 | about 1 week | **Before Gate 5**, which re-picks `faint` and the focus rings; doing tokens after it duplicates the work |
 | **3. Workflow surfaces** | E17–E20, E23, E25–E30, E32, E33, E35 | about 2–3 weeks | After Gate 3 has settled the actions these screens call |
 | **4. Field and mobile** | E11, E12, E13, E15, E34, E37 | about 2 weeks | E15 is G2.7; the rest follow it |
-| **Decisions for the owner** | E39, E35's checkbox, E37 | — | Before step 3 |
+| **Decisions for the owner** | E39, E35's checkbox, E37 — all decided and shipped 26 Sep 2026 | — | Done |
 
 ## Notes on the evidence
 
