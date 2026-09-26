@@ -13,8 +13,8 @@
 @layer base {
   html,
   body {
-    background: #060912;
-    color: #e7ecf5;
+    background: rgb(var(--ink-950));
+    color: rgb(var(--text-body));
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -36,7 +36,7 @@
 
   ::selection {
     background: rgba(56, 189, 248, 0.28);
-    color: #fff;
+    color: rgb(var(--fg));
   }
 
   /* Keyboard-only focus rings */
@@ -134,13 +134,13 @@
     touch-action: manipulation;
   }
   .btn-primary {
-    @apply btn border-transparent text-white
+    @apply btn border-transparent text-on-accent
       bg-gradient-to-b from-accent-bright to-accent
       shadow-[0_2px_10px_-2px_rgba(59,130,246,0.5)]
       hover:from-accent hover:to-accent hover:shadow-[0_4px_16px_-2px_rgba(59,130,246,0.6)];
   }
   .btn-danger {
-    @apply btn bg-bad border-transparent text-white hover:bg-red-500;
+    @apply btn bg-bad border-transparent text-on-accent hover:bg-bad;
   }
   .btn-ghost {
     @apply btn bg-transparent border-transparent text-muted hover:text-white hover:bg-ink-800;

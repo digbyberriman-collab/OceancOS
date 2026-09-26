@@ -53,7 +53,7 @@ export function Sidebar({ unread = 0 }: { unread?: number }) {
     <aside className="w-60 shrink-0 bg-ink-950/80 border-r border-line h-screen sticky top-0 overflow-y-auto backdrop-blur-sm">
       <div className="px-4 py-4 border-b border-line">
         <Link href="/dashboard" className="group flex items-center gap-2.5">
-          <div className="relative w-8 h-8 rounded-lg bg-brand-gradient grid place-items-center text-white font-bold shadow-glow transition-transform duration-200 group-hover:scale-105">
+          <div className="relative w-8 h-8 rounded-lg bg-brand-gradient grid place-items-center text-on-accent font-bold shadow-glow transition-transform duration-200 group-hover:scale-105">
             O
           </div>
           <div className="leading-tight">

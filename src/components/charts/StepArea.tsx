@@ -137,16 +137,15 @@ export function StepArea({
               x2={width - box.padRight}
               y1={scales.y(tick)}
               y2={scales.y(tick)}
-              stroke={GRID}
+              style={{ stroke: GRID }}
               strokeWidth={1}
             />
             <text
               x={box.padLeft - 8}
               y={scales.y(tick) + 3}
               textAnchor="end"
-              fill={TEXT.muted}
               fontSize={10}
-              style={{ fontVariantNumeric: "tabular-nums" }}
+              style={{ fill: TEXT.muted, fontVariantNumeric: "tabular-nums" }}
             >
               {formatValue(tick)}
             </text>
@@ -155,11 +154,11 @@ export function StepArea({
 
         {held.map((s) => (
           <g key={s.key}>
-            <path d={stepAreaPath(s.points, scales)} fill={s.color} opacity={0.1} />
+            <path d={stepAreaPath(s.points, scales)} style={{ fill: s.color }} opacity={0.1} />
             <path
               d={stepLinePath(s.points, scales)}
               fill="none"
-              stroke={s.color}
+              style={{ stroke: s.color }}
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -177,18 +176,17 @@ export function StepArea({
               cx={scales.x(last.t)}
               cy={scales.y(last.v)}
               r={4}
-              fill={s.color}
-              stroke={CHART_SURFACE}
+              style={{ fill: s.color, stroke: CHART_SURFACE }}
               strokeWidth={2}
             />
           );
         })}
 
         {/* Time axis: first and last only. Dense date ticks are noise here. */}
-        <text x={box.padLeft} y={height - 8} fill={TEXT.muted} fontSize={10}>
+        <text x={box.padLeft} y={height - 8} style={{ fill: TEXT.muted }} fontSize={10}>
           {formatDate(scales.tMin)}
         </text>
-        <text x={width - box.padRight} y={height - 8} textAnchor="end" fill={TEXT.muted} fontSize={10}>
+        <text x={width - box.padRight} y={height - 8} textAnchor="end" style={{ fill: TEXT.muted }} fontSize={10}>
           {formatDate(scales.tMax)}
         </text>
 
@@ -199,7 +197,7 @@ export function StepArea({
               x2={hoverX}
               y1={box.padTop}
               y2={height - box.padBottom}
-              stroke={TEXT.muted}
+              style={{ stroke: TEXT.muted }}
               strokeWidth={1}
             />
             {readings.map((r) => (
@@ -208,8 +206,7 @@ export function StepArea({
                 cx={hoverX}
                 cy={scales.y(r.value!)}
                 r={4}
-                fill={r.color}
-                stroke={CHART_SURFACE}
+                style={{ fill: r.color, stroke: CHART_SURFACE }}
                 strokeWidth={2}
               />
             ))}

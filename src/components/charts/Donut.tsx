@@ -68,9 +68,8 @@ export function Donut({
             <path
               key={arc.label}
               d={arc.path}
-              fill={arc.color}
               opacity={dimmed ? 0.35 : 1}
-              style={{ transition: "opacity 150ms" }}
+              style={{ fill: arc.color, transition: "opacity 150ms" }}
               onMouseEnter={() => setActive(arc.label)}
               onMouseLeave={() => setActive(null)}
             />
@@ -82,14 +81,14 @@ export function Donut({
           x={0}
           y={centreLabel ? -2 : 6}
           textAnchor="middle"
-          fill={TEXT.primary}
+          style={{ fill: TEXT.primary }}
           fontSize={size / 7}
           fontWeight={600}
         >
           {centreValue ?? formatValue(total)}
         </text>
         {centreLabel && (
-          <text x={0} y={size / 9 + 6} textAnchor="middle" fill={TEXT.muted} fontSize={11}>
+          <text x={0} y={size / 9 + 6} textAnchor="middle" style={{ fill: TEXT.muted }} fontSize={11}>
             {centreLabel}
           </text>
         )}

@@ -25,11 +25,16 @@
 //   pending · accepted            ALL PASS   worst adjacent ΔE 11.0 protan
 //   invoiced · paid               ALL PASS   worst adjacent ΔE 23.7 deutan
 //
-// Re-run after any change:
-//   node scripts/validate_palette.js "#3b82f6,#d97706,#047857" --mode dark --surface "#0a0f1c"
+// Series hues are fixed per entity in both themes. On the light theme's white
+// card they measure 3.7 (new), 3.2 (pending) and 5.5 (accepted) against the
+// surface, above the 3:1 floor for graphics.
+//
+// The neutrals below follow the theme: they are CSS variables whose dark
+// values are the original hex, so they must be applied through `style`, not
+// SVG presentation attributes.
 
-/** The surface charts are drawn on. The validator needs this exact value. */
-export const CHART_SURFACE = "#0a0f1c";
+/** The surface charts are drawn on: #0a0f1c in the dark theme. */
+export const CHART_SURFACE = "rgb(var(--ink-900))";
 
 /**
  * One colour per entity, used everywhere that entity appears.
@@ -57,19 +62,19 @@ export const SERIES = {
  * they deliberately sit below the chroma floor: they must not compete with a
  * series for attention. Both always carry a visible label.
  */
-export const DE_EMPHASIS = "#8294b3";
+export const DE_EMPHASIS = "rgb(var(--chart-recessive))";
 
 /** The unfilled part of a meter track. */
-export const TRACK = "#1e2a48";
+export const TRACK = "rgb(var(--line))";
 
 /** Grid and axis ink: one step off the surface, hairline, recessive. */
-export const GRID = "#16203a";
+export const GRID = "rgb(var(--line-soft))";
 
 /** Text tokens. Labels never wear the series colour. */
 export const TEXT = {
-  primary: "#e7ecf5",
-  secondary: "#8294b3",
-  muted: "#5a6b8c",
+  primary: "rgb(var(--text-body))",
+  secondary: "rgb(var(--muted))",
+  muted: "rgb(var(--faint))",
 } as const;
 
 export type SeriesKey = keyof typeof SERIES;

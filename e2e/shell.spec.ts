@@ -275,3 +275,89 @@ test.describe("text search", () => {
     await expect(page.getByText(/Stabiliser fin bearing overhaul/i).first()).toBeVisible();
   });
 });
+
+test.describe("theme", () => {
+  const menu = (page: Page) => page.getByLabel(/account and theme/i);
+
+  async function choose(page: Page, theme: "Dark" | "Light" | "System") {
+    await menu(page).click();
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "POST"),
+      page.getByRole("button", { name: theme, exact: true }).click(),
+    ]);
+  }
+
+  test("defaults to dark, and remembers Light and System from the profile menu", async ({ page }) => {
+    await signIn(page, PM);
+    const shell = page.locator("#app-shell");
+    await expect(shell).toHaveAttribute("data-app-theme", "dark");
+
+    // The choice keeps the user on the page they were on, filters included.
+    await page.goto("/jobs?view=pending");
+    await choose(page, "Light");
+    await expect(shell).toHaveAttribute("data-app-theme", "light");
+    await expect(page).toHaveURL(/\/jobs\?view=pending/);
+
+    await page.reload();
+    await expect(shell).toHaveAttribute("data-app-theme", "light");
+    await menu(page).click();
+    await expect(page.getByRole("button", { name: "Light", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    await page.keyboard.press("Escape");
+
+    await choose(page, "System");
+    await page.reload();
+    await expect(shell).toHaveAttribute("data-app-theme", "system");
+
+    await choose(page, "Dark");
+    await page.reload();
+    await expect(shell).toHaveAttribute("data-app-theme", "dark");
+  });
+
+  test("closes the profile menu on Escape and on a click elsewhere", async ({ page }) => {
+    await signIn(page, PM);
+    const light = page.getByRole("button", { name: "Light", exact: true });
+
+    await menu(page).click();
+    await expect(light).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(light).toBeHidden();
+
+    await menu(page).click();
+    await expect(light).toBeVisible();
+    await page.getByRole("heading", { name: /project dashboard/i }).click();
+    await expect(light).toBeHidden();
+  });
+});
+
+test.describe("theme without JavaScript", () => {
+  // Signing in is not what is under test here, so it happens with JavaScript;
+  // the theme change then happens in a browser that has it switched off.
+  test("still switches, because the menu is a plain disclosure and form", async ({
+    browser,
+    baseURL,
+  }) => {
+    const withJs = await browser.newContext({ baseURL });
+    await signIn(await withJs.newPage(), PM);
+    const storageState = await withJs.storageState();
+    await withJs.close();
+
+    const noJs = await browser.newContext({ baseURL, storageState, javaScriptEnabled: false });
+    const page = await noJs.newPage();
+    await page.goto("/dashboard");
+    await expect(page.locator("#app-shell")).toHaveAttribute("data-app-theme", "dark");
+
+    await page.getByLabel(/account and theme/i).click();
+    // A plain form post: the server sets the cookie and redirects back here.
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "POST" && r.status() === 303),
+      page.getByRole("button", { name: "Light", exact: true }).click(),
+    ]);
+    await page.waitForLoadState("load");
+    await expect(page.locator("#app-shell")).toHaveAttribute("data-app-theme", "light");
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await noJs.close();
+  });
+});

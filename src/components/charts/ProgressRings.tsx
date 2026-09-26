@@ -45,22 +45,22 @@ export function ProgressRings({
         className="shrink-0"
       >
         {/* Tracks */}
-        <path d={meterPath(1, radius, outerThickness)} fill={TRACK} />
-        <path d={meterPath(1, innerRadius, innerThickness)} fill={TRACK} />
+        <path d={meterPath(1, radius, outerThickness)} style={{ fill: TRACK }} />
+        <path d={meterPath(1, innerRadius, innerThickness)} style={{ fill: TRACK }} />
 
         {/* Work — the subject */}
         {workPct !== null && (
-          <path d={meterPath(workPct / 100, radius, outerThickness)} fill={SERIES.work} />
+          <path d={meterPath(workPct / 100, radius, outerThickness)} style={{ fill: SERIES.work }} />
         )}
         {/* Time — the benchmark, deliberately recessive */}
         {timePct !== null && (
-          <path d={meterPath(timePct / 100, innerRadius, innerThickness)} fill={DE_EMPHASIS} />
+          <path d={meterPath(timePct / 100, innerRadius, innerThickness)} style={{ fill: DE_EMPHASIS }} />
         )}
 
-        <text x={0} y={2} textAnchor="middle" fill={TEXT.primary} fontSize={size / 6} fontWeight={600}>
+        <text x={0} y={2} textAnchor="middle" style={{ fill: TEXT.primary }} fontSize={size / 6} fontWeight={600}>
           {workPct === null ? "—" : `${Math.round(workPct)}%`}
         </text>
-        <text x={0} y={size / 8 + 6} textAnchor="middle" fill={TEXT.muted} fontSize={11}>
+        <text x={0} y={size / 8 + 6} textAnchor="middle" style={{ fill: TEXT.muted }} fontSize={11}>
           work done
         </text>
       </svg>
