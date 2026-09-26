@@ -2,12 +2,13 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { scopedProjectFilter } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
 import { SectionCard } from "@/components/workflow/SectionCard";
-import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
+import { CheckCircle2, Clock, ClipboardCheck, ClipboardX } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,24 @@ const STAGE_PERM: Record<string, string> = {
 export default async function ApprovalsPage() {
   const user = await requireUser();
 
+  // This page aggregates across every approval stage, which no single
+  // module page's own guard protects — before this, it ran with no gate at
+  // all beyond requireUser() (C15 in AUDIT_REPORT_ADDENDUM.md). A CREW
+  // session, holding none of CO_VIEW or any CO_APPROVE_* permission, could
+  // read every pending change order's number, title and cost through
+  // "Pending with Other Approvers".
+  if (!hasPermission(user, PERMISSIONS.CO_VIEW)) {
+    return (
+      <EmptyState
+        title="Access restricted"
+        hint="You don't have permission to view approvals."
+        icon={<ClipboardX size={20} />}
+      />
+    );
+  }
+
+  const scope = await scopedProjectFilter(user);
+
   const myStages = (Object.keys(STAGE_PERM) as (keyof typeof STAGE_PERM)[]).filter((s) =>
     hasPermission(user, STAGE_PERM[s] as any)
   );
@@ -34,7 +53,7 @@ export default async function ApprovalsPage() {
         where: {
           decision: "PENDING",
           stage: { in: myStages as string[] },
-          changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+          changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
         },
         include: { changeOrder: true },
         orderBy: { createdAt: "asc" },
@@ -46,7 +65,7 @@ export default async function ApprovalsPage() {
     where: {
       decision: "PENDING",
       stage: { notIn: myStages as string[] },
-      changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+      changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
     },
     include: { changeOrder: true },
     orderBy: { createdAt: "asc" },
@@ -55,7 +74,7 @@ export default async function ApprovalsPage() {
 
   // Generic approvals queue (purchase orders, drawings, schedule changes etc.)
   const otherApprovals = await prisma.approval.findMany({
-    where: { status: "PENDING" },
+    where: { ...scope, status: "PENDING" },
     orderBy: { createdAt: "asc" },
     take: 50,
   });

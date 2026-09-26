@@ -1,12 +1,28 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Factory, Mail, Phone } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function SuppliersPage() {
-  await requireUser();
+  const user = await requireUser();
+  // Every other module page under (app) gates on its own _VIEW permission;
+  // this one had none at all, which is the same C15 shape as the dashboard
+  // and approvals pages — the auth-security "unguarded suppliers page"
+  // finding. Supplier carries no project column (it is a fleet-wide
+  // directory, unlike Contractor), so a permission gate is the only fix
+  // available here.
+  if (!hasPermission(user, PERMISSIONS.SUP_VIEW)) {
+    return (
+      <EmptyState
+        title="Access restricted"
+        hint="You don't have permission to view suppliers."
+        icon={<Factory size={20} />}
+      />
+    );
+  }
   const suppliers = await prisma.supplier.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } });
 
   return (

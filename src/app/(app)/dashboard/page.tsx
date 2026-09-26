@@ -23,38 +23,79 @@ import { StepArea } from "@/components/charts/StepArea";
 import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
 import { cumulativeByDate } from "@/lib/charts/geometry";
 import { projectTiming } from "@/lib/metrics/project";
-import { getActiveProject } from "@/lib/project";
+import { getActiveProject, scopedProjectFilter } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const [coOpen, coPending, crOpen, crOverdue, approvalsPending, milestonesUpcoming, risksOpen, recent] =
-    await Promise.all([
-      prisma.changeOrder.count({ where: { status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
-      prisma.changeOrder.count({
-        where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
-      }),
-      prisma.crewRequest.count({ where: { status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
-      prisma.crewRequest.count({
-        where: { dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
-      }),
-      prisma.approval.count({ where: { status: "PENDING" } }),
-      prisma.milestone.findMany({
-        where: { date: { gte: new Date() }, status: { not: "COMPLETED" } },
+  // Every panel here aggregates across modules, so no single module page's
+  // own guard protects it — each one is gated on the permission of the data
+  // it renders, and the query is skipped rather than fetched and hidden.
+  // Before this, only the budget panel checked anything (C15 in
+  // AUDIT_REPORT_ADDENDUM.md): a signed-in user with none of these
+  // permissions still saw every other panel's data, platform-wide.
+  const canViewCO = hasPermission(user, PERMISSIONS.CO_VIEW);
+  const canViewCR = hasPermission(user, PERMISSIONS.CR_VIEW);
+  const canViewSchedule = hasPermission(user, PERMISSIONS.SCH_VIEW);
+  const canViewRisks = hasPermission(user, PERMISSIONS.RSK_VIEW);
+  const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
+
+  const scope = await scopedProjectFilter(user);
+  const now = new Date();
+
+  const [coOpen, coPending, approvalsPending] = canViewCO
+    ? await Promise.all([
+        prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
+        prisma.changeOrder.count({
+          where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+        }),
+        prisma.approval.count({ where: { ...scope, status: "PENDING" } }),
+      ])
+    : [0, 0, 0];
+
+  const [crOpen, crOverdue] = canViewCR
+    ? await Promise.all([
+        prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
+        prisma.crewRequest.count({
+          where: { ...scope, dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
+        }),
+      ])
+    : [0, 0];
+
+  const milestonesUpcoming = canViewSchedule
+    ? await prisma.milestone.findMany({
+        where: { ...scope, date: { gte: now }, status: { not: "COMPLETED" } },
         orderBy: { date: "asc" },
         take: 5,
-      }),
-      prisma.risk.findMany({
-        where: { status: { in: ["OPEN", "ESCALATED"] } },
+      })
+    : [];
+
+  const risksOpen = canViewRisks
+    ? await prisma.risk.findMany({
+        where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
         orderBy: { rating: "desc" },
         take: 5,
-      }),
-      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
-    ]);
+      })
+    : [];
 
-  // Budget rollup
+  // AuditLog carries no project column at all, so AUDIT_VIEW is the only
+  // gate available — the same one /admin's own audit log uses.
+  const recent = canViewAudit
+    ? await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 })
+    : [];
+
+  const myApprovals = canViewCO
+    ? await prisma.changeOrderApproval.findMany({
+        where: { decision: "PENDING", changeOrder: scope },
+        include: { changeOrder: true },
+        take: 5,
+      })
+    : [];
+
+  // Budget rollup — already correctly gated below; unaffected by this pass.
   const budgets = await prisma.budget.findMany();
   const original = budgets.reduce((s, b) => s + b.originalAmount, 0);
   const approved = budgets.reduce((s, b) => s + b.approvedChanges, 0);
@@ -62,22 +103,20 @@ export default async function DashboardPage() {
   const actual = budgets.reduce((s, b) => s + b.actual, 0);
   const forecast = budgets.reduce((s, b) => s + (b.forecastFinal || b.originalAmount + b.approvedChanges), 0);
 
-  const myApprovals = await prisma.changeOrderApproval.findMany({
-    where: { decision: "PENDING" },
-    include: { changeOrder: true },
-    take: 5,
-  });
-
-  const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
-
   // ---- Charts -------------------------------------------------------------
   const activeProject = await getActiveProject(user.id);
 
-  const changeOrders = await prisma.changeOrder.findMany({
-    where: activeProject ? { projectId: activeProject.id } : undefined,
-    select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
+  const changeOrders = canViewCO
+    ? await prisma.changeOrder.findMany({
+        // The active project specifically, for the "by status" donut and the
+        // value chart — not every reachable project. `{ in: [] }` when there
+        // is none, matching nothing, not the `undefined` this used to fall
+        // to (which Prisma drops from `where` entirely, matching every row).
+        where: { projectId: { in: activeProject ? [activeProject.id] : [] } },
+        select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
 
   // Statuses are states, so they wear the status colours rather than arbitrary
   // series hues, and cancelled work is deliberately recessive.
@@ -149,24 +188,33 @@ export default async function DashboardPage() {
         subtitle="Live operational view across all active vessels and projects."
       />
 
-      {/* Stat row */}
+      {/* Stat row — a card for data the viewer cannot see is omitted rather
+          than shown as a misleading zero. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">
-        <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
-        <StatCard
-          label="Awaiting approval"
-          value={coPending + approvalsPending}
-          href="/approvals"
-          tone="warn"
-          icon={ClipboardCheck}
-        />
-        <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
-        <StatCard
-          label="Overdue items"
-          value={crOverdue}
-          tone={crOverdue > 0 ? "bad" : "muted"}
-          href="/crew-requests?overdue=1"
-          icon={AlertTriangle}
-        />
+        {canViewCO && (
+          <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
+        )}
+        {canViewCO && (
+          <StatCard
+            label="Awaiting approval"
+            value={coPending + approvalsPending}
+            href="/approvals"
+            tone="warn"
+            icon={ClipboardCheck}
+          />
+        )}
+        {canViewCR && (
+          <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
+        )}
+        {canViewCR && (
+          <StatCard
+            label="Overdue items"
+            value={crOverdue}
+            tone={crOverdue > 0 ? "bad" : "muted"}
+            href="/crew-requests?overdue=1"
+            icon={AlertTriangle}
+          />
+        )}
       </div>
 
       {/* Budget + milestones */}
@@ -193,7 +241,9 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Upcoming milestones">
-          {milestonesUpcoming.length === 0 ? (
+          {!canViewSchedule ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the schedule.</p>
+          ) : milestonesUpcoming.length === 0 ? (
             <p className="text-sm text-muted">No milestones scheduled.</p>
           ) : (
             <ol className="relative space-y-3.5 pl-1">
@@ -222,7 +272,11 @@ export default async function DashboardPage() {
         style={{ animationDelay: "90ms" }}
       >
         <Panel title="Change orders by status" link={{ href: "/change-orders", label: "All change orders" }}>
-          <Donut slices={statusSlices} centreLabel="change orders" format="count" />
+          {!canViewCO ? (
+            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
+          ) : (
+            <Donut slices={statusSlices} centreLabel="change orders" format="count" />
+          )}
         </Panel>
 
         <Panel title="Progress against the yard period">
@@ -257,7 +311,9 @@ export default async function DashboardPage() {
           title="Approvals waiting on you and others"
           link={{ href: "/approvals", label: "All approvals" }}
         >
-          {myApprovals.length === 0 ? (
+          {!canViewCO ? (
+            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
+          ) : myApprovals.length === 0 ? (
             <p className="text-sm text-muted">All caught up.</p>
           ) : (
             <div className="-mx-2 overflow-x-auto">
@@ -300,7 +356,9 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Top risks" link={{ href: "/risks", label: "Risk register" }}>
-          {risksOpen.length === 0 ? (
+          {!canViewRisks ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the risk register.</p>
+          ) : risksOpen.length === 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted">
               <ShieldAlert className="h-4 w-4 text-ok" />
               No open risks.
@@ -347,7 +405,9 @@ export default async function DashboardPage() {
       {/* Recent activity */}
       <div className="animate-fade-up" style={{ animationDelay: "180ms" }}>
         <Panel title="Recent activity">
-          {recent.length === 0 ? (
+          {!canViewAudit ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the audit log.</p>
+          ) : recent.length === 0 ? (
             <p className="text-sm text-muted">No activity yet.</p>
           ) : (
             <ul className="divide-y divide-line-soft">

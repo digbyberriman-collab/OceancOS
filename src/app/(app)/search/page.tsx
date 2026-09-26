@@ -71,7 +71,9 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
     hasPermission(user, PERMISSIONS.DOC_VIEW)
       ? prisma.document.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
-    prisma.supplier.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 }),
+    hasPermission(user, PERMISSIONS.SUP_VIEW)
+      ? prisma.supplier.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
+      : [],
     hasPermission(user, PERMISSIONS.CON_VIEW)
       ? prisma.contractor.findMany({ where: { name: { contains: like, mode: "insensitive" } }, take: 20 })
       : [],
