@@ -2,12 +2,14 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
-import { CheckCircle2, Clock, ClipboardCheck } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +30,17 @@ export default async function ApprovalsPage() {
     hasPermission(user, STAGE_PERM[s] as any)
   );
 
+  const scope = await projectScope(user.id);
+
   // Change order approvals waiting on me
   const myCoApprovals = myStages.length
     ? await prisma.changeOrderApproval.findMany({
         where: {
           decision: "PENDING",
           stage: { in: myStages as string[] },
-          changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+          changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
         },
-        include: { changeOrder: true },
+        include: { changeOrder: { include: { project: { select: { currency: true } } } } },
         orderBy: { createdAt: "asc" },
       })
     : [];
@@ -46,21 +50,14 @@ export default async function ApprovalsPage() {
     where: {
       decision: "PENDING",
       stage: { notIn: myStages as string[] },
-      changeOrder: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+      changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
     },
-    include: { changeOrder: true },
+    include: { changeOrder: { include: { project: { select: { currency: true } } } } },
     orderBy: { createdAt: "asc" },
     take: 50,
   });
 
-  // Generic approvals queue (purchase orders, drawings, schedule changes etc.)
-  const otherApprovals = await prisma.approval.findMany({
-    where: { status: "PENDING" },
-    orderBy: { createdAt: "asc" },
-    take: 50,
-  });
-
-  const totalPending = myCoApprovals.length + otherCoApprovals.length + otherApprovals.length;
+  const totalPending = myCoApprovals.length + otherCoApprovals.length;
 
   return (
     <div className="animate-fade-up">
@@ -104,16 +101,18 @@ export default async function ApprovalsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Change Order</th>
-                  <th>Status</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Schedule&nbsp;Δ</th>
-                  <th>Action</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Change Order</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="text-right">Cost</th>
+                  <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {myCoApprovals.map((a) => (
+                {myCoApprovals.map((a) => {
+                  const rowLabel = `${a.changeOrder.number} — ${a.changeOrder.title}`;
+                  return (
                   <tr key={a.id}>
                     <td>
                       <Badge tone="info">{a.stage.replace(/_/g, " ")}</Badge>
@@ -131,7 +130,7 @@ export default async function ApprovalsPage() {
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
+                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
                     </td>
                     <td className="text-right tnum">
                       {a.changeOrder.scheduleImpactDays ? (
@@ -143,19 +142,35 @@ export default async function ApprovalsPage() {
                     <td>
                       <form action={decideChangeOrderApproval} className="flex gap-1.5 flex-wrap">
                         <input type="hidden" name="approvalId" value={a.id} />
-                        <button name="decision" value="APPROVED" className="btn-primary text-xs py-1 px-2.5">
+                        <SubmitButton
+                          name="decision"
+                          value="APPROVED"
+                          aria-label={`Approve ${rowLabel}`}
+                          className="btn-primary text-xs py-1 px-2.5"
+                        >
                           Approve
-                        </button>
-                        <button name="decision" value="MORE_INFO" className="btn text-xs py-1 px-2.5">
+                        </SubmitButton>
+                        <SubmitButton
+                          name="decision"
+                          value="MORE_INFO"
+                          aria-label={`Request Info — ${rowLabel}`}
+                          className="btn text-xs py-1 px-2.5"
+                        >
                           Request Info
-                        </button>
-                        <button name="decision" value="REJECTED" className="btn-danger text-xs py-1 px-2.5">
+                        </SubmitButton>
+                        <SubmitButton
+                          name="decision"
+                          value="REJECTED"
+                          aria-label={`Reject ${rowLabel}`}
+                          className="btn-danger text-xs py-1 px-2.5"
+                        >
                           Reject
-                        </button>
+                        </SubmitButton>
                       </form>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -179,11 +194,11 @@ export default async function ApprovalsPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th>Stage</th>
-                  <th>Change Order</th>
-                  <th>Status</th>
-                  <th className="text-right">Cost</th>
-                  <th className="text-right">Raised</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Change Order</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="text-right">Cost</th>
+                  <th scope="col" className="text-right">Raised</th>
                 </tr>
               </thead>
               <tbody>
@@ -205,70 +220,10 @@ export default async function ApprovalsPage() {
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost)}
+                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
                     </td>
                     <td className="text-right tnum text-muted text-xs">
                       {fmtDate(a.createdAt)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </SectionCard>
-      </section>
-
-      {/* ── Other approvals ── */}
-      <section>
-        <SectionCard
-          title="Other Approvals (POs, Drawings, Schedule, Access…)"
-          headerRight={
-            otherApprovals.length > 0 ? (
-              <span className="badge badge-muted tnum">{otherApprovals.length}</span>
-            ) : undefined
-          }
-          noPad={otherApprovals.length > 0}
-        >
-          {otherApprovals.length === 0 ? (
-            <div className="flex items-center gap-3 py-2">
-              <div className="h-8 w-8 rounded-lg bg-ok/10 border border-ok/30 grid place-items-center shrink-0">
-                <ClipboardCheck size={16} className="text-ok" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white">No other approvals pending</p>
-                <p className="text-xs text-muted">Purchase orders, drawings, and other items will appear here.</p>
-              </div>
-            </div>
-          ) : (
-            <table className="table-base">
-              <thead>
-                <tr>
-                  <th>Resource</th>
-                  <th>Stage</th>
-                  <th className="text-right">Cost&nbsp;Δ</th>
-                  <th className="text-right">Schedule&nbsp;Δ</th>
-                  <th className="text-right">Due</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {otherApprovals.map((a) => (
-                  <tr key={a.id}>
-                    <td className="font-medium">{a.resource}</td>
-                    <td>
-                      <Badge tone="muted">{a.stage}</Badge>
-                    </td>
-                    <td className="text-right tnum">{fmtMoney(a.costImpact)}</td>
-                    <td className="text-right tnum">
-                      {a.scheduleImpactDays ? (
-                        <span className="text-warn">+{a.scheduleImpactDays}d</span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                    <td className="text-right tnum text-xs text-muted">{fmtDate(a.dueDate)}</td>
-                    <td className="text-muted text-xs max-w-xs">
-                      <span className="line-clamp-1">{a.notes ?? "—"}</span>
                     </td>
                   </tr>
                 ))}

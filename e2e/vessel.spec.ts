@@ -22,9 +22,15 @@ test.describe("vessel particulars", () => {
   test("show the active project's vessel, placeholders included", async ({ page }) => {
     await signIn(page, PM);
 
-    const switcher = page.getByLabel("Active project");
+    // The header's switcher, not the mobile drawer's copy; and wait for the
+    // server action that persists the choice before navigating, or /vessel
+    // can read back the previous project (see e2e/shell.spec.ts).
+    const switcher = page.getByRole("banner").getByLabel("Active project");
     const draak = (await switcher.locator("option", { hasText: "Y709" }).getAttribute("value"))!;
-    await switcher.selectOption(draak);
+    await Promise.all([
+      page.waitForResponse((res) => res.request().method() === "POST"),
+      switcher.selectOption(draak),
+    ]);
     await expect(switcher).toHaveValue(draak);
 
     await page.goto("/vessel");

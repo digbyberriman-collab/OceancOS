@@ -243,9 +243,9 @@ export function StepArea({
           <table className="table-base">
             <thead>
               <tr>
-                <th>Date</th>
+                <th scope="col">Date</th>
                 {held.map((s) => (
-                  <th key={s.key} className="text-right">
+                  <th key={s.key} scope="col" className="text-right">
                     {s.label}
                   </th>
                 ))}

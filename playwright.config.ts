@@ -6,8 +6,16 @@ const baseURL = `http://127.0.0.1:${PORT}`;
 
 // Some sandboxes ship a Chromium build that does not match the one this
 // Playwright version would download. Use the provisioned binary when it is
-// there (set PLAYWRIGHT_CHROMIUM_PATH to override); otherwise let Playwright
-// resolve its own, which is what happens in CI.
+// there; otherwise let Playwright resolve its own.
+//
+// PLAYWRIGHT_CHROMIUM_PATH overrides the sandbox path, but CI does not rely
+// on that fallback the way this comment used to imply: ci.yml's "Locate
+// Chromium for the PDF renderer" step sets PLAYWRIGHT_CHROMIUM_PATH itself,
+// for the app's own PDF-export renderer (lib/export/pdf.ts) — not for this
+// config. Because the variable is read here too, CI ends up on the explicit
+// branch below, pointed at the same binary `playwright install` just
+// downloaded — same outcome as "resolve its own" would give, but not by
+// that mechanism.
 const provisionedChromium = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? "/opt/pw-browsers/chromium";
 const executablePath = existsSync(provisionedChromium) ? provisionedChromium : undefined;
 

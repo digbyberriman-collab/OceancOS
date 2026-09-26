@@ -3,21 +3,28 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
-import { getActiveProject, listProjectsForUser } from "@/lib/project";
+import { getActiveProject, listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";
 import { groupCodeOf, isValidJobCode, nextCodeInGroup, normaliseJobCode } from "@/lib/jobs/codes";
 import {
   JOB_TRANSITION_PERMISSION,
+  JOB_TRANSITIONS_REQUIRING_CEREMONY,
   assertTransitionJob,
   expiryFrom,
+  jobActionSide,
 } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/transition";
+import { setFormFlash } from "@/lib/formFlash";
+import type { UploadedFile } from "@/components/ui/FileDrop";
+import { toNumber } from "@/lib/utils";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -43,6 +50,36 @@ const RequestSchema = z.object({
   linkedChangeOrderId: z.string().optional().nullable(),
 });
 
+export type JobRequestFlash = {
+  error: string;
+  values: {
+    clientRef: string;
+    title: string;
+    description: string;
+    designatedAuthoriserId: string;
+    sectionId: string;
+    linkedChangeOrderId: string;
+  };
+  /** So FileDrop can re-hydrate rather than orphan what was already
+   * uploaded to storage before this failure — ACTION_PLAN.md G3.6. */
+  attachments: UploadedFile[];
+};
+
+/** The repeating hidden `attachments` field FileDrop posts, parsed back out. */
+function parseAttachments(formData: FormData): UploadedFile[] {
+  return formData
+    .getAll("attachments")
+    .map(String)
+    .map((entry) => {
+      try {
+        return JSON.parse(entry) as UploadedFile;
+      } catch {
+        return null;
+      }
+    })
+    .filter((f): f is UploadedFile => !!f && typeof f.key === "string");
+}
+
 /**
  * Raise a request with the yard.
  *
@@ -56,6 +93,23 @@ export async function createJobRequest(formData: FormData) {
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before creating a job.");
 
+  const rawValues: JobRequestFlash["values"] = {
+    clientRef: String(formData.get("clientRef") ?? ""),
+    title: String(formData.get("title") ?? ""),
+    description: String(formData.get("description") ?? ""),
+    designatedAuthoriserId: String(formData.get("designatedAuthoriserId") ?? ""),
+    sectionId: String(formData.get("sectionId") ?? ""),
+    linkedChangeOrderId: String(formData.get("linkedChangeOrderId") ?? ""),
+  };
+  const back = (error: string): never => {
+    setFormFlash("jobRequest", {
+      error,
+      values: rawValues,
+      attachments: parseAttachments(formData),
+    } satisfies JobRequestFlash);
+    redirect("/jobs/new");
+  };
+
   const parsed = RequestSchema.safeParse({
     clientRef: formData.get("clientRef") || null,
     title: formData.get("title"),
@@ -64,10 +118,8 @@ export async function createJobRequest(formData: FormData) {
     sectionId: formData.get("sectionId") || null,
     linkedChangeOrderId: formData.get("linkedChangeOrderId") || null,
   });
-  if (!parsed.success) {
-    redirect(`/jobs/new?err=${encodeURIComponent(parsed.error.errors[0].message)}`);
-  }
-  const data = parsed.data;
+  if (!parsed.success) back(parsed.error.errors[0].message);
+  const data = parsed.data!;
 
   // The authoriser must actually hold the accept permission, or the quote
   // would arrive addressed to someone who cannot sign it.
@@ -78,9 +130,7 @@ export async function createJobRequest(formData: FormData) {
   const canAccept = authoriser?.roles.some((r) =>
     r.role.permissions.some((p) => p.permission.key === PERMISSIONS.JOB_ACCEPT)
   );
-  if (!authoriser || !canAccept) {
-    redirect(`/jobs/new?err=${encodeURIComponent("That person cannot authorise quotes.")}`);
-  }
+  if (!authoriser || !canAccept) back("That person cannot authorise quotes.");
 
   // A request has no yard code yet, so it takes a placeholder in the section's
   // request group, which the yard replaces when it issues the quote.
@@ -125,16 +175,12 @@ export async function createJobRequest(formData: FormData) {
     details: { code, title: data.title, projectId: project.id },
   });
 
-  // The yard needs to know there is something to price.
-  const yardUsers = await prisma.user.findMany({
-    where: {
-      active: true,
-      roles: { some: { role: { permissions: { some: { permission: { key: PERMISSIONS.JOB_ISSUE_QUOTE } } } } } },
-    },
-    select: { id: true },
-  });
+  // The yard needs to know there is something to price — only the yard on
+  // this project, not every yard PM on the platform (AUDIT_REPORT.md's
+  // [NOTIFICATIONS] — recipient lookups were global).
+  const yardUserIds = await usersWithPermissionOnProject(project, PERMISSIONS.JOB_ISSUE_QUOTE);
   await notify({
-    userIds: yardUsers.map((u) => u.id),
+    userIds: yardUserIds,
     kind: "ASSIGNED",
     priority: "MEDIUM",
     title: `New quote request ${code}: ${data.title}`,
@@ -153,6 +199,20 @@ const LineSchema = z.object({
   unitPrice: z.coerce.number(),
 });
 
+export type IssueQuoteFlash = {
+  error: string;
+  values: {
+    code: string;
+    contractType: string;
+    pricingBasis: string;
+    validityDays: string;
+    exceptionFlag: boolean;
+    exclusions: string;
+    notes: string;
+    lines: { description: string; quantity: string; unit: string; unitPrice: string }[];
+  };
+};
+
 /**
  * Price a request and send the quote.
  *
@@ -166,8 +226,35 @@ export async function issueQuote(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   const job = await loadJob(user.id, jobId);
 
-  const back = (message: string) =>
-    redirect(`/jobs/${jobId}/quote?err=${encodeURIComponent(message)}`);
+  // Lines arrive as parallel arrays from the repeating fieldset. Read once,
+  // up front, so both `back()` (preserving exactly what was on screen,
+  // blank rows included) and the parsing below work from the same values.
+  const descriptions = formData.getAll("lineDescription").map(String);
+  const quantities = formData.getAll("lineQuantity").map(String);
+  const units = formData.getAll("lineUnit").map(String);
+  const prices = formData.getAll("lineUnitPrice").map(String);
+
+  const back = (error: string): never => {
+    setFormFlash(`quote-${jobId}`, {
+      error,
+      values: {
+        code: String(formData.get("code") ?? ""),
+        contractType: String(formData.get("contractType") ?? ""),
+        pricingBasis: String(formData.get("pricingBasis") ?? ""),
+        validityDays: String(formData.get("validityDays") ?? ""),
+        exceptionFlag: formData.get("exceptionFlag") === "on",
+        exclusions: String(formData.get("exclusions") ?? ""),
+        notes: String(formData.get("notes") ?? ""),
+        lines: descriptions.map((description, i) => ({
+          description,
+          quantity: quantities[i] ?? "",
+          unit: units[i] ?? "",
+          unitPrice: prices[i] ?? "",
+        })),
+      },
+    } satisfies IssueQuoteFlash);
+    redirect(`/jobs/${jobId}/quote`);
+  };
 
   const code = normaliseJobCode(String(formData.get("code") ?? ""));
   if (!isValidJobCode(code)) {
@@ -187,39 +274,42 @@ export async function issueQuote(formData: FormData) {
 
   const validityDays = Number(formData.get("validityDays") ?? 0) || null;
 
-  // Lines arrive as parallel arrays from the repeating fieldset.
-  const descriptions = formData.getAll("lineDescription").map(String);
-  const quantities = formData.getAll("lineQuantity").map(String);
-  const units = formData.getAll("lineUnit").map(String);
-  const prices = formData.getAll("lineUnitPrice").map(String);
-
+  // `row` carries the 1-based position the yard actually sees (Line 1…6)
+  // through the filter, rather than being assigned after it — the previous
+  // version numbered the *filtered* list, so a bad line past any blank rows
+  // cited a number matching nothing on screen (forms-validation's
+  // "Quote line errors cite the wrong row number").
   const lines = descriptions
     .map((description, i) => ({
+      row: i + 1,
       description: description.trim(),
       quantity: quantities[i],
       unit: units[i] || "UN",
       unitPrice: prices[i],
     }))
     .filter((line) => line.description.length > 0)
-    .map((line, sort) => {
+    .map((line) => {
       const parsed = LineSchema.safeParse(line);
-      if (!parsed.success) back(`Line ${sort + 1} is incomplete.`);
-      const value = parsed.success ? parsed.data : null!;
+      if (!parsed.success) back(`Line ${line.row} is incomplete.`);
+      const value = parsed.data!;
       return {
-        sort,
+        sort: line.row - 1,
         description: value.description,
         quantity: value.quantity,
         unit: value.unit,
         unitPrice: value.unitPrice,
         // Held rather than derived on read, so an accepted quote keeps the
-        // figure it was accepted at.
-        total: Math.round(value.quantity * value.unitPrice * 100) / 100,
+        // figure it was accepted at. Computed with Prisma.Decimal, not `*`
+        // and `Math.round`, per ACTION_PLAN.md G3.2 — the previous version
+        // rounded each line's product but summed the rounded floats, so the
+        // stored job total could disagree with the sum of its own lines.
+        total: new Prisma.Decimal(value.quantity).times(value.unitPrice).toDecimalPlaces(2),
       };
     });
 
   if (!lines.length) back("A quote needs at least one line.");
 
-  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  const total = lines.reduce((sum, line) => sum.plus(line.total), new Prisma.Decimal(0));
   const now = new Date();
   const expiresAt = expiryFrom(now, validityDays);
 
@@ -233,6 +323,26 @@ export async function issueQuote(formData: FormData) {
     .filter(Boolean);
 
   assertTransitionJob(job.status as JobStatus, "QUOTE_SENT");
+
+  // A revision (QUOTE_SENT/EXPIRED → QUOTE_SENT, ACTION_PLAN.md G3.9)
+  // deletes and recreates every line and note below, same as a first
+  // issue — so the superseded figures are snapshotted onto the history
+  // row first. Read outside the transaction: this is a nice-to-have audit
+  // trail, not a value the transition's own correctness depends on.
+  const isRevision = job.status !== "NEW_REQUEST";
+  const superseded = isRevision
+    ? {
+        code: job.code,
+        total: toNumber(job.total),
+        validityDays: job.validityDays,
+        lines: (await prisma.jobLine.findMany({ where: { jobId }, orderBy: { sort: "asc" } })).map((l) => ({
+          description: l.description,
+          quantity: toNumber(l.quantity),
+          unit: l.unit,
+          unitPrice: toNumber(l.unitPrice),
+        })),
+      }
+    : null;
 
   await prisma.$transaction([
     prisma.jobLine.deleteMany({ where: { jobId } }),
@@ -264,10 +374,10 @@ export async function issueQuote(formData: FormData) {
       data: {
         jobId,
         actorId: user.id,
-        event: "QUOTED",
+        event: isRevision ? "REVISED" : "QUOTED",
         fromStatus: job.status,
         toStatus: "QUOTE_SENT",
-        details: { total, validityDays },
+        details: { total: total.toNumber(), validityDays, ...(superseded ? { superseded } : {}) },
       },
     }),
     prisma.comment.create({
@@ -277,7 +387,7 @@ export async function issueQuote(formData: FormData) {
         resourceId: jobId,
         jobId,
         kind: "SYSTEM",
-        body: `Quote delivered: ${total.toFixed(2)} ${job.currency}${
+        body: `${isRevision ? "Quote revised" : "Quote delivered"}: ${total.toFixed(2)} ${job.currency}${
           validityDays ? `, valid ${validityDays} days` : ""
         }.`,
       },
@@ -289,7 +399,7 @@ export async function issueQuote(formData: FormData) {
     action: "UPDATE",
     resource: "Job",
     resourceId: jobId,
-    details: { event: "QUOTED", code, total, validityDays },
+    details: { event: isRevision ? "REVISED" : "QUOTED", code, total, validityDays },
   });
 
   if (job.designatedAuthoriserId) {
@@ -297,7 +407,7 @@ export async function issueQuote(formData: FormData) {
       userIds: [job.designatedAuthoriserId],
       kind: "APPROVAL_REQUIRED",
       priority: "HIGH",
-      title: `Quote ready to authorise: ${code} — ${job.title}`,
+      title: `${isRevision ? "Revised quote" : "Quote"} ready to authorise: ${code} — ${job.title}`,
       resource: "Job",
       resourceId: jobId,
     });
@@ -307,20 +417,40 @@ export async function issueQuote(formData: FormData) {
   redirect(`/jobs/${jobId}`);
 }
 
-/** A plain status move. Accepting is not done here: it runs through Phase 2. */
+/**
+ * A plain status move.
+ *
+ * Acceptance is never done here, whatever `to` is posted: it runs through
+ * the confirmation-code ceremony in jobs/[id]/accept/actions.ts, which this
+ * refuses to shortcut — see JOB_TRANSITIONS_REQUIRING_CEREMONY. Fixed as
+ * AUDIT_REPORT.md's Critical C2.
+ */
 export async function transitionJob(formData: FormData) {
   const user = await requireUser();
   const jobId = String(formData.get("jobId") ?? "");
   const to = String(formData.get("to") ?? "") as JobStatus;
   const reason = String(formData.get("reason") ?? "").trim() || null;
 
+  if (JOB_TRANSITIONS_REQUIRING_CEREMONY.includes(to)) {
+    throw forbidden("Accepting a quote goes through the confirmation code, not this action.");
+  }
+
   const job = await loadJob(user.id, jobId);
 
   assertPermission(user, JOB_TRANSITION_PERMISSION[to]);
   assertTransitionJob(job.status as JobStatus, to);
 
+  // progressPct is the input to the project's headline work-progress figure
+  // (lib/metrics/project.ts) — YARD_COMPLETED used to force it to 100
+  // regardless of what had actually been reported, and WORKS_ACCEPTED
+  // carried no check at all, so a job could read "works accepted" at 0%
+  // (ACTION_PLAN.md G3.9). Both now require the figure to already be there.
+  if ((to === "YARD_COMPLETED" || to === "WORKS_ACCEPTED") && job.progressPct !== 100) {
+    throw invalid("Report 100% progress before completing this job.");
+  }
+
   const now = new Date();
-  const extra: Record<string, unknown> = { status: to, updatedById: user.id };
+  const extra: Record<string, unknown> = { updatedById: user.id };
 
   if (to === "ACCEPTED") {
     extra.yardAcceptedAt = now;
@@ -328,7 +458,6 @@ export async function transitionJob(formData: FormData) {
   }
   if (to === "YARD_COMPLETED") {
     extra.yardCompletedAt = now;
-    extra.progressPct = 100;
   }
   if (to === "WORKS_ACCEPTED") {
     extra.worksAcceptedAt = now;
@@ -339,9 +468,13 @@ export async function transitionJob(formData: FormData) {
     extra.cancelReason = reason;
   }
 
-  await prisma.$transaction([
-    prisma.job.update({ where: { id: jobId }, data: extra }),
-    prisma.jobHistory.create({
+  // The write is conditional on the status this function read (see
+  // applyTransition) and, wrapped in an interactive transaction, rolls the
+  // history row and the system comment back with it if someone else moved
+  // this job first.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition(tx.job, { id: jobId, from: job.status, to, data: extra });
+    await tx.jobHistory.create({
       data: {
         jobId,
         actorId: user.id,
@@ -350,8 +483,8 @@ export async function transitionJob(formData: FormData) {
         toStatus: to,
         details: reason ? { reason } : undefined,
       },
-    }),
-    prisma.comment.create({
+    });
+    await tx.comment.create({
       data: {
         authorId: user.id,
         resource: "Job",
@@ -360,8 +493,8 @@ export async function transitionJob(formData: FormData) {
         kind: "SYSTEM",
         body: systemMessage(to, reason),
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,
@@ -371,17 +504,38 @@ export async function transitionJob(formData: FormData) {
     details: { from: job.status, to, reason },
   });
 
-  const watchers = [job.createdById, job.designatedAuthoriserId].filter(
-    (id): id is string => !!id && id !== user.id
-  );
-  if (watchers.length) {
-    await notify({
-      userIds: Array.from(new Set(watchers)),
-      kind: "STATUS_CHANGE",
-      title: `${job.code} — ${systemMessage(to, null)}`,
-      resource: "Job",
-      resourceId: jobId,
-    });
+  // The audience is whichever side did *not* just act — a `side: "client"`
+  // action (a deficiency, a cancellation, works acceptance) is client-raised
+  // and the yard needs to hear about it, not the two vessel-side fields this
+  // used to notify regardless of direction (ACTION_PLAN.md G3.9): before
+  // this, the yard was never told about a reported deficiency or that works
+  // had been accepted and its warranty clock had started.
+  if (jobActionSide(to) === "yard") {
+    const watchers = [job.createdById, job.designatedAuthoriserId].filter(
+      (id): id is string => !!id && id !== user.id
+    );
+    if (watchers.length) {
+      await notify({
+        userIds: Array.from(new Set(watchers)),
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — ${systemMessage(to, null)}`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
+  } else {
+    const yardUserIds = (await usersWithPermissionOnProject(job.project, PERMISSIONS.JOB_ISSUE_QUOTE)).filter(
+      (id) => id !== user.id
+    );
+    if (yardUserIds.length) {
+      await notify({
+        userIds: yardUserIds,
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — ${systemMessage(to, null)}`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
   }
 
   revalidatePath(`/jobs/${jobId}`);
@@ -414,18 +568,34 @@ export async function setJobProgress(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   const job = await loadJob(user.id, jobId);
 
+  // progressPct feeds the project's headline work-progress figure
+  // (lib/metrics/project.ts) — the control was already hidden outside
+  // ACCEPTED/MINOR_DEFICIENCY, but the action itself wrote unconditionally,
+  // so a trade lead (who holds JOB_PROGRESS and nothing else job-workflow)
+  // could move the figure on a job that was cancelled, unpriced, or already
+  // closed out, just by posting the form directly (ACTION_PLAN.md G3.9).
+  if (job.status !== "ACCEPTED" && job.status !== "MINOR_DEFICIENCY") {
+    throw invalid("Progress can only be reported while a job is accepted or has an open deficiency.");
+  }
+
   const raw = Number(formData.get("progressPct") ?? 0);
   const progressPct = Math.min(100, Math.max(0, Math.round(raw)));
 
-  await prisma.job.update({ where: { id: jobId }, data: { progressPct, updatedById: user.id } });
-  await prisma.jobHistory.create({
-    data: {
-      jobId,
-      actorId: user.id,
-      event: "PROGRESS",
-      details: { from: job.progressPct, to: progressPct },
-    },
-  });
+  // One logical change, so one transaction (ACTION_PLAN.md G3.4) — a
+  // failure between the two writes used to leave progressPct changed with
+  // no history row explaining it, and progressPct drives the value-weighted
+  // group progress on the jobs list (lib/jobs/views.ts).
+  await prisma.$transaction([
+    prisma.job.update({ where: { id: jobId }, data: { progressPct, updatedById: user.id } }),
+    prisma.jobHistory.create({
+      data: {
+        jobId,
+        actorId: user.id,
+        event: "PROGRESS",
+        details: { from: job.progressPct, to: progressPct },
+      },
+    }),
+  ]);
   await recordAudit({
     actorId: user.id,
     action: "UPDATE",
@@ -433,6 +603,22 @@ export async function setJobProgress(formData: FormData) {
     resourceId: jobId,
     details: { progressPct },
   });
+
+  // Nobody on the vessel side was told a progress change happened at all.
+  if (progressPct !== job.progressPct) {
+    const watchers = [job.createdById, job.designatedAuthoriserId].filter(
+      (id): id is string => !!id && id !== user.id
+    );
+    if (watchers.length) {
+      await notify({
+        userIds: Array.from(new Set(watchers)),
+        kind: "STATUS_CHANGE",
+        title: `${job.code} — progress now ${progressPct}%`,
+        resource: "Job",
+        resourceId: jobId,
+      });
+    }
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");
@@ -447,23 +633,34 @@ export async function addJobComment(formData: FormData) {
   const body = String(formData.get("body") ?? "").trim();
   const asMinute = formData.get("kind") === "MINUTE";
 
+  // Checked before the DB round trips below, not after (ACTION_PLAN.md
+  // G3.6, forms-validation's [VALIDATION-MESSAGES]) — a `required` textarea
+  // is satisfied by a single space, which used to trim to "" and silently
+  // no-op: no error, no revalidate, the textarea still showing what was
+  // typed with no way to tell whether it posted.
+  if (!body) throw invalid("Write something before posting.");
+
   await loadJob(user.id, jobId);
-  if (!body) return;
 
   if (asMinute) assertPermission(user, PERMISSIONS.MINUTES_RECORD);
 
-  const comment = await prisma.comment.create({
-    data: {
-      authorId: user.id,
-      resource: "Job",
-      resourceId: jobId,
-      jobId,
-      kind: asMinute ? "MINUTE" : "MESSAGE",
-      body,
-    },
+  // One transaction (ACTION_PLAN.md G3.4) — a failure between the two
+  // writes used to post a comment whose attachments never landed: the
+  // files exist in storage but are referenced by nothing.
+  const comment = await prisma.$transaction(async (tx) => {
+    const created = await tx.comment.create({
+      data: {
+        authorId: user.id,
+        resource: "Job",
+        resourceId: jobId,
+        jobId,
+        kind: asMinute ? "MINUTE" : "MESSAGE",
+        body,
+      },
+    });
+    await attachUploads(formData, jobId, user.id, "Job", created.id, tx);
+    return created;
   });
-
-  await attachUploads(formData, jobId, user.id, "Job", comment.id);
 
   await recordAudit({
     actorId: user.id,
@@ -482,14 +679,23 @@ export async function toggleJobFavourite(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   await loadJob(user.id, jobId);
 
-  const existing = await prisma.jobFavourite.findUnique({
-    where: { userId_jobId: { userId: user.id, jobId } },
-  });
-
-  if (existing) {
-    await prisma.jobFavourite.delete({ where: { userId_jobId: { userId: user.id, jobId } } });
-  } else {
-    await prisma.jobFavourite.create({ data: { userId: user.id, jobId } });
+  // A single deleteMany, not read-then-delete-or-create (ACTION_PLAN.md
+  // G3.4) — two rapid clicks used to both read null and both create,
+  // the second violating the composite primary key with an unhandled
+  // crash. deleteMany's count tells us whether there was one to remove, in
+  // the same statement, so unfavouriting is idempotent under a double click.
+  // Favouriting still has a narrow window between two concurrent deleteMany
+  // calls that both see count 0 and both attempt create; rather than close
+  // it with more machinery for a "star this job" button, the resulting
+  // P2002 is caught and treated as the no-op it actually is — the desired
+  // end state (favourited) was already reached by the other request.
+  const removed = await prisma.jobFavourite.deleteMany({ where: { userId: user.id, jobId } });
+  if (removed.count === 0) {
+    try {
+      await prisma.jobFavourite.create({ data: { userId: user.id, jobId } });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
   }
 
   revalidatePath(`/jobs/${jobId}`);
@@ -500,14 +706,18 @@ export async function toggleJobFavourite(formData: FormData) {
  * Record uploads that the browser already sent to storage.
  *
  * FileDrop posts one hidden field per completed upload, so the server stores
- * metadata rather than bytes.
+ * metadata rather than bytes. Takes a client so a caller that also writes
+ * the parent row (addJobComment) can pass a transaction's `tx` and get one
+ * atomic write instead of two — ACTION_PLAN.md G3.4. Defaults to the
+ * top-level client for callers with nothing else to wrap it with.
  */
 async function attachUploads(
   formData: FormData,
   resourceId: string,
   uploaderId: string,
   resource: string,
-  commentId?: string
+  commentId?: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ) {
   const entries = formData.getAll("attachments").map(String).filter(Boolean);
   if (!entries.length) return;
@@ -529,7 +739,7 @@ async function attachUploads(
 
   if (!rows.length) return;
 
-  await prisma.attachment.createMany({
+  await client.attachment.createMany({
     data: rows.map((row) => ({
       uploaderId,
       filename: row.filename,

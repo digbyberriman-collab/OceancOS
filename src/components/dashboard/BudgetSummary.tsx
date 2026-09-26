@@ -35,13 +35,19 @@ export function BudgetSummary({
   pending,
   actual,
   forecast,
+  currency,
+  mixed = false,
 }: {
   original: number;
   approved: number;
   pending: number;
   actual: number;
   forecast: number;
+  /** Omit when every project this rolls up shares one currency; pass `mixed` instead when they don't. */
+  currency?: string;
+  mixed?: boolean;
 }) {
+  const fmt = (n: number) => (mixed ? "Mixed" : fmtMoney(n, currency));
   const baseline = original + approved;
   const overBudget = forecast > baseline;
 
@@ -66,7 +72,7 @@ export function BudgetSummary({
             )}
           >
             {variance >= 0 ? "+" : "−"}
-            {fmtMoney(Math.abs(variance))}
+            {fmt(Math.abs(variance))}
           </span>
         </div>
         <div className="relative mt-2 h-2.5 w-full overflow-hidden rounded-full bg-ink-950 ring-1 ring-line-soft">
@@ -106,11 +112,11 @@ export function BudgetSummary({
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-        <Cell label="Original" value={fmtMoney(original)} />
-        <Cell label="Approved Δ" value={fmtMoney(approved)} />
-        <Cell label="Pending Δ" value={fmtMoney(pending)} tone="warn" />
-        <Cell label="Actual" value={fmtMoney(actual)} />
-        <Cell label="Forecast" value={fmtMoney(forecast)} tone={overBudget ? "bad" : "ok"} />
+        <Cell label="Original" value={fmt(original)} />
+        <Cell label="Approved Δ" value={fmt(approved)} />
+        <Cell label="Pending Δ" value={fmt(pending)} tone="warn" />
+        <Cell label="Actual" value={fmt(actual)} />
+        <Cell label="Forecast" value={fmt(forecast)} tone={overBudget ? "bad" : "ok"} />
       </div>
     </div>
   );

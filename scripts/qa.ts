@@ -31,7 +31,7 @@ async function main() {
 
   // 3. project + budget rollup makes sense
   const budgets = await prisma.budget.findMany();
-  const total = budgets.reduce((s, b) => s + b.originalAmount, 0);
+  const total = budgets.reduce((s, b) => s + b.originalAmount.toNumber(), 0);
   assert(total > 0, `total original budget > 0 (${total})`);
 
   // 4. change order with approval chain
@@ -40,9 +40,15 @@ async function main() {
   assert((co?.approvals.length ?? 0) >= 5, `change order has approval chain (${co?.approvals.length})`);
 
   // 5. crew request with assignment
+  //
+  // findFirst() with no orderBy is not guaranteed to return the same row
+  // twice — fine for "a sample exists", not for "the sample has property X"
+  // once anything else (an e2e run, a manual test) adds an unassigned one.
+  // Ask for an assigned one directly instead of assuming the first row is.
   const cr = await prisma.crewRequest.findFirst();
   assert(cr != null, "sample crew request exists");
-  assert(!!cr?.assignedToId, "crew request is assigned");
+  const assignedCr = await prisma.crewRequest.findFirst({ where: { assignedToId: { not: null } } });
+  assert(assignedCr != null, "an assigned crew request exists");
 
   // 6. milestones in future
   const upcoming = await prisma.milestone.count({ where: { date: { gte: new Date() } } });

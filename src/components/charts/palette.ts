@@ -69,7 +69,9 @@ export const GRID = "#16203a";
 export const TEXT = {
   primary: "#e7ecf5",
   secondary: "#8294b3",
-  muted: "#5a6b8c",
+  // ACTION_PLAN.md G5.1: matches the `faint` Tailwind token's fix — the old
+  // #5a6b8c failed WCAG AA at these axis-label/caption sizes (10-11px).
+  muted: "#7e90ad",
 } as const;
 
 export type SeriesKey = keyof typeof SERIES;

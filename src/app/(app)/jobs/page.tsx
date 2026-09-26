@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Prisma } from "@prisma/client";
 import { Search, Star, FileSpreadsheet } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -8,32 +9,32 @@ import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
 import { compareJobCodes } from "@/lib/jobs/codes";
-import { JOB_VIEWS, groupJobs, jobView, jobWhere } from "@/lib/jobs/views";
+import { JOB_VIEWS, groupJobs, jobView, jobWhere, viewCountsFromGroups } from "@/lib/jobs/views";
 import { daysUntilExpiry, isExpired } from "@/lib/jobs/workflow";
 import {
   CONTRACT_TYPE_LABELS,
-  JOB_STATUS_LABELS,
   PRICING_BASIS_LABELS,
   type ContractType,
-  type JobStatus,
   type PricingBasis,
 } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 100;
+
 export default async function JobsPage({
   searchParams,
 }: {
-  searchParams: { view?: string; q?: string; section?: string; fav?: string };
+  searchParams: { view?: string; q?: string; section?: string; fav?: string; page?: string };
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Quotes are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Quotes are restricted." />;
   }
 
   const project = await getActiveProject(user.id);
   if (!project) {
-    return <EmptyState title="No project" hint="You have no project assigned yet." />;
+    return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned yet." />;
   }
 
   const view = jobView(searchParams.view);
@@ -45,8 +46,16 @@ export default async function JobsPage({
     sectionLetter: searchParams.section,
     favouriteOf: favouritesOnly ? user.id : undefined,
   });
+  const page = Math.max(1, Math.trunc(Number(searchParams.page)) || 1);
 
-  const [jobs, sections, counts] = await Promise.all([
+  // Ordering pushed into SQL rather than fetched whole and sorted in Node
+  // (ACTION_PLAN.md G4.1/G4.2) — `groupCode`/`code` are always zero-padded
+  // to a fixed width by `isValidJobCode`/`nextCodeInGroup`, so this string
+  // order agrees with `compareJobCodes`'s numeric-aware one exactly. The
+  // seven per-view `job.count` calls (previously unconditional on every
+  // render) are one `groupBy` instead, and the grand total is a `_sum`
+  // rather than a reduce over what's now only the current page.
+  const [jobs, aggregate, sections, byStatus] = await Promise.all([
     prisma.job.findMany({
       where,
       include: {
@@ -54,21 +63,24 @@ export default async function JobsPage({
         favourites: { where: { userId: user.id }, select: { userId: true } },
         _count: { select: { comments: true } },
       },
+      orderBy: [{ groupCode: "asc" }, { code: "asc" }],
+      take: PAGE_SIZE,
+      skip: (page - 1) * PAGE_SIZE,
     }),
+    prisma.job.aggregate({ where, _sum: { total: true }, _count: { _all: true } }),
     prisma.jobSection.findMany({ where: { projectId: project.id }, orderBy: { sort: "asc" } }),
-    Promise.all(
-      JOB_VIEWS.map(async (v) => ({
-        key: v.key,
-        count: await prisma.job.count({
-          where: jobWhere({ projectId: project.id, view: v }),
-        }),
-      }))
-    ),
+    prisma.job.groupBy({
+      by: ["status", "contractType"],
+      where: { projectId: project.id, archivedAt: null },
+      _count: { _all: true },
+    }),
   ]);
 
-  const countByView = new Map(counts.map((c) => [c.key, c.count]));
+  const countByView = viewCountsFromGroups(byStatus);
   const groups = groupJobs(jobs, compareJobCodes);
-  const grandTotal = jobs.reduce((sum, j) => sum + j.total, 0);
+  const grandTotal = aggregate._sum.total ?? new Prisma.Decimal(0);
+  const totalCount = aggregate._count._all;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const qs = (patch: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
@@ -77,6 +89,7 @@ export default async function JobsPage({
       q: searchParams.q,
       section: searchParams.section,
       fav: searchParams.fav,
+      page: searchParams.page,
       ...patch,
     };
     for (const [key, value] of Object.entries(merged)) if (value) params.set(key, value);
@@ -113,7 +126,7 @@ export default async function JobsPage({
           return (
             <Link
               key={v.key}
-              href={qs({ view: v.key, section: undefined })}
+              href={qs({ view: v.key, section: undefined, page: undefined })}
               aria-current={active ? "page" : undefined}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                 active
@@ -132,7 +145,7 @@ export default async function JobsPage({
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap gap-1.5">
           <Link
-            href={qs({ section: undefined })}
+            href={qs({ section: undefined, page: undefined })}
             className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
               !searchParams.section ? "bg-accent/20 text-accent-bright" : "text-muted hover:text-white"
             }`}
@@ -142,7 +155,7 @@ export default async function JobsPage({
           {sections.map((s) => (
             <Link
               key={s.id}
-              href={qs({ section: s.letter })}
+              href={qs({ section: s.letter, page: undefined })}
               className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
                 searchParams.section === s.letter
                   ? "bg-accent/20 text-accent-bright"
@@ -171,7 +184,7 @@ export default async function JobsPage({
         </form>
 
         <Link
-          href={qs({ fav: favouritesOnly ? undefined : "1" })}
+          href={qs({ fav: favouritesOnly ? undefined : "1", page: undefined })}
           className={`btn text-xs ${favouritesOnly ? "border-warn/40 text-warn" : ""}`}
         >
           <Star size={13} className={favouritesOnly ? "fill-warn" : ""} />
@@ -179,7 +192,7 @@ export default async function JobsPage({
         </Link>
       </div>
 
-      {jobs.length === 0 ? (
+      {totalCount === 0 ? (
         <EmptyState
           title="Nothing here"
           hint={
@@ -188,12 +201,24 @@ export default async function JobsPage({
               : view.blurb
           }
         />
+      ) : jobs.length === 0 ? (
+        <EmptyState
+          title="No quotes on this page"
+          hint={`Page ${page} is past the end of this view.`}
+          action={
+            <Link href={qs({ page: undefined })} className="btn">
+              Back to page 1
+            </Link>
+          }
+        />
       ) : (
         <>
           <div className="mb-3 flex items-baseline justify-between">
             <p className="text-xs text-muted">
-              {jobs.length} {jobs.length === 1 ? "quote" : "quotes"} in {groups.length}{" "}
+              {totalCount} {totalCount === 1 ? "quote" : "quotes"}
+              {totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""} in {groups.length}{" "}
               {groups.length === 1 ? "group" : "groups"}
+              {totalPages > 1 ? " on this page" : ""}
             </p>
             <p className="text-sm">
               <span className="text-muted">Total </span>
@@ -231,10 +256,11 @@ export default async function JobsPage({
                 <table className="table-base">
                   <thead className="sr-only">
                     <tr>
-                      <th>Quote</th>
-                      <th>Status</th>
-                      <th>Price</th>
-                      <th>Delivered</th>
+                      <th scope="col">Quote</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Price</th>
+                      <th scope="col">Delivered</th>
+                      <th scope="col">Progress</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -291,7 +317,7 @@ export default async function JobsPage({
                             )}
                           </td>
                           <td className="whitespace-nowrap text-right font-medium text-white tnum">
-                            {job.total > 0 ? fmtMoney(job.total, project.currency) : "—"}
+                            {job.total.greaterThan(0) ? fmtMoney(job.total, project.currency) : "—"}
                           </td>
                           <td className="whitespace-nowrap text-right text-xs text-muted tnum">
                             {job.quoteDeliveredAt ? fmtDate(job.quoteDeliveredAt) : "—"}
@@ -317,6 +343,26 @@ export default async function JobsPage({
               </section>
             ))}
           </div>
+
+          {totalPages > 1 && (
+            <nav aria-label="Pagination" className="mt-4 flex items-center justify-between gap-3">
+              <Link
+                href={qs({ page: String(page - 1) })}
+                aria-disabled={page <= 1}
+                className={`btn text-xs ${page <= 1 ? "pointer-events-none opacity-40" : ""}`}
+              >
+                Previous
+              </Link>
+              <span className="text-xs text-muted tnum">Page {page} of {totalPages}</span>
+              <Link
+                href={qs({ page: String(page + 1) })}
+                aria-disabled={page >= totalPages}
+                className={`btn text-xs ${page >= totalPages ? "pointer-events-none opacity-40" : ""}`}
+              >
+                Next
+              </Link>
+            </nav>
+          )}
         </>
       )}
     </div>
