@@ -50,7 +50,7 @@ clean clone as documented. Fold into G6.3.
 
 ### [TESTS] — `npm run qa`'s crew-request check assumed the first row is representative
 Severity: Low
-Location: `scripts/qa.ts:41-44`
+Location: `scripts/qa.ts:42-45`
 Found by: orchestrator, during G2.4
 
 Description:
@@ -187,7 +187,7 @@ with the CAPTAIN-on-p1 / CREW-on-p2 seed user as the regression case.
 
 ### [RBAC] — The seed wipes and rebuilds every role's permissions
 Severity: Medium
-Location: `prisma/seed.ts:51-52`
+Location: `prisma/seed.ts:53-54`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -209,7 +209,7 @@ system sets and applies additive migrations to customised ones.
 ### [TENANCY] — The quote authoriser is chosen and validated platform-wide
 Severity: Medium
 Location: `src/app/(app)/jobs/new/page.tsx:39`, `src/app/(app)/jobs/actions.ts:126-133`,
-`src/lib/project.ts:208`
+`src/lib/project.ts:210`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -236,7 +236,7 @@ Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :224, `setJobProgress` :
 `addJobComment` :630); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :52,
 `confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :89;
 `crew-requests/actions.ts` `assignCrewRequest` :125; `admin/projects/actions.ts`
-`updateProjectAction` :39
+`updateProjectAction` :42
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -302,7 +302,7 @@ Suggested fix: Gate 10, items 10.5 and 10.6 — dedicated `job.price.view` / `ch
 
 ### [EXPOSURE] — The dashboard's Recent activity shows the platform-wide audit log to every user
 Severity: Medium
-Location: `src/app/(app)/dashboard/page.tsx:77` (query), `:390` (panel)
+Location: `src/app/(app)/dashboard/page.tsx:78` (query), `:393` (panel)
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -341,7 +341,7 @@ Suggested fix: Gate 9, item 9.6 — show the winning access sets on the active p
 
 ### [EXPOSURE] — Since G6.9, every project manager sees the platform-wide user, vessel and project directory
 Severity: Medium
-Location: `src/app/(app)/admin/page.tsx:19,26-41`
+Location: `src/app/(app)/admin/page.tsx:20,27-51`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
