@@ -19,8 +19,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           user={{ name: user.name, email: user.email, roleKeys: user.roleKeys }}
           projects={projects}
           activeProjectId={activeProject?.id ?? null}
+          unread={unread}
         />
-        <main className="flex-1 p-6 max-w-[1400px] w-full mx-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
     </div>
   );

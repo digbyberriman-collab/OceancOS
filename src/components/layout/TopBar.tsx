@@ -2,16 +2,19 @@ import Link from "next/link";
 import { Search, Bell } from "lucide-react";
 import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { MobileNav } from "./MobileNav";
 import type { ProjectSummary } from "@/lib/project";
 
 export function TopBar({
   user,
   projects,
   activeProjectId,
+  unread = 0,
 }: {
   user: { name: string; email: string; roleKeys: string[] };
   projects: ProjectSummary[];
   activeProjectId: string | null;
+  unread?: number;
 }) {
   const initials = user.name
     .split(" ")
@@ -21,7 +24,8 @@ export function TopBar({
     .toUpperCase();
 
   return (
-    <header className="h-14 border-b border-line bg-ink-950/70 backdrop-blur-md sticky top-0 z-10 flex items-center px-4 gap-4">
+    <header className="h-14 border-b border-line bg-ink-950/70 backdrop-blur-md sticky top-0 z-10 flex items-center px-4 gap-3">
+      <MobileNav unread={unread} projects={projects} activeProjectId={activeProjectId} />
       <form action="/search" className="flex-1 max-w-xl relative">
         <Search
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-faint"

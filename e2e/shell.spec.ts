@@ -73,6 +73,65 @@ test.describe("project switcher", () => {
   });
 });
 
+test.describe("mobile navigation", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("replaces the fixed sidebar with a drawer below the desktop breakpoint", async ({ page }) => {
+    // C12: a permanently visible 240px sidebar left about 87px of usable
+    // width on a 375px phone, with no toggle anywhere to get it out of the
+    // way and no way to reach the project switcher (also hidden below `md`
+    // in the old TopBar). Both are closed here.
+    await signIn(page, PM);
+    await page.goto("/dashboard");
+
+    await expect(page.locator("aside")).toBeHidden();
+    await expect(
+      page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
+    ).resolves.toBe(false);
+
+    const hamburger = page.getByRole("button", { name: "Open menu" });
+    await expect(hamburger).toBeVisible();
+    await hamburger.click();
+
+    // The drawer's own nav — the same destinations the desktop sidebar
+    // shows, plus the project switcher, previously reachable only at `md`
+    // and up.
+    const drawerNav = page.getByRole("navigation").last();
+    await expect(drawerNav.getByRole("link", { name: "Dashboard" })).toBeVisible();
+    await expect(drawerNav.getByRole("link", { name: "Quotes & requests" })).toBeVisible();
+    // TopBar's own copy of the switcher (hidden at this width) still exists
+    // in the DOM, so scope to the one the drawer actually shows.
+    await expect(page.getByText("R-00721").locator("visible=true")).toHaveCount(1);
+
+    // Following a link closes the drawer and navigates.
+    await drawerNav.getByRole("link", { name: "Crew requests" }).click();
+    await page.waitForURL("**/crew-requests");
+    await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close navigation" })).toHaveCount(0);
+
+    // Reopening and clicking the backdrop closes it without navigating.
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await expect(page.getByRole("button", { name: "Close navigation" })).toBeVisible();
+    await page.mouse.click(350, 400); // outside the 288px-wide drawer panel
+    await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
+    await expect(page).toHaveURL(/\/crew-requests$/);
+  });
+
+  test("desktop sidebar and hamburger swap back above the breakpoint", async ({ page }) => {
+    await signIn(page, PM);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/dashboard");
+
+    await expect(page.locator("aside")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open menu" })).toBeHidden();
+    // PM reaches a single seeded project, so the static-label branch of
+    // ProjectSwitcher renders rather than the <select> — either way it must
+    // be visible in the topbar again above the breakpoint, not just inside
+    // the (now hidden) drawer.
+    await expect(page.getByText("R-00721")).toBeVisible();
+  });
+});
+
 test.describe("permissions", () => {
   test("hides financial data from crew", async ({ page }) => {
     await signIn(page, CREW);
