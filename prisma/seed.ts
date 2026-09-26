@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { ROLE_KEYS, DEPARTMENTS } from "../src/lib/enums";
+import { ROLE_KEYS, DEPARTMENTS, PLATFORM_WIDE_ROLES } from "../src/lib/enums";
 import { ROLE_PERMISSIONS, PERMISSIONS } from "../src/lib/rbac";
 import { seedJobs } from "./seedJobs";
 
@@ -160,8 +160,19 @@ async function main() {
     });
     const role = await prisma.role.findUnique({ where: { key: u.role } });
     if (role) {
-      const exists = await prisma.userRole.findFirst({ where: { userId: user.id, roleId: role.id } });
-      if (!exists) await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
+      // Every seeded account is scoped to the primary demo project, except
+      // the platform-wide roles (owner-side staff), which stay unscoped so
+      // the header project switcher has two projects to exercise. An
+      // unscoped assignment on any other role used to grant every project —
+      // see PLATFORM_WIDE_ROLES in src/lib/enums.ts and G1.4 in
+      // ACTION_PLAN.md.
+      const projectId = PLATFORM_WIDE_ROLES.has(u.role) ? null : project.id;
+      const existing = await prisma.userRole.findFirst({ where: { userId: user.id, roleId: role.id } });
+      if (existing) {
+        await prisma.userRole.update({ where: { id: existing.id }, data: { projectId } });
+      } else {
+        await prisma.userRole.create({ data: { userId: user.id, roleId: role.id, projectId } });
+      }
     }
   }
 

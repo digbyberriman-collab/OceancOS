@@ -15,6 +15,7 @@ import {
   assertTransitionJob,
   expiryFrom,
 } from "@/lib/jobs/workflow";
+import { applyTransition } from "@/lib/workflow/applyTransition";
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
@@ -316,11 +317,8 @@ export async function transitionJob(formData: FormData) {
 
   const job = await loadJob(user.id, jobId);
 
-  assertPermission(user, JOB_TRANSITION_PERMISSION[to]);
-  assertTransitionJob(job.status as JobStatus, to);
-
   const now = new Date();
-  const extra: Record<string, unknown> = { status: to, updatedById: user.id };
+  const extra: Record<string, unknown> = { updatedById: user.id };
 
   if (to === "ACCEPTED") {
     extra.yardAcceptedAt = now;
@@ -339,9 +337,22 @@ export async function transitionJob(formData: FormData) {
     extra.cancelReason = reason;
   }
 
-  await prisma.$transaction([
-    prisma.job.update({ where: { id: jobId }, data: extra }),
-    prisma.jobHistory.create({
+  // applyTransition asserts the permission and the legal move (and refuses
+  // CLIENT_ACCEPTED / EXPIRED outright — see JOB_GENERIC_UNREACHABLE), so
+  // this function no longer duplicates either check.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition({
+      entity: "Job",
+      id: jobId,
+      projectId: job.projectId,
+      from: job.status,
+      to,
+      actor: user,
+      permission: JOB_TRANSITION_PERMISSION[to],
+      data: extra,
+      db: tx,
+    });
+    await tx.jobHistory.create({
       data: {
         jobId,
         actorId: user.id,
@@ -350,8 +361,8 @@ export async function transitionJob(formData: FormData) {
         toStatus: to,
         details: reason ? { reason } : undefined,
       },
-    }),
-    prisma.comment.create({
+    });
+    await tx.comment.create({
       data: {
         authorId: user.id,
         resource: "Job",
@@ -360,8 +371,8 @@ export async function transitionJob(formData: FormData) {
         kind: "SYSTEM",
         body: systemMessage(to, reason),
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,
