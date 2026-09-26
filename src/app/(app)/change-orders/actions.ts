@@ -342,9 +342,22 @@ export async function decideChangeOrderApproval(formData: FormData) {
 
 export async function addChangeOrderComment(formData: FormData) {
   const user = await requireUser();
+  // A server action is reachable directly, with no render-time check at
+  // all — the detail page gating the comment form behind CO_VIEW never
+  // stopped a crafted request from posting here. Both this and
+  // addCrewRequestComment (crew-requests/actions.ts) took no permission,
+  // no parent lookup, and no project-access check at all, so an orphan
+  // comment could be written against an id that names no real change order
+  // (G2.12; auth-security's C5 "…and addChangeOrderComment").
+  assertPermission(user, PERMISSIONS.CO_VIEW);
   const id = String(formData.get("id") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   if (!id || !body) return;
+
+  const co = await prisma.changeOrder.findUnique({ where: { id }, select: { projectId: true } });
+  if (!co) throw notFound("That change order");
+  await requireProjectAccess(user, co.projectId);
+
   await prisma.comment.create({
     data: {
       authorId: user.id,

@@ -170,9 +170,19 @@ export async function assignCrewRequest(formData: FormData) {
 
 export async function addCrewRequestComment(formData: FormData) {
   const user = await requireUser();
+  // Same gap as addChangeOrderComment (G2.12; auth-security's C6 "all four
+  // crew-request actions"): the page gates the comment form behind
+  // CR_VIEW, but the action itself is reachable directly with no
+  // permission, parent-existence, or project-access check at all.
+  assertPermission(user, PERMISSIONS.CR_VIEW);
   const id = String(formData.get("id"));
   const body = String(formData.get("body") ?? "").trim();
   if (!id || !body) return;
+
+  const cr = await prisma.crewRequest.findUnique({ where: { id }, select: { projectId: true } });
+  if (!cr) throw notFound("That crew request");
+  await requireProjectAccess(user, cr.projectId);
+
   await prisma.comment.create({
     data: {
       authorId: user.id,
