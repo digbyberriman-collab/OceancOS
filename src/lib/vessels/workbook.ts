@@ -15,7 +15,7 @@ import type { Workbook, Worksheet, CellValue } from "exceljs";
 import { isNoValueText } from "./fields";
 
 /** The committed register, relative to the repository root. */
-export const DEFAULT_REGISTER_PATH = "prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25.xlsx";
+export const DEFAULT_REGISTER_PATH = "prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25_v1.1.xlsx";
 
 export type RegisterVessel = {
   yardNumber: string;

@@ -91,11 +91,11 @@ async function main() {
   const noEvidence = register.filter((v) => v._count.observations === 0).map((v) => v.name);
   assert(!noEvidence.length, `every register vessel has sourced observations (${noEvidence.join(", ") || "all set"})`);
   const observations = await prisma.vesselObservation.count({ where: { origin: "IMPORT" } });
-  assert(observations >= 444, `register observations loaded (${observations})`);
+  assert(observations >= 455, `register observations loaded (${observations})`);
   const orphaned = await prisma.vesselObservation.count({ where: { sourceCode: { not: null }, sourceId: null } });
   assert(orphaned === 0, `every observation's source resolves (${orphaned} unresolved)`);
   const gaps = await prisma.vesselDataGap.count();
-  assert(gaps >= 149, `data gaps loaded (${gaps})`);
+  assert(gaps >= 152, `data gaps loaded (${gaps})`);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

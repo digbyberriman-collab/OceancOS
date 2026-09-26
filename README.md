@@ -36,9 +36,9 @@ machinery, accommodation, class — laid out by the field catalogue in
 are visible and every vessel reads alike. The active project's vessel is at `/vessel`; every vessel
 is in the fleet register at `/vessels`.
 
-The Oceanco Y700 register (22 vessels, Y701–Y726) is committed at
-`prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25.xlsx` and loaded by the seed. Each vessel gets a
-project coded by its yard number. To load it — or a newer edition — into a deployed database:
+The Oceanco Y700 register (22 vessels, Y701–Y726; edition 1.1, audited) is committed at
+`prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25_v1.1.xlsx` and loaded by the seed. Each vessel
+gets a project coded by its yard number. To load it — or a newer edition — into a deployed database:
 
 ```bash
 npm run vessels:import                              # the committed workbook

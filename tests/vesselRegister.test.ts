@@ -31,9 +31,9 @@ describe("vessel register workbook", () => {
     expect(register.technical).toHaveLength(22);
     expect(register.comparison).toHaveLength(22);
     expect(register.buildSequence).toHaveLength(26);
-    expect(register.observations).toHaveLength(444);
-    expect(register.sources).toHaveLength(79);
-    expect(register.gaps).toHaveLength(22);
+    expect(register.observations).toHaveLength(455);
+    expect(register.sources).toHaveLength(85);
+    expect(register.gaps).toHaveLength(25);
   });
 
   it("reads a vessel's particulars into the right fields", () => {
@@ -48,7 +48,7 @@ describe("vessel register workbook", () => {
       flag: "Cayman Islands",
       loa: 92.9,
       beam: 14.5,
-      grossTonnage: 2894,
+      grossTonnage: 2951,
     });
     // Excel's serial date 46290.
     expect(draak.checkedOn?.toISOString().slice(0, 10)).toBe("2026-09-25");
@@ -92,6 +92,26 @@ describe("vessel register workbook", () => {
     const codes = new Set(register.sources.map((s) => s.code));
     const unknown = register.observations.filter((o) => o.sourceCode && !codes.has(o.sourceCode));
     expect(unknown).toEqual([]);
+  });
+
+  it("carries the 1.1 audit's corrections", () => {
+    const records = new Map(buildVesselRecords(register).map((r) => [r.yardNumber, r]));
+    expect(records.get("Y716")?.formerNames).toBe("DreAMBoat (90m); DREAMBOAT 1; Project Yasmin");
+    expect(records.get("Y714")).toMatchObject({
+      lastRefitYear: 2020,
+      interiorDesigner: "Sam Sorgiovanni (original); Reymond Langton Design (2020 Lürssen refit)",
+      // The Jamaican identity is kept; the Marshall Islands one is evidence and an open gap.
+      mmsi: "339302000",
+      callSign: "6YVQ2",
+    });
+    expect(records.get("Y717")?.lastRefitYear).toBe(2024);
+
+    const kaosImo = records.get("Y714")!.imo;
+    const kaosMmsi = register.observations.filter((o) => o.imo === kaosImo && o.fieldLabel === "MMSI");
+    expect(kaosMmsi.map((o) => o.value)).toEqual(["339302000", "538071357"]);
+    expect(register.gaps.map((g) => g.scope)).toEqual(
+      expect.arrayContaining(["KAOS / Y714", "Amore Vero / Y708", "Sunrays / Y705"])
+    );
   });
 
   it("keeps the unmapped build slots as gaps, not vessels", () => {
@@ -170,8 +190,8 @@ describe("data gaps", () => {
       const hits = gapVessels(g.scope, register.vessels);
       return hits.length ? hits : [null];
     });
-    // 6 fleet-wide gaps x 22 vessels, 13 single-vessel, 1 pair, 2 fleet-level.
-    expect(rows).toHaveLength(6 * 22 + 13 + 2 + 2);
+    // 6 fleet-wide gaps x 22 vessels, 16 single-vessel, 1 pair, 2 fleet-level.
+    expect(rows).toHaveLength(6 * 22 + 16 + 2 + 2);
   });
 });
 
@@ -185,7 +205,8 @@ describe("import", () => {
       builder: "Oceanco",
       loa: 106.7,
       maxSailSpeed: 30,
-      navalArchitect: "Lateral / BMT; Oceanco",
+      navalArchitect: "Oceanco; Dykstra Naval Architects (hull & DynaRig); Lateral / BMT (engineering)",
+      interiorDesigner: "Ken Freivokh; Nuvolari Lenard; Villate",
       yardNumberBasis: "AIS database / historical",
       verification: "PUBLIC_SOURCE",
     });
