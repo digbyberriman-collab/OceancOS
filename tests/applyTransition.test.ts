@@ -210,6 +210,26 @@ describe("applyTransition — the single status write path", () => {
     expect(changeOrderUpdateMany).not.toHaveBeenCalled();
   });
 
+  it("allows APPROVED via viaCeremony — the legitimate decideChangeOrderApproval path", async () => {
+    changeOrderUpdateMany.mockResolvedValue({ count: 1 });
+
+    await applyTransition({
+      entity: "ChangeOrder",
+      id: "co1",
+      projectId: "p1",
+      from: "UNDER_REVIEW",
+      to: "APPROVED",
+      actor: fakeUser([PERMISSIONS.CO_APPROVE_FINANCE]),
+      permission: PERMISSIONS.CO_APPROVE_FINANCE,
+      viaCeremony: true,
+    });
+
+    expect(changeOrderUpdateMany).toHaveBeenCalledWith({
+      where: { id: "co1", status: "UNDER_REVIEW" },
+      data: { status: "APPROVED" },
+    });
+  });
+
   it("still allows a legal, non-decision change-order transition on CO_EDIT", async () => {
     changeOrderUpdateMany.mockResolvedValue({ count: 1 });
 

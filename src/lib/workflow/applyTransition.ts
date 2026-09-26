@@ -58,6 +58,14 @@ export type ApplyTransitionParams = {
    * effects to persist in the same statement.
    */
   db?: Db;
+  /**
+   * Set only by the one caller that IS the ceremony or decision process a
+   * `GENERIC_UNREACHABLE` status is reserved for —
+   * `decideChangeOrderApproval` for ChangeOrder's `APPROVED` / `REJECTED` /
+   * `MORE_INFO` (G2.2). Never set this from a generic transition action;
+   * doing so re-opens exactly the side door this file exists to close.
+   */
+  viaCeremony?: boolean;
 };
 
 /**
@@ -66,7 +74,8 @@ export type ApplyTransitionParams = {
  * Asserts the transition is legal for the entity, refuses it outright if
  * `to` is one only its own ceremony or decision process may reach
  * (`GENERIC_UNREACHABLE` — independent of what permission the caller
- * holds), asserts the actor holds `permission`, asserts the actor can reach
+ * holds — unless the caller passes `viaCeremony: true`, meaning it *is*
+ * that process), asserts the actor holds `permission`, asserts the actor can reach
  * the record's project, then writes the new status conditionally on the
  * status just read: `updateMany({ where: { id, status: from } })`, and
  * throws a conflict unless exactly one row moved.
@@ -77,9 +86,9 @@ export type ApplyTransitionParams = {
  * moved the row.
  */
 export async function applyTransition(params: ApplyTransitionParams): Promise<void> {
-  const { entity, id, projectId, from, to, actor, permission, data, db = prisma } = params;
+  const { entity, id, projectId, from, to, actor, permission, data, db = prisma, viaCeremony } = params;
 
-  if (GENERIC_UNREACHABLE[entity].includes(to)) {
+  if (!viaCeremony && GENERIC_UNREACHABLE[entity].includes(to)) {
     throw forbidden(`${to.replace(/_/g, " ")} can only be reached its own way, not this action.`);
   }
 

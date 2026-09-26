@@ -190,12 +190,20 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
 
         {/* Approval chain */}
         <SectionCard title="Approval Chain">
-          <ol className="space-y-4">
-            {co.approvals.map((a, i) => {
-              const canDecide =
-                a.decision === "PENDING" &&
-                hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
-                ["UNDER_REVIEW", "SUBMITTED", "MORE_INFO"].includes(co.status);
+          {/* The stage `order` column gates which stage may be decided next
+              (G2.2) — the screen must offer the same stage the server will
+              actually accept, or a button here throws a conflict instead of
+              working. */}
+          {(() => {
+            const nextDueId = co.approvals.find((s) => s.required && s.decision === "PENDING")?.id;
+            return (
+              <ol className="space-y-4">
+                {co.approvals.map((a, i) => {
+                  const canDecide =
+                    a.decision === "PENDING" &&
+                    a.id === nextDueId &&
+                    hasPermission(user, STAGE_PERMISSION[a.stage as CoApprovalStage]) &&
+                    ["UNDER_REVIEW", "SUBMITTED"].includes(co.status);
 
               const decisionIcon =
                 a.decision === "APPROVED" ? (
@@ -281,7 +289,9 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
             {co.approvals.length === 0 && (
               <li className="text-sm text-muted">No approval stages configured.</li>
             )}
-          </ol>
+              </ol>
+            );
+          })()}
         </SectionCard>
       </div>
 

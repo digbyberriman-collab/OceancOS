@@ -26,7 +26,12 @@ export const CO_STAGE_PERMISSION: Record<CoApprovalStage, PermissionKey> = {
  */
 export const CO_LEGAL_TRANSITIONS: Record<ChangeOrderStatus, ChangeOrderStatus[]> = {
   DRAFT: ["SUBMITTED", "CANCELLED"],
-  SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "CANCELLED"],
+  // APPROVED/REJECTED are reachable directly from SUBMITTED, not only via
+  // UNDER_REVIEW: a change order needing a single approval stage is
+  // decided the moment it is submitted, and decideChangeOrderApproval
+  // (G2.2) does not force a separate "move to review" step first — the
+  // Approvals Centre already lists SUBMITTED change orders as decidable.
+  SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "APPROVED", "REJECTED", "CANCELLED"],
   UNDER_REVIEW: ["MORE_INFO", "APPROVED", "REJECTED"],
   MORE_INFO: ["UNDER_REVIEW", "CANCELLED"],
   APPROVED: ["IN_PROGRESS", "CANCELLED"],

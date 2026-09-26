@@ -48,18 +48,29 @@ export default async function ApprovalsPage() {
     hasPermission(user, STAGE_PERM[s] as any)
   );
 
-  // Change order approvals waiting on me
-  const myCoApprovals = myStages.length
+  // Change order approvals waiting on me. Only the stage that is actually
+  // next in the chain's order is offered a decision (G2.2): a later stage
+  // in myStages is not yet "waiting on you" if an earlier, still-pending
+  // required stage comes first — the server refuses it either way, so the
+  // screen must agree.
+  const myCoApprovalCandidates = myStages.length
     ? await prisma.changeOrderApproval.findMany({
         where: {
           decision: "PENDING",
           stage: { in: myStages as string[] },
-          changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+          changeOrder: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW"] } },
         },
         include: { changeOrder: true },
         orderBy: { createdAt: "asc" },
       })
     : [];
+  const myCoApprovals = [];
+  for (const a of myCoApprovalCandidates) {
+    const earlierPending = await prisma.changeOrderApproval.count({
+      where: { changeOrderId: a.changeOrderId, required: true, decision: "PENDING", order: { lt: a.order } },
+    });
+    if (earlierPending === 0) myCoApprovals.push(a);
+  }
 
   // All other pending change order approvals (visibility)
   const otherCoApprovals = await prisma.changeOrderApproval.findMany({

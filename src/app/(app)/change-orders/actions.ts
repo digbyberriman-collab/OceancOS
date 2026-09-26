@@ -4,13 +4,13 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject, usersReachingProject } from "@/lib/project";
+import { getActiveProject, requireProjectAccess, usersReachingProject } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
-import { ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
+import { ApprovalDecisionSchema, ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
-import type { CoApprovalStage } from "@/lib/enums";
-import { forbidden, invalid, notFound } from "@/lib/errors";
+import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import { conflict, forbidden, invalid, notFound } from "@/lib/errors";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   permissionForTransition,
@@ -153,76 +153,185 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   revalidatePath("/approvals");
 }
 
+/**
+ * Decide one stage of a change order's approval chain.
+ *
+ * This is the money path, rewritten rather than patched (G2.2 in
+ * ACTION_PLAN.md): the decision is validated against a schema instead of
+ * cast from a raw string (C9); a rejected stage terminates the chain
+ * outright instead of merely dropping out of a "remaining" count a later
+ * stage's approval could still complete (C7); the stage `order` column,
+ * stored on every approval row since it was created and never once read,
+ * now gates which stage may be decided next (C8); the status write goes
+ * through `applyTransition` (C5's project check, plus the same atomic
+ * conditional write every other transition gets); and all five writes -
+ * the approval, the history row, and the change order's own status - land
+ * in one transaction (C10).
+ */
 export async function decideChangeOrderApproval(formData: FormData) {
   const user = await requireUser();
-  const approvalId = String(formData.get("approvalId") ?? "");
-  const decision = String(formData.get("decision") ?? "") as "APPROVED" | "REJECTED" | "MORE_INFO";
-  const comment = (formData.get("comment") as string) || null;
+
+  const parsed = ApprovalDecisionSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
+  const approvalId = parsed.data.approvalId ?? parsed.data.changeOrderApprovalId;
+  if (!approvalId) throw invalid("No approval was specified.");
+  if (parsed.data.decision === "DELEGATED") throw invalid("Delegating a decision is not supported yet.");
+  const decision = parsed.data.decision;
+  const comment = parsed.data.comment || null;
+
   const approval = await prisma.changeOrderApproval.findUnique({
     where: { id: approvalId },
     include: { changeOrder: true },
   });
   if (!approval) throw notFound("That approval");
+
   const permKey = STAGE_PERMISSION[approval.stage as CoApprovalStage];
   if (!hasPermission(user, permKey as any)) {
     // The stage is named because the user can already see it on the page; the
     // permission key is not, because it would describe the permission model.
     throw forbidden(`You cannot decide the ${approval.stage} approval.`);
   }
+  await requireProjectAccess(user, approval.changeOrder.projectId);
 
-  await prisma.changeOrderApproval.update({
-    where: { id: approvalId },
-    data: {
-      decision,
-      decidedById: user.id,
-      decidedAt: new Date(),
-      comment,
-    },
+  if (approval.decision !== "PENDING") {
+    throw conflict("This stage was already decided.");
+  }
+  if (!["SUBMITTED", "UNDER_REVIEW"].includes(approval.changeOrder.status)) {
+    throw conflict(
+      `This change order is ${approval.changeOrder.status.replace(/_/g, " ").toLowerCase()} and cannot be decided right now.`
+    );
+  }
+
+  // The stage order is stored and was never read: a later stage could be
+  // decided before an earlier, still-pending required one. Refuse unless
+  // this is the lowest-order required stage still PENDING.
+  const stages = await prisma.changeOrderApproval.findMany({
+    where: { changeOrderId: approval.changeOrderId },
+    orderBy: { order: "asc" },
   });
+  const nextDue = stages.find((s) => s.required && s.decision === "PENDING");
+  if (!nextDue || nextDue.id !== approval.id) {
+    throw conflict("An earlier approval stage is still pending and must be decided first.");
+  }
 
-  await prisma.changeOrderHistory.create({
-    data: {
-      changeOrderId: approval.changeOrderId,
-      actorId: user.id,
-      event: "APPROVAL",
-      details: `${approval.stage}: ${decision}${comment ? " — " + comment : ""}`,
-    },
+  const { newStatus, fullyApproved } = await prisma.$transaction(async (tx) => {
+    // Conditional on the approval still being PENDING, mirroring
+    // applyTransition's own guard against two concurrent decisions.
+    const updated = await tx.changeOrderApproval.updateMany({
+      where: { id: approval.id, decision: "PENDING" },
+      data: { decision, decidedById: user.id, decidedAt: new Date(), comment },
+    });
+    if (updated.count !== 1) throw conflict();
+
+    await tx.changeOrderHistory.create({
+      data: {
+        changeOrderId: approval.changeOrderId,
+        actorId: user.id,
+        event: "APPROVAL",
+        details: `${approval.stage}: ${decision}${comment ? " — " + comment : ""}`,
+      },
+    });
+
+    // A REJECTED stage terminates the chain. It must not merely stop
+    // counting toward "remaining" - the bug that let a later stage's
+    // APPROVED still drive the change order to APPROVED once every OTHER
+    // required stage had cleared, overriding the rejection (C7).
+    let newStatus: ChangeOrderStatus;
+    let fullyApproved = false;
+    if (decision === "REJECTED") {
+      newStatus = "REJECTED";
+    } else if (decision === "MORE_INFO") {
+      newStatus = "MORE_INFO";
+    } else {
+      const remaining = await tx.changeOrderApproval.count({
+        where: { changeOrderId: approval.changeOrderId, decision: "PENDING", required: true },
+      });
+      fullyApproved = remaining === 0;
+      newStatus = fullyApproved ? "APPROVED" : "UNDER_REVIEW";
+    }
+
+    if (newStatus !== approval.changeOrder.status) {
+      await applyTransition({
+        entity: "ChangeOrder",
+        id: approval.changeOrderId,
+        projectId: approval.changeOrder.projectId,
+        from: approval.changeOrder.status,
+        to: newStatus,
+        actor: user,
+        permission: permKey,
+        data: fullyApproved ? { approvedCost: approval.changeOrder.estimatedCost } : undefined,
+        db: tx,
+        viaCeremony: true,
+      });
+    }
+
+    return { newStatus, fullyApproved };
   });
 
   await recordAudit({
     actorId: user.id,
     action: decision === "APPROVED" ? "APPROVE" : decision === "REJECTED" ? "REJECT" : "STATUS",
     resource: "ChangeOrderApproval",
-    resourceId: approvalId,
+    resourceId: approval.id,
     details: { stage: approval.stage, comment },
   });
 
-  // If rejected → mark change order REJECTED. If more_info → MORE_INFO. If all approved → APPROVED.
+  // Notify on every outcome, not only full approval: a rejection or a
+  // request for more information previously told nobody at all, and
+  // advancing to the next stage never told that stage's approvers it was
+  // now their turn (workflow-logic [CHANGE ORDERS]).
+  const coLabel = `${approval.changeOrder.number} — ${approval.changeOrder.title}`;
   if (decision === "REJECTED") {
-    await prisma.changeOrder.update({ where: { id: approval.changeOrderId }, data: { status: "REJECTED" } });
-  } else if (decision === "MORE_INFO") {
-    await prisma.changeOrder.update({ where: { id: approval.changeOrderId }, data: { status: "MORE_INFO" } });
-  } else {
-    const remaining = await prisma.changeOrderApproval.count({
-      where: { changeOrderId: approval.changeOrderId, decision: "PENDING", required: true },
+    await notify({
+      userIds: [approval.changeOrder.createdById],
+      kind: "STATUS_CHANGE",
+      priority: "HIGH",
+      title: `Rejected at ${approval.stage.replace(/_/g, " ")}: ${coLabel}`,
+      resource: "ChangeOrder",
+      resourceId: approval.changeOrderId,
     });
-    if (remaining === 0) {
-      await prisma.changeOrder.update({
-        where: { id: approval.changeOrderId },
-        data: { status: "APPROVED", approvedCost: approval.changeOrder.estimatedCost },
+  } else if (decision === "MORE_INFO") {
+    await notify({
+      userIds: [approval.changeOrder.createdById],
+      kind: "STATUS_CHANGE",
+      title: `More information requested at ${approval.stage.replace(/_/g, " ")}: ${coLabel}`,
+      resource: "ChangeOrder",
+      resourceId: approval.changeOrderId,
+    });
+  } else if (fullyApproved) {
+    await notify({
+      userIds: [approval.changeOrder.createdById],
+      kind: "STATUS_CHANGE",
+      priority: "HIGH",
+      title: `Fully approved: ${coLabel}`,
+      resource: "ChangeOrder",
+      resourceId: approval.changeOrderId,
+    });
+  } else {
+    const nextStage = await prisma.changeOrderApproval.findFirst({
+      where: { changeOrderId: approval.changeOrderId, decision: "PENDING", required: true },
+      orderBy: { order: "asc" },
+    });
+    if (nextStage) {
+      const nextPermKey = STAGE_PERMISSION[nextStage.stage as CoApprovalStage];
+      const candidates = await prisma.user.findMany({
+        where: {
+          active: true,
+          roles: { some: { role: { permissions: { some: { permission: { key: nextPermKey } } } } } },
+        },
+        select: { id: true },
       });
+      const recipients = await usersReachingProject(
+        candidates.map((u) => u.id),
+        approval.changeOrder.projectId
+      );
       await notify({
-        userIds: [approval.changeOrder.createdById],
-        kind: "STATUS_CHANGE",
+        userIds: recipients,
+        kind: "APPROVAL_REQUIRED",
         priority: "HIGH",
-        title: `Change order ${approval.changeOrder.number} fully approved`,
+        title: `Approval required: ${approval.changeOrder.number} (${nextStage.stage})`,
         resource: "ChangeOrder",
         resourceId: approval.changeOrderId,
-      });
-    } else {
-      await prisma.changeOrder.update({
-        where: { id: approval.changeOrderId },
-        data: { status: "UNDER_REVIEW" },
       });
     }
   }
