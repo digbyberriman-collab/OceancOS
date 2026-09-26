@@ -49,6 +49,7 @@ the fast path when the schema or seed changes under you.
 | `npm run test:watch` | Unit tests in watch mode |
 | `npm run test:e2e` | Browser tests (Playwright) — see [End-to-end tests](#end-to-end-tests) |
 | `npm run qa` | Read-only database integrity checks against the seed |
+| `npm run vessels:import` | Load the vessel register workbook — see [Vessel register](#vessel-register) |
 
 ## End-to-end tests
 
@@ -108,6 +109,29 @@ pending migrations non-interactively and never generates a new one.
   JSON files to `MAIL_OUTBOX_DIR` instead of sent; fine for a demo environment, not for real use.
 
 See `.env.example` for the complete list with defaults and further comments.
+
+## Vessel register
+
+Every vessel shows the same particulars — identity and registry, dimensions and tonnage, design,
+machinery, accommodation, class — laid out by the field catalogue in
+`src/lib/vessels/fields.ts`. A field with no value renders as a "Not recorded" placeholder, so gaps
+are visible and every vessel reads alike. The active project's vessel is at `/vessel`; every vessel
+is in the fleet register at `/vessels`.
+
+The Oceanco Y700 register (22 vessels, Y701–Y726) is committed at
+`prisma/data/Oceanco_Y700_Vessel_Register_2026-09-25.xlsx` and loaded by the seed. Each vessel gets a
+project coded by its yard number. To load it — or a newer edition — into a deployed database:
+
+```bash
+npm run vessels:import                              # the committed workbook
+npm run vessels:import -- path/to/newer.xlsx        # a newer edition
+npm run vessels:import -- path/to/newer.xlsx --overwrite
+```
+
+Vessels are matched by IMO. Without `--overwrite` the import only fills blank fields, so values
+entered in the application are never replaced. Sourced observations and data gaps are only ever
+added, and a gap's status set in the application survives a re-import. Figures are public-source
+and not certificate-verified until a vessel is marked otherwise.
 
 ## Seeded accounts
 

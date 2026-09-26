@@ -13,10 +13,13 @@ import {
 import { requireProjectAccess } from "@/lib/project";
 import { notFound } from "@/lib/errors";
 import { setFormFlash } from "@/lib/formFlash";
+import { PROJECT_TYPES } from "@/lib/enums";
 
 export type ProjectFormFlash = {
   error: string;
   values: {
+    name: string;
+    type: string;
     code: string;
     yardName: string;
     currency: string;
@@ -28,7 +31,7 @@ export type ProjectFormFlash = {
 };
 
 /**
- * Update a project's identity and yard period.
+ * Update a project's name, type, code and yard period.
  *
  * These dates drive the Home timing cards and the time-progress ring, so an
  * out-of-order period is rejected rather than stored: it would make the
@@ -45,6 +48,8 @@ export async function updateProjectAction(formData: FormData) {
   // a rejected submission re-renders exactly what was typed, per
   // ACTION_PLAN.md G3.6 — not the closest legal value.
   const rawValues: ProjectFormFlash["values"] = {
+    name: String(formData.get("name") ?? ""),
+    type: String(formData.get("type") ?? ""),
     code: String(formData.get("code") ?? ""),
     yardName: String(formData.get("yardName") ?? ""),
     currency: String(formData.get("currency") ?? "EUR"),
@@ -87,12 +92,19 @@ export async function updateProjectAction(formData: FormData) {
     if (clash) back(`Code ${code} is already used by another project.`);
   }
 
+  // Name and type are optional in the submission so older forms keep working.
+  const nameInput = formData.get("name");
+  const name = nameInput == null ? existing.name : String(nameInput).trim();
+  if (!name) back("A project needs a name.");
+  const type = String(formData.get("type") ?? existing.type);
+  if (!(PROJECT_TYPES as readonly string[]).includes(type)) back("Choose a project type from the list.");
+
   const yardName = String(formData.get("yardName") ?? "").trim() || null;
   const currency = String(formData.get("currency") ?? "EUR").trim().toUpperCase() || "EUR";
 
   await prisma.project.update({
     where: { id },
-    data: { ...dates, code, yardName, currency },
+    data: { ...dates, name, type, code, yardName, currency },
   });
 
   await recordAudit({
@@ -101,6 +113,8 @@ export async function updateProjectAction(formData: FormData) {
     resource: "Project",
     resourceId: id,
     details: {
+      name,
+      type,
       code,
       yardName,
       currency,

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -35,10 +36,19 @@ export default async function AdminPage() {
         })
       : [],
     canSeeUsers
-      ? prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" }, take: 200 })
+      ? prisma.vessel.findMany({
+          where: { archivedAt: null },
+          orderBy: [{ yardNumber: "asc" }, { name: "asc" }],
+          take: 200,
+        })
       : [],
     canSeeUsers
-      ? prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" }, take: 200 })
+      ? prisma.project.findMany({
+          where: { archivedAt: null },
+          include: { vessel: true },
+          orderBy: [{ code: "asc" }, { name: "asc" }],
+          take: 200,
+        })
       : [],
     canSeeUsers ? prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }) : [],
     canSeeAudit ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : [],
@@ -164,8 +174,14 @@ export default async function AdminPage() {
               ) : (
                 <ul className="divide-y divide-line-soft">
                   {vessels.map((v) => (
-                    <li key={v.id} className="px-4 py-2 text-sm text-muted hover:text-white transition-colors">
-                      {v.name}
+                    <li key={v.id}>
+                      <Link
+                        href={`/vessels/${v.id}`}
+                        className="flex items-baseline gap-2 px-4 py-2 text-sm text-muted hover:text-white transition-colors"
+                      >
+                        {v.yardNumber && <span className="text-[11px] text-faint tnum">{v.yardNumber}</span>}
+                        {v.name}
+                      </Link>
                     </li>
                   ))}
                 </ul>

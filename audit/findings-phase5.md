@@ -358,3 +358,24 @@ project-scoped staff.
 
 Suggested fix: Gate 10, item 10.7 — `admin.users` becomes account-scope (effective only from an
 unscoped assignment), and the vessel and project lists are scoped to the viewer's reach.
+
+---
+
+The entry below was found by the UI/UX elevation audit (`audit/UI_UX_ELEVATION.md`). It is not
+part of the permission gates.
+
+---
+
+### [SORTING] — Crew requests sort CRITICAL last
+Severity: Medium
+Location: `src/app/(app)/crew-requests/page.tsx:50`
+Found by: UI/UX elevation audit (`audit/UI_UX_ELEVATION.md`, E38)
+
+Description:
+
+The list orders by `[{ priority: "desc" }, { createdAt: "desc" }]`. `priority` is a string column, so
+descending order is alphabetical: MEDIUM, LOW, HIGH, CRITICAL. The most urgent requests land at the
+bottom of the list, which is the opposite of the intent.
+
+Suggested fix: order by a rank — a raw `CASE` expression, or an integer `priorityRank` column written
+alongside `priority` — and add a unit test asserting CRITICAL sorts first.
