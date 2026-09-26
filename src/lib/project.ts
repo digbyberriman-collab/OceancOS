@@ -7,6 +7,8 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "./db";
+import type { CurrentUser } from "./auth";
+import { forbidden } from "./errors";
 import { PLATFORM_WIDE_ROLES, type RoleKey } from "./enums";
 
 const SESSION_COOKIE = "oc_session";
@@ -71,6 +73,52 @@ export async function listProjectsForUser(userId: string): Promise<ProjectSummar
     vesselName: p.vessel.name,
     status: p.status,
   }));
+}
+
+/**
+ * Asserts `user` can reach `projectId` — the write-path guard.
+ *
+ * Every create, update or transition that takes a project id from a
+ * submitted form or a route param must call this before touching the
+ * database. The active-project switcher and `getActiveProject` already only
+ * ever offer a project the user can reach, but a request is not obliged to
+ * agree with what the UI offered it — `projectId` read straight off a
+ * change-order or crew-request create form is exactly this gap (T4 in
+ * AUDIT_REPORT.md). Not yet called anywhere: application is G2.1.
+ */
+export async function requireProjectAccess(
+  user: NonNullable<CurrentUser>,
+  projectId: string
+): Promise<void> {
+  const available = await listProjectsForUser(user.id);
+  if (!available.some((p) => p.id === projectId)) {
+    throw forbidden("You do not have access to that project.");
+  }
+}
+
+/**
+ * A Prisma `where` fragment scoping a query to the projects `user` can
+ * reach: `{ projectId: { in: [...] } }`.
+ *
+ * For a user who can reach no project this is `{ projectId: { in: [] } }` —
+ * an empty `IN` list, which matches no row. It is never `undefined`, which
+ * Prisma drops from a `where` entirely rather than treating as "match
+ * nothing". That distinction is C4's exact failure: the change-order export
+ * route used `projectId ? { projectId } : undefined`, which fell to
+ * `undefined` for a user who could reach no project, and that user
+ * exported every change order in the database. Not yet called anywhere:
+ * application is G2.1.
+ *
+ * Only for a model whose scoping column is literally `projectId`. A model
+ * scoped some other way (`PurchaseOrder.projectId` is nullable; `Supplier`
+ * has no project column at all and is a fleet-wide directory) needs its own
+ * fragment built from `listProjectsForUser` directly.
+ */
+export async function scopedProjectFilter(
+  user: NonNullable<CurrentUser>
+): Promise<{ projectId: { in: string[] } }> {
+  const available = await listProjectsForUser(user.id);
+  return { projectId: { in: available.map((p) => p.id) } };
 }
 
 /**

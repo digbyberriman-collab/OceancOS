@@ -19,10 +19,22 @@ vi.mock("next/headers", () => ({
   cookies: () => ({ get: () => undefined }),
 }));
 
-import { listProjectsForUser } from "@/lib/project";
+import { listProjectsForUser, requireProjectAccess, scopedProjectFilter } from "@/lib/project";
+import { isActionError } from "@/lib/errors";
 
 function project(id: string) {
   return { id, name: `Project ${id}`, code: id, status: "ACTIVE", vessel: { name: `Vessel ${id}` } };
+}
+
+function fakeUser(id: string) {
+  return {
+    id,
+    email: `${id}@example.com`,
+    name: "Test User",
+    roles: [],
+    roleKeys: [],
+    permissions: new Set<string>(),
+  } as any;
 }
 
 beforeEach(() => {
@@ -119,5 +131,81 @@ describe("listProjectsForUser — G1.4 fail-closed scoping", () => {
 
     expect(result).toEqual([]);
     expect(projectFindMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("requireProjectAccess — G1.2 write-path guard", () => {
+  it("throws a forbidden ActionError for the zero-project case", async () => {
+    userRoleFindMany.mockResolvedValue([
+      { projectId: null, vesselId: null, role: { key: "CONTRACTOR" } },
+    ]);
+
+    const err = await requireProjectAccess(fakeUser("u1"), "p1").catch((e) => e);
+
+    expect(isActionError(err)).toBe(true);
+    expect(err.kind).toBe("forbidden");
+  });
+
+  it("passes for a project a vessel-scoped user can reach", async () => {
+    userRoleFindMany.mockResolvedValue([
+      { projectId: null, vesselId: "v1", role: { key: "CHIEF_ENGINEER" } },
+    ]);
+    projectFindMany.mockResolvedValue([project("p1")]);
+
+    await expect(requireProjectAccess(fakeUser("u1"), "p1")).resolves.toBeUndefined();
+  });
+
+  it("throws for a project a vessel-scoped user cannot reach", async () => {
+    userRoleFindMany.mockResolvedValue([
+      { projectId: null, vesselId: "v1", role: { key: "CHIEF_ENGINEER" } },
+    ]);
+    projectFindMany.mockResolvedValue([project("p1")]);
+
+    const err = await requireProjectAccess(fakeUser("u1"), "p2").catch((e) => e);
+
+    expect(isActionError(err)).toBe(true);
+    expect(err.kind).toBe("forbidden");
+  });
+
+  it("passes for any project an unscoped owner-side user reaches", async () => {
+    userRoleFindMany.mockResolvedValue([{ projectId: null, vesselId: null, role: { key: "OWNER" } }]);
+    projectFindMany.mockResolvedValue([project("p1"), project("p2")]);
+
+    await expect(requireProjectAccess(fakeUser("u1"), "p2")).resolves.toBeUndefined();
+  });
+});
+
+describe("scopedProjectFilter — G1.2 read-path guard", () => {
+  it("returns a never-matching filter for the zero-project case, not undefined", async () => {
+    userRoleFindMany.mockResolvedValue([
+      { projectId: null, vesselId: null, role: { key: "CONTRACTOR" } },
+    ]);
+
+    const filter = await scopedProjectFilter(fakeUser("u1"));
+
+    expect(filter).toEqual({ projectId: { in: [] } });
+    // The bug this replaces: `projectId ? { projectId } : undefined`, which
+    // Prisma drops entirely rather than treating as "match nothing".
+    expect(filter.projectId).not.toBeUndefined();
+  });
+
+  it("scopes to exactly the projects a vessel-scoped user can reach", async () => {
+    userRoleFindMany.mockResolvedValue([
+      { projectId: null, vesselId: "v1", role: { key: "CHIEF_ENGINEER" } },
+    ]);
+    projectFindMany.mockResolvedValue([project("p1")]);
+
+    const filter = await scopedProjectFilter(fakeUser("u1"));
+
+    expect(filter).toEqual({ projectId: { in: ["p1"] } });
+  });
+
+  it("scopes to every project for an unscoped owner-side user", async () => {
+    userRoleFindMany.mockResolvedValue([{ projectId: null, vesselId: null, role: { key: "OWNER" } }]);
+    projectFindMany.mockResolvedValue([project("p1"), project("p2")]);
+
+    const filter = await scopedProjectFilter(fakeUser("u1"));
+
+    expect(filter).toEqual({ projectId: { in: ["p1", "p2"] } });
   });
 });
