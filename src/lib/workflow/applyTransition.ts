@@ -9,10 +9,10 @@
 // found while building this file, logged in audit/findings-phase5.md).
 // See G1.3 in ACTION_PLAN.md.
 //
-// CrewRequest is not dispatched here yet: five of its nine target statuses
-// have no permission assigned to them at all today (C6), and deciding that
-// assignment is G2.4's job, not this one's. Extending `TransitionEntity`
-// and adding its dispatch case is part of that item.
+// CrewRequest is dispatched here too (G2.4), closing C6: the four target
+// statuses that previously required no permission at all now go through the
+// same legality/permission/project-access/atomic-write path as Job and
+// ChangeOrder.
 
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -22,9 +22,10 @@ import { requireProjectAccess } from "@/lib/project";
 import { conflict, forbidden } from "@/lib/errors";
 import { assertTransitionJob, JOB_GENERIC_UNREACHABLE } from "@/lib/jobs/workflow";
 import { assertTransitionChangeOrder, CO_GENERIC_UNREACHABLE } from "@/lib/workflow/changeOrder";
-import type { JobStatus, ChangeOrderStatus } from "@/lib/enums";
+import { assertTransitionCrewRequest, CR_GENERIC_UNREACHABLE } from "@/lib/workflow/crewRequest";
+import type { JobStatus, ChangeOrderStatus, CrewRequestStatus } from "@/lib/enums";
 
-export type TransitionEntity = "Job" | "ChangeOrder";
+export type TransitionEntity = "Job" | "ChangeOrder" | "CrewRequest";
 
 /** Either the plain client or an interactive transaction's `tx`. */
 type Db = typeof prisma | Prisma.TransactionClient;
@@ -32,11 +33,13 @@ type Db = typeof prisma | Prisma.TransactionClient;
 const GENERIC_UNREACHABLE: Record<TransitionEntity, readonly string[]> = {
   Job: JOB_GENERIC_UNREACHABLE,
   ChangeOrder: CO_GENERIC_UNREACHABLE,
+  CrewRequest: CR_GENERIC_UNREACHABLE,
 };
 
 function assertLegal(entity: TransitionEntity, from: string, to: string) {
   if (entity === "Job") assertTransitionJob(from as JobStatus, to as JobStatus);
-  else assertTransitionChangeOrder(from as ChangeOrderStatus, to as ChangeOrderStatus);
+  else if (entity === "ChangeOrder") assertTransitionChangeOrder(from as ChangeOrderStatus, to as ChangeOrderStatus);
+  else assertTransitionCrewRequest(from as CrewRequestStatus, to as CrewRequestStatus);
 }
 
 export type ApplyTransitionParams = {
@@ -100,7 +103,9 @@ export async function applyTransition(params: ApplyTransitionParams): Promise<vo
   const result =
     entity === "Job"
       ? await db.job.updateMany({ where: { id, status: from }, data: writeData })
-      : await db.changeOrder.updateMany({ where: { id, status: from }, data: writeData });
+      : entity === "ChangeOrder"
+      ? await db.changeOrder.updateMany({ where: { id, status: from }, data: writeData })
+      : await db.crewRequest.updateMany({ where: { id, status: from }, data: writeData });
 
   if (result.count !== 1) {
     throw conflict();

@@ -3,13 +3,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject } from "@/lib/project";
+import { assertPermission, PERMISSIONS } from "@/lib/rbac";
+import { getActiveProject, requireProjectAccess } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { CrewRequestCreateSchema, CrewRequestStatusSchema } from "@/lib/validators";
 import { nextSequence } from "@/lib/utils";
 import { conflict, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/applyTransition";
+import { CR_TRANSITION_PERMISSION } from "@/lib/workflow/crewRequest";
+import type { CrewRequestStatus } from "@/lib/enums";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -61,30 +64,23 @@ export async function transitionCrewRequest(id: string, toStatus: string, commen
   const cr = await prisma.crewRequest.findUnique({ where: { id } });
   if (!cr) throw notFound("That crew request");
   const target = CrewRequestStatusSchema.parse(toStatus);
+  const from = cr.status as CrewRequestStatus;
 
-  // permission rules
-  if (target === "TRIAGED" || target === "ASSIGNED") assertPermission(user, PERMISSIONS.CR_TRIAGE);
-  else if (target === "COMPLETED" || target === "CLOSED") assertPermission(user, PERMISSIONS.CR_COMPLETE);
-
-  const legal: Record<string, string[]> = {
-    NEW: ["TRIAGED", "ASSIGNED", "REJECTED"],
-    TRIAGED: ["ASSIGNED", "REJECTED"],
-    ASSIGNED: ["IN_PROGRESS", "BLOCKED", "AWAITING_APPROVAL", "COMPLETED", "REJECTED"],
-    IN_PROGRESS: ["BLOCKED", "AWAITING_APPROVAL", "COMPLETED"],
-    BLOCKED: ["IN_PROGRESS", "REJECTED"],
-    AWAITING_APPROVAL: ["IN_PROGRESS", "COMPLETED", "REJECTED"],
-    COMPLETED: ["CLOSED"],
-    REJECTED: ["NEW"],
-    CLOSED: [],
-  };
-  if (!legal[cr.status]?.includes(target)) {
-    throw conflict(`A request at ${cr.status} cannot move to ${target}.`);
-  }
-
-  await prisma.crewRequest.update({
-    where: { id },
-    data: { status: target, updatedById: user.id },
+  // Legality, permission and project-access all run inside applyTransition
+  // now (G2.4). Before this, IN_PROGRESS/BLOCKED/AWAITING_APPROVAL/REJECTED
+  // fell through with no permission check at all — not even CR_VIEW — and
+  // nothing here checked the actor could reach the request's project (C6).
+  await applyTransition({
+    entity: "CrewRequest",
+    id,
+    projectId: cr.projectId,
+    from,
+    to: target,
+    actor: user,
+    permission: CR_TRANSITION_PERMISSION[target],
+    data: { updatedById: user.id },
   });
+
   await recordAudit({
     actorId: user.id,
     action: "STATUS",
@@ -110,16 +106,55 @@ export async function assignCrewRequest(formData: FormData) {
   assertPermission(user, PERMISSIONS.CR_ASSIGN);
   const id = String(formData.get("id"));
   const assignedToId = String(formData.get("assignedToId") || "") || null;
-  await prisma.crewRequest.update({
-    where: { id },
-    data: { assignedToId, status: assignedToId ? "ASSIGNED" : "TRIAGED", updatedById: user.id },
-  });
+
+  const cr = await prisma.crewRequest.findUnique({ where: { id } });
+  if (!cr) throw notFound("That crew request");
+  await requireProjectAccess(user, cr.projectId);
+
+  // Assignment used to write `status` directly, bypassing the transition
+  // map entirely: assigning someone to a CLOSED or COMPLETED request forced
+  // it straight back to ASSIGNED, and clearing the assignee on any request
+  // forced it to TRIAGED, including from terminal states, with no audit
+  // trail of the status move at all (workflow-logic's "Assigning bypasses
+  // the transition map and reopens closed requests"). Now the status only
+  // ever moves along the two edges assignment can legally cause — NEW/
+  // TRIAGED to ASSIGNED when someone is assigned, ASSIGNED back to TRIAGED
+  // when cleared — and that move goes through applyTransition's own
+  // legality/permission/project-access/atomic-write path. Assigning while
+  // in any other status (IN_PROGRESS, COMPLETED, CLOSED, REJECTED, ...)
+  // changes only the assignee.
+  let nextStatus = cr.status as CrewRequestStatus;
+  if (assignedToId && (cr.status === "NEW" || cr.status === "TRIAGED")) {
+    nextStatus = "ASSIGNED";
+  } else if (!assignedToId && cr.status === "ASSIGNED") {
+    nextStatus = "TRIAGED";
+  }
+
+  if (nextStatus !== cr.status) {
+    await applyTransition({
+      entity: "CrewRequest",
+      id,
+      projectId: cr.projectId,
+      from: cr.status as CrewRequestStatus,
+      to: nextStatus,
+      actor: user,
+      permission: CR_TRANSITION_PERMISSION[nextStatus],
+      data: { assignedToId, updatedById: user.id },
+    });
+  } else {
+    const result = await prisma.crewRequest.updateMany({
+      where: { id, status: cr.status },
+      data: { assignedToId, updatedById: user.id },
+    });
+    if (result.count !== 1) throw conflict();
+  }
+
   await recordAudit({
     actorId: user.id,
     action: "UPDATE",
     resource: "CrewRequest",
     resourceId: id,
-    details: { assignedToId },
+    details: { assignedToId, statusFrom: cr.status, statusTo: nextStatus },
   });
   if (assignedToId) {
     await notify({

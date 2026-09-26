@@ -11,6 +11,8 @@ import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { transitionCrewRequest, assignCrewRequest, addCrewRequestComment } from "../actions";
+import { crewRequestActions } from "@/lib/workflow/crewRequest";
+import type { CrewRequestStatus } from "@/lib/enums";
 import { ArrowLeft, MessageSquare, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -36,17 +38,15 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
   const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-  const transitions: Record<string, { to: string; label: string; tone?: "danger" }[]> = {
-    NEW: [{ to: "TRIAGED", label: "Triage" }, { to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    TRIAGED: [{ to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    ASSIGNED: [{ to: "IN_PROGRESS", label: "Start Work" }, { to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    IN_PROGRESS: [{ to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    BLOCKED: [{ to: "IN_PROGRESS", label: "Resume Work" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    AWAITING_APPROVAL: [{ to: "IN_PROGRESS", label: "Back to Work" }, { to: "COMPLETED", label: "Complete" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    COMPLETED: [{ to: "CLOSED", label: "Close" }],
-    REJECTED: [{ to: "NEW", label: "Reopen" }],
-    CLOSED: [],
-  };
+  // Filtered by permission (G2.4): the detail page used to render every
+  // transition for every viewer with no check at all, so a CREW session
+  // saw a live "Reject" button on any project's requests ([X2], compounding
+  // C6). The server now enforces the same permission through applyTransition
+  // — this filter keeps the screen from offering a button the action would
+  // refuse.
+  const actions = crewRequestActions(cr.status as CrewRequestStatus).filter((a) =>
+    hasPermission(user, a.permission)
+  );
 
   const now = new Date();
   const isOverdue =
@@ -141,13 +141,13 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           </SectionCard>
 
           {/* Workflow actions */}
-          {(transitions[cr.status] ?? []).length > 0 && (
+          {actions.length > 0 && (
             <SectionCard title="Workflow Actions">
               <div className="flex flex-wrap gap-2">
-                {(transitions[cr.status] ?? []).map((t) => (
-                  <form key={t.to} action={async () => { "use server"; await transitionCrewRequest(cr.id, t.to); }}>
-                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
-                      {t.label}
+                {actions.map((a) => (
+                  <form key={a.to} action={async () => { "use server"; await transitionCrewRequest(cr.id, a.to); }}>
+                    <button className={a.tone === "danger" ? "btn-danger" : "btn-primary"}>
+                      {a.label}
                     </button>
                   </form>
                 ))}

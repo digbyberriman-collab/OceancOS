@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PERMISSIONS } from "@/lib/rbac";
 import { isActionError } from "@/lib/errors";
 
-const { jobUpdateMany, changeOrderUpdateMany, requireProjectAccess } = vi.hoisted(() => ({
+const { jobUpdateMany, changeOrderUpdateMany, crewRequestUpdateMany, requireProjectAccess } = vi.hoisted(() => ({
   jobUpdateMany: vi.fn(),
   changeOrderUpdateMany: vi.fn(),
+  crewRequestUpdateMany: vi.fn(),
   requireProjectAccess: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     job: { updateMany: jobUpdateMany },
     changeOrder: { updateMany: changeOrderUpdateMany },
+    crewRequest: { updateMany: crewRequestUpdateMany },
   },
 }));
 
@@ -35,6 +37,7 @@ function fakeUser(perms: string[]) {
 beforeEach(() => {
   jobUpdateMany.mockReset();
   changeOrderUpdateMany.mockReset();
+  crewRequestUpdateMany.mockReset();
   requireProjectAccess.mockReset();
   requireProjectAccess.mockResolvedValue(undefined);
 });
@@ -247,6 +250,56 @@ describe("applyTransition — the single status write path", () => {
       where: { id: "co1", status: "DRAFT" },
       data: { status: "SUBMITTED" },
     });
+  });
+
+  it("dispatches CrewRequest to its own table, gated by the permission the target status requires — this is G2.4/C6", async () => {
+    crewRequestUpdateMany.mockResolvedValue({ count: 1 });
+
+    await applyTransition({
+      entity: "CrewRequest",
+      id: "cr1",
+      projectId: "p1",
+      from: "ASSIGNED",
+      to: "IN_PROGRESS",
+      actor: fakeUser([PERMISSIONS.CR_TRIAGE]),
+      permission: PERMISSIONS.CR_TRIAGE,
+    });
+
+    expect(crewRequestUpdateMany).toHaveBeenCalledWith({
+      where: { id: "cr1", status: "ASSIGNED" },
+      data: { status: "IN_PROGRESS" },
+    });
+  });
+
+  it("refuses a crew-request transition for a user without CR_TRIAGE — previously this fell through with no check at all", async () => {
+    const err = await applyTransition({
+      entity: "CrewRequest",
+      id: "cr1",
+      projectId: "p1",
+      from: "ASSIGNED",
+      to: "REJECTED",
+      actor: fakeUser([]),
+      permission: PERMISSIONS.CR_TRIAGE,
+    }).catch((e) => e);
+
+    expect(isActionError(err)).toBe(true);
+    expect(err.kind).toBe("forbidden");
+    expect(crewRequestUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects an illegal crew-request transition, e.g. skipping straight to IN_PROGRESS from NEW", async () => {
+    const err = await applyTransition({
+      entity: "CrewRequest",
+      id: "cr1",
+      projectId: "p1",
+      from: "NEW",
+      to: "IN_PROGRESS",
+      actor: fakeUser([PERMISSIONS.CR_TRIAGE]),
+      permission: PERMISSIONS.CR_TRIAGE,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(crewRequestUpdateMany).not.toHaveBeenCalled();
   });
 
   it("writes through a supplied interactive-transaction client instead of the plain one", async () => {
