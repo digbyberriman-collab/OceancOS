@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_THEME, THEMES, parseTheme, safeReturnPath, themeColor } from "@/lib/theme";
+import {
+  DEFAULT_THEME,
+  THEMES,
+  colorScheme,
+  parseTheme,
+  safeReturnPath,
+  themeColor,
+} from "@/lib/theme";
 
 describe("theme preference", () => {
   it("defaults to dark", () => {
@@ -27,6 +34,12 @@ describe("theme preference", () => {
       { media: "(prefers-color-scheme: light)", color: "#eef2f7" },
       { media: "(prefers-color-scheme: dark)", color: "#060912" },
     ]);
+  });
+
+  it("declares the color scheme the theme paints with, so Light never opens dark", () => {
+    expect(colorScheme("dark")).toBe("dark");
+    expect(colorScheme("light")).toBe("light");
+    expect(colorScheme("system")).toBe("dark light");
   });
 });
 

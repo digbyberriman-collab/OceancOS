@@ -32,3 +32,14 @@ export function themeColor(theme: Theme) {
   }
   return "#060912";
 }
+
+/**
+ * The `color-scheme` meta per theme. The browser paints with it before the
+ * stylesheet arrives, so it has to agree with the theme or a Light page opens
+ * dark. System lists both, dark first as the app's default.
+ */
+export function colorScheme(theme: Theme): "dark" | "light" | "dark light" {
+  if (theme === "light") return "light";
+  if (theme === "system") return "dark light";
+  return "dark";
+}

@@ -3,11 +3,12 @@ import { cookies } from "next/headers";
 import { requireUser } from "@/lib/auth";
 import { unreadCount } from "@/lib/notifications";
 import { getActiveProject, listProjectsForUser } from "@/lib/project";
-import { THEME_COOKIE, parseTheme, themeColor } from "@/lib/theme";
+import { THEME_COOKIE, colorScheme, parseTheme, themeColor } from "@/lib/theme";
 import { AppShell } from "@/components/layout/AppShell";
 
 export function generateViewport(): Viewport {
-  return { themeColor: themeColor(parseTheme(cookies().get(THEME_COOKIE)?.value)) };
+  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  return { themeColor: themeColor(theme), colorScheme: colorScheme(theme) };
 }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
