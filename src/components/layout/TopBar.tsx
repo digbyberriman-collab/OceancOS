@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { Search, Bell, Menu } from "lucide-react";
-import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
-import { SubmitButton } from "@/components/ui/SubmitButton";
 import { UserMenu } from "./UserMenu";
 import type { ProjectSummary } from "@/lib/project";
 import type { Theme } from "@/lib/theme";
@@ -68,11 +66,6 @@ export function TopBar({
           initials={initials || "U"}
           theme={theme}
         />
-        <form action={logoutAction}>
-          <SubmitButton className="btn-ghost text-xs" pendingText="Signing out…">
-            Sign out
-          </SubmitButton>
-        </form>
       </div>
     </header>
   );

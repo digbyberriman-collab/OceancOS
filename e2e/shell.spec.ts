@@ -47,6 +47,9 @@ test.describe("authentication", () => {
   test("signs a project manager in and back out", async ({ page }) => {
     await signIn(page, PM);
     await expect(page.getByRole("heading", { name: /project dashboard/i })).toBeVisible();
+    // Sign out lives in the profile menu, not on the bar itself.
+    await expect(page.getByRole("button", { name: /sign out/i })).toBeHidden();
+    await page.getByLabel(/account menu/i).click();
     await page.getByRole("button", { name: /sign out/i }).click();
     await page.waitForURL("**/login");
     await page.goto("/dashboard");
@@ -296,7 +299,7 @@ test.describe("text search", () => {
 });
 
 test.describe("theme", () => {
-  const menu = (page: Page) => page.getByLabel(/account and theme/i);
+  const menu = (page: Page) => page.getByLabel(/account menu/i);
 
   async function choose(page: Page, theme: "Dark" | "Light" | "System") {
     await menu(page).click();
@@ -354,7 +357,7 @@ test.describe("theme", () => {
 test.describe("theme without JavaScript", () => {
   // Signing in is not what is under test here, so it happens with JavaScript;
   // the theme change then happens in a browser that has it switched off.
-  test("still switches, because the menu is a plain disclosure and form", async ({
+  test("still switches theme and signs out, because the menu is a disclosure and forms", async ({
     browser,
     baseURL,
   }) => {
@@ -368,7 +371,7 @@ test.describe("theme without JavaScript", () => {
     await page.goto("/dashboard");
     await expect(page.locator("#app-shell")).toHaveAttribute("data-app-theme", "dark");
 
-    await page.getByLabel(/account and theme/i).click();
+    await page.getByLabel(/account menu/i).click();
     // A plain form post: the server sets the cookie and redirects back here.
     await Promise.all([
       page.waitForResponse((r) => r.request().method() === "POST" && r.status() === 303),
@@ -377,6 +380,10 @@ test.describe("theme without JavaScript", () => {
     await page.waitForLoadState("load");
     await expect(page.locator("#app-shell")).toHaveAttribute("data-app-theme", "light");
     await expect(page).toHaveURL(/\/dashboard$/);
+
+    await page.getByLabel(/account menu/i).click();
+    await page.getByRole("button", { name: /sign out/i }).click();
+    await page.waitForURL("**/login");
     await noJs.close();
   });
 });

@@ -2,8 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ChevronDown, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
-import { setThemeAction } from "@/app/(app)/_actions";
+import { ChevronDown, LogOut, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { logoutAction, setThemeAction } from "@/app/(app)/_actions";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import type { Theme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -14,10 +15,10 @@ const OPTIONS: { value: Theme; label: string; icon: LucideIcon }[] = [
 ];
 
 /**
- * The profile button: who is signed in, and the theme.
+ * The profile button: who is signed in, the theme, and signing out.
  *
- * A <details> disclosure, so it opens and the theme can be changed without
- * JavaScript. With JavaScript the new theme applies before the server answers,
+ * A <details> disclosure, so it opens, the theme can be changed and the user
+ * can sign out without JavaScript. With JavaScript the new theme applies before the server answers,
  * and the panel closes on an outside click or Escape.
  */
 export function UserMenu({
@@ -61,7 +62,7 @@ export function UserMenu({
   return (
     <details ref={ref} className="relative ml-1 border-l border-line pl-2">
       <summary
-        aria-label={`Account and theme for ${name}`}
+        aria-label={`Account menu for ${name}`}
         className="flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-ink-800/70 [&::-webkit-details-marker]:hidden"
       >
         <span className="grid h-8 w-8 place-items-center rounded-full bg-ink-700 text-xs font-semibold text-white ring-1 ring-line-strong">
@@ -113,6 +114,20 @@ export function UserMenu({
             </div>
           </fieldset>
           <p className="mt-2 px-1 text-xs text-faint">System follows your device&apos;s setting.</p>
+        </form>
+        <form action={logoutAction} className="mt-3 border-t border-line-soft pt-2">
+          <SubmitButton
+            className="flex min-h-11 w-full items-center gap-2.5 rounded-md px-2 text-sm font-medium text-muted transition-colors hover:bg-ink-800/60 hover:text-white"
+            pendingText={
+              <>
+                <LogOut className="h-4 w-4" aria-hidden />
+                Signing out…
+              </>
+            }
+          >
+            <LogOut className="h-4 w-4" aria-hidden />
+            Sign out
+          </SubmitButton>
         </form>
       </div>
     </details>

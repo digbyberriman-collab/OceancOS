@@ -18,6 +18,7 @@ async function signIn(page: Page, user: { email: string; password: string }) {
 }
 
 async function signOut(page: Page) {
+  await page.getByLabel(/account menu/i).click();
   await page.getByRole("button", { name: /sign out/i }).click();
   await page.waitForURL("**/login");
 }

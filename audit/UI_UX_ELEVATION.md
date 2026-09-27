@@ -248,6 +248,9 @@ status, project code and the matched text highlighted. This is navigation only.
 How: the avatar opens a menu with the humanised role ("Owner's representative"), profile, and Sign
 out separated from the rest. Show an unread dot on the bell; the count lives only in the sidebar today.
 
+> **Partly done (27 Sep 2026):** the avatar opens a menu with name, email, the theme choice and
+> Sign out, set apart at the bottom. Still open: the humanised role and the unread dot on the bell.
+
 ### E15 — The phone layout
 **Tier 2 · Effort M** · Where: `Sidebar.tsx:53`, `(app)/layout.tsx:15-23`; evidence from every `m-*`
 capture · Overlaps: G2.7
