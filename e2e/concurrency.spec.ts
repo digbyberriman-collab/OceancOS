@@ -15,6 +15,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const PM = { email: "pm@oceancos.dev", password: "password" };
 const YARD = { email: "yard@oceancos.dev", password: "password" };
 
 async function signIn(page: Page, user: { email: string; password: string }) {
@@ -115,5 +116,42 @@ test.describe("a status change that lands mid-action is not overwritten", () => 
     expect(after.status).toBe("CANCELLED_QUOTE");
     expect(after.total.toString()).toBe("300");
     expect(after.lines.map((l) => l.quantity.toString())).toEqual(["4"]);
+  });
+  test("editing a change order does not rewrite one submitted in the meantime", async ({
+    page,
+  }) => {
+    await signIn(page, PM);
+    await page.goto("/change-orders/new");
+    const title = `Race fixture ${Date.now()}`;
+    await page.getByLabel("Title").fill(title);
+    await page.getByLabel("Description").fill("A draft being edited while someone submits it.");
+    await page.getByLabel("Reason for Change").fill("Reproducing the edit/submit race.");
+    await page.getByLabel("Estimated Cost (EUR)").fill("1000");
+    await page.getByRole("button", { name: /create draft/i }).click();
+    await page.waitForURL(
+      (url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"),
+    );
+    const id = new URL(page.url()).pathname.split("/").pop()!;
+
+    await page.getByRole("link", { name: /edit details/i }).click();
+    await page.waitForURL(/\/edit$/);
+    await page.getByLabel("Title").fill(`${title} (edited)`);
+    await page.getByLabel(/requires class review/i).check();
+
+    await raceAgainst(
+      (tx) => tx.$executeRaw`UPDATE "ChangeOrder" SET "status" = 'SUBMITTED' WHERE "id" = ${id}`,
+      () => page.getByRole("button", { name: /save changes/i }).click(),
+    );
+
+    await expect(page.getByRole("heading", { name: "Changed by someone else" })).toBeVisible();
+
+    const after = await prisma.changeOrder.findUniqueOrThrow({
+      where: { id },
+      include: { approvals: { select: { stage: true } } },
+    });
+    expect(after.status).toBe("SUBMITTED");
+    expect(after.title).toBe(title);
+    expect(after.needsClassReview).toBe(false);
+    expect(after.approvals.map((a) => a.stage)).not.toContain("CLASS");
   });
 });
