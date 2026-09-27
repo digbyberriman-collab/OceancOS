@@ -13,6 +13,7 @@ import { CONTRACT_TYPES, CONTRACT_TYPE_LABELS, PRICING_BASES, PRICING_BASIS_LABE
 import { DEFAULT_JOB_CODE_PATTERN } from "@/lib/jobs/codes";
 import { fmtBytes, toNumber } from "@/lib/utils";
 import { downloadUrl } from "@/lib/storage";
+import { QuoteLinesEditor } from "@/components/jobs/QuoteLinesEditor";
 import { issueQuote, type IssueQuoteFlash } from "../../actions";
 import { readFormFlash } from "@/lib/formFlash";
 import { FlashCleanup } from "@/components/ui/FlashCleanup";
@@ -86,6 +87,8 @@ export default async function QuoteJob({
   const lineRows = Math.max(LINE_ROWS, job.lines.length);
   const existingExclusions = job.notes.filter((n) => n.kind === "EXCLUSION").map((n) => n.text).join("\n");
   const existingNotes = job.notes.filter((n) => n.kind === "NOTE").map((n) => n.text).join("\n");
+  const currency = job.currency || job.project.currency;
+  const initialLines = Array.from({ length: lineRows }, (_, i) => lineAt(i));
 
   return (
     <div className="animate-fade-up">
@@ -213,61 +216,7 @@ export default async function QuoteJob({
         </SectionCard>
 
         <SectionCard title="Lines">
-          <div className="-mx-2 overflow-x-auto">
-            <table className="table-base">
-              <thead>
-                <tr>
-                  <th scope="col" className="w-1/2">Description</th>
-                  <th scope="col" className="text-right">Quantity</th>
-                  <th scope="col">Unit</th>
-                  <th scope="col" className="text-right">Unit price</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from({ length: lineRows }, (_, i) => (
-                  <tr key={i}>
-                    <td>
-                      <Input
-                        name="lineDescription"
-                        placeholder={i === 0 ? "Skilled worker — mechanic, pipe fitter" : ""}
-                        aria-label={`Line ${i + 1} description`}
-                        defaultValue={lineAt(i)?.description ?? ""}
-                      />
-                    </td>
-                    <td>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        name="lineQuantity"
-                        defaultValue={lineAt(i)?.quantity ?? (i === 0 ? 1 : "")}
-                        className="text-right tnum"
-                        aria-label={`Line ${i + 1} quantity`}
-                      />
-                    </td>
-                    <td>
-                      <Input
-                        name="lineUnit"
-                        defaultValue={lineAt(i)?.unit || "UN"}
-                        className="w-20"
-                        aria-label={`Line ${i + 1} unit`}
-                      />
-                    </td>
-                    <td>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        name="lineUnitPrice"
-                        defaultValue={lineAt(i)?.unitPrice ?? (i === 0 ? 0 : "")}
-                        className="text-right tnum"
-                        aria-label={`Line ${i + 1} unit price`}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <QuoteLinesEditor currency={currency} rows={lineRows} initial={initialLines} />
           <p className="mt-3 text-xs text-faint">
             Empty lines are ignored. The total is calculated from quantity × unit price and held with
             the quote, so an accepted figure never changes afterwards.
