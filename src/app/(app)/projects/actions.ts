@@ -4,14 +4,15 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { prisma } from "@/lib/db";
-import { invalid, notFound } from "@/lib/errors";
+import { forbidden, invalid, notFound } from "@/lib/errors";
 import { setFormFlash } from "@/lib/formFlash";
-import { requireProjectAccess, storeActiveProject } from "@/lib/project";
+import { canActForWholeVessel, requireProjectAccess, storeActiveProject } from "@/lib/project";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { ScopeItemSchema, YardPeriodRecordSchema } from "@/lib/validators";
 import { parseCostBand } from "@/lib/yardPeriods/cost";
-import { identifiedPlace } from "@/lib/yardPeriods/importRegister";
-import { periodBounds } from "@/lib/yardPeriods/period";
+import { identifiedPlace, normaliseUrl } from "@/lib/yardPeriods/importRegister";
+import { periodBounds, startYear } from "@/lib/yardPeriods/period";
+import { freeProjectCode } from "@/lib/vessels/importRegister";
 
 /**
  * Make a project the one being worked in and go to its dashboard — the way
@@ -243,4 +244,147 @@ export async function removeScopeItemAction(formData: FormData) {
   }
   revalidatePath(`/projects/${item.projectId}`);
   redirect(`/projects/${item.projectId}/edit#scope`);
+}
+
+// ---------- Adding a yard period by hand ----------
+
+const ADD_FIELDS = [
+  "periodType",
+  "startLabel",
+  "endLabel",
+  "precisionLabel",
+  "yardText",
+  "cityText",
+  "countryText",
+  "scopeSummary",
+  "confidence",
+  "notes",
+  "sourceUrl",
+] as const;
+
+/**
+ * Record a yard period the register does not have — from owner or manager
+ * maintenance logs, class survey history, yard invoices. It becomes a
+ * COMPLETED project on the vessel with a record of origin MANUAL, and its
+ * source, when given, is kept as evidence like the register's.
+ */
+export async function addYardPeriodAction(formData: FormData) {
+  const user = await requireUser();
+  assertPermission(user, PERMISSIONS.PROJ_EDIT);
+  const vesselId = String(formData.get("vesselId") ?? "");
+  const requested = String(formData.get("returnTo") ?? "");
+  const returnTo = /^\/vessels?(\/[\w-]+)?$/.test(requested) ? requested : `/vessels/${vesselId}`;
+
+  const vessel = await prisma.vessel.findUnique({
+    where: { id: vesselId },
+    select: { id: true, yardNumber: true, name: true },
+  });
+  if (!vessel) throw notFound("That vessel");
+  if (!(await canActForWholeVessel(user.id, vessel.id))) {
+    throw forbidden("Adding a yard period needs a role that covers the whole vessel.");
+  }
+
+  const values = Object.fromEntries(ADD_FIELDS.map((k) => [k, String(formData.get(k) ?? "")]));
+  const back = (error: string): never => {
+    setFormFlash(`add-period-${vessel.id}`, { error, values } satisfies YardPeriodFormFlash);
+    redirect(`${returnTo}#history`);
+  };
+
+  const parsed = YardPeriodRecordSchema.safeParse(values);
+  if (!parsed.success) back(parsed.error.errors[0].message);
+  const data = parsed.data!;
+  const sourceUrl = values.sourceUrl.trim() || null;
+  if (sourceUrl && !/^https?:\/\/\S+$/i.test(sourceUrl))
+    back("Give the source as a web address, or leave it blank.");
+
+  const { sortStart, sortEnd, approximate } = periodBounds(data.startLabel, data.endLabel);
+  const band = parseCostBand(data.costBandLabel);
+  const year = startYear(data.startLabel);
+
+  const project = await prisma.$transaction(async (tx) => {
+    const created = await tx.project.create({
+      data: {
+        vesselId: vessel.id,
+        name: data.periodType,
+        code: await freeProjectCode(tx, `${vessel.yardNumber ?? "V"}-${year ?? "UNDATED"}`),
+        type: /conversion/i.test(data.periodType) ? "CONVERSION" : "REFIT",
+        status: "COMPLETED",
+        yardName: identifiedPlace(data.yardText ?? null),
+        currency: "EUR",
+        yardPeriod: {
+          create: {
+            origin: "MANUAL",
+            ...data,
+            confidence: data.confidence ?? null,
+            sortStart,
+            sortEnd,
+            approximate,
+            costBandLabel: band?.label ?? null,
+            costBandLow: band?.low ?? null,
+            costBandHigh: band?.high ?? null,
+            costBandOpenEnded: band?.openEnded ?? false,
+            costBandCurrency: band?.currency ?? null,
+            updatedById: user.id,
+          },
+        },
+      },
+      select: { id: true, code: true },
+    });
+
+    if (sourceUrl) {
+      // The source joins the shared source list, found again by its address.
+      const key = normaliseUrl(sourceUrl);
+      const known = await tx.vesselSource.findMany({ select: { id: true, code: true, url: true } });
+      let source = known.find((s) => s.url && normaliseUrl(s.url) === key) ?? null;
+      if (!source) {
+        const next =
+          Math.max(
+            0,
+            ...known
+              .map((s) => /^MAN(\d+)$/.exec(s.code))
+              .filter(Boolean)
+              .map((m) => Number(m![1])),
+          ) + 1;
+        source = await tx.vesselSource.create({
+          data: {
+            code: `MAN${String(next).padStart(2, "0")}`,
+            url: sourceUrl,
+            scope: "Entered in the application",
+          },
+          select: { id: true, code: true, url: true },
+        });
+      }
+      await tx.yardPeriodEvidence.create({
+        data: {
+          vesselId: vessel.id,
+          projectId: created.id,
+          kind: "SOURCE",
+          sourceId: source.id,
+          sourceUrl,
+          confidence: data.confidence ?? null,
+          origin: "MANUAL",
+          fingerprint: `manual:${created.id}:${key}`,
+          createdById: user.id,
+        },
+      });
+    }
+    return created;
+  });
+
+  await recordAudit({
+    actorId: user.id,
+    action: "CREATE",
+    resource: "Project",
+    resourceId: project.id,
+    details: {
+      code: project.code,
+      vessel: vessel.yardNumber ?? vessel.name,
+      yardPeriod: `${data.startLabel} – ${data.endLabel}`,
+      periodType: data.periodType,
+      origin: "MANUAL",
+    },
+  });
+
+  revalidatePath(returnTo);
+  redirect(`/projects/${project.id}?saved=created`);
 }

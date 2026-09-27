@@ -37,9 +37,12 @@ export function VesselDetailView({
   returnTo,
   searchParams,
   eyebrow = "Vessel",
+  canAddPeriod = false,
 }: {
   vessel: VesselDetail;
   canEdit: boolean;
+  /** May add a yard period: edits projects, with a role over the whole vessel. */
+  canAddPeriod?: boolean;
   returnTo: string;
   searchParams?: { saved?: string; err?: string };
   eyebrow?: string;
@@ -135,7 +138,10 @@ export function VesselDetailView({
       </div>
 
       <VesselYardHistory
+        vesselId={vessel.id}
         vesselName={vessel.name}
+        canAdd={canAddPeriod}
+        returnTo={returnTo}
         projects={vessel.projects}
         excluded={vessel.yardEvidence}
         noPeriodLocated={vessel.dataGaps.some(

@@ -114,13 +114,15 @@ export default async function ProjectOverviewPage({
         />
       </div>
 
-      {searchParams.saved === "record" && (
+      {(searchParams.saved === "record" || searchParams.saved === "created") && (
         <div
           role="status"
           className="flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok/10 px-3.5 py-3 text-sm text-ok"
         >
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>Yard period saved.</span>
+          <span>
+            {searchParams.saved === "created" ? "Yard period added." : "Yard period saved."}
+          </span>
         </div>
       )}
 

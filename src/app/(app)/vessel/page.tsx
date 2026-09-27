@@ -1,7 +1,7 @@
 import { Anchor } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject } from "@/lib/project";
+import { canActForWholeVessel, getActiveProject } from "@/lib/project";
 import { loadVesselDetail } from "@/lib/vessels/access";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { VesselDetailView } from "@/components/vessel/VesselDetailView";
@@ -33,6 +33,7 @@ export default async function ActiveVesselPage({
     <VesselDetailView
       vessel={vessel}
       canEdit={hasPermission(user, PERMISSIONS.VESSEL_EDIT)}
+      canAddPeriod={hasPermission(user, PERMISSIONS.PROJ_EDIT) && (await canActForWholeVessel(user.id, vessel.id))}
       returnTo="/vessel"
       searchParams={searchParams}
       eyebrow={`Vessel · ${project.code ?? project.name}`}

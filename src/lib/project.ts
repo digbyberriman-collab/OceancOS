@@ -124,6 +124,25 @@ export function sortProjectSummaries<T extends { status: string; code: string | 
   );
 }
 
+/**
+ * Whether a set of role scopes covers a whole vessel — every project on it,
+ * including ones not created yet. An unscoped role does, and so does one
+ * scoped to the vessel; a role scoped to one project does not. Pure.
+ */
+export function rolesCoverVessel(scopes: RoleScope[], vesselId: string): boolean {
+  return scopes.some((s) => !s.projectId && (!s.vesselId || s.vesselId === vesselId));
+}
+
+/**
+ * Whether the user may add a project to this vessel: only someone whose role
+ * covers the whole vessel, since anyone else could create a project they
+ * then cannot reach.
+ */
+export async function canActForWholeVessel(userId: string, vesselId: string): Promise<boolean> {
+  const scopes = await prisma.userRole.findMany({ where: { userId }, select: { projectId: true, vesselId: true } });
+  return rolesCoverVessel(scopes, vesselId);
+}
+
 /** The ids of the projects this user can reach. Empty for a user with none. */
 export async function accessibleProjectIds(userId: string): Promise<string[]> {
   return (await listProjectsForUser(userId)).map((p) => p.id);

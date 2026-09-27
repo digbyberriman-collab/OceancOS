@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveProjectWhere,
   resolveUserRoleWhereForProject,
+  rolesCoverVessel,
   sortProjectSummaries,
   workspaceProjectIds,
 } from "@/lib/project";
@@ -133,5 +134,21 @@ describe("sortProjectSummaries", () => {
     const input = [p("B", "ACTIVE"), p("A", "ACTIVE")];
     sortProjectSummaries(input);
     expect(input.map((x) => x.code)).toEqual(["B", "A"]);
+  });
+});
+
+describe("rolesCoverVessel", () => {
+  it("is true for an unscoped role", () => {
+    expect(rolesCoverVessel([{ projectId: null, vesselId: null }], "v1")).toBe(true);
+  });
+
+  it("is true for a role scoped to the vessel, and not for another vessel", () => {
+    expect(rolesCoverVessel([{ projectId: null, vesselId: "v1" }], "v1")).toBe(true);
+    expect(rolesCoverVessel([{ projectId: null, vesselId: "v2" }], "v1")).toBe(false);
+  });
+
+  it("is false for a role scoped to one project, even one on the vessel", () => {
+    expect(rolesCoverVessel([{ projectId: "p1", vesselId: null }], "v1")).toBe(false);
+    expect(rolesCoverVessel([], "v1")).toBe(false);
   });
 });

@@ -12,6 +12,12 @@ import {
   nameAtTime,
 } from "@/lib/yardPeriods/display";
 import { fmtDate } from "@/lib/utils";
+import { CONFIDENCE_LABELS, CONFIDENCE_LEVELS } from "@/lib/enums";
+import { readFormFlash } from "@/lib/formFlash";
+import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { FlashCleanup } from "@/components/ui/FlashCleanup";
+import { addYardPeriodAction, type YardPeriodFormFlash } from "@/app/(app)/projects/actions";
 import type { VesselDetail } from "@/lib/vessels/access";
 
 type Project = VesselDetail["projects"][number];
@@ -38,16 +44,23 @@ function disciplinesOf(p: Project): ScopeDiscipline[] {
  * overview; dates are shown as published.
  */
 export function VesselYardHistory({
+  vesselId,
   vesselName,
   projects,
   excluded,
   noPeriodLocated,
+  canAdd = false,
+  returnTo,
 }: {
+  vesselId: string;
   vesselName: string;
   projects: Project[];
   excluded: VesselDetail["yardEvidence"];
   /** The register looked and found no reliable post-delivery period. */
   noPeriodLocated: boolean;
+  /** The viewer may add a period: they edit projects and their role covers the whole vessel. */
+  canAdd?: boolean;
+  returnTo: string;
 }) {
   const live = projects.filter((p) => !p.isDemo && p.status !== "COMPLETED");
   const history = projects
@@ -77,7 +90,6 @@ export function VesselYardHistory({
         }
         noPad
       >
-
         {live.length > 0 && (
           <div className="border-b border-line-soft px-5 py-4">
             <div className="text-[11px] uppercase tracking-wider text-muted">
@@ -178,6 +190,8 @@ export function VesselYardHistory({
           </ol>
         )}
 
+        {canAdd && <AddYardPeriod vesselId={vesselId} returnTo={returnTo} />}
+
         {excluded.length > 0 && (
           <div className="border-t border-line-soft px-5 py-4">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted">
@@ -213,5 +227,94 @@ export function VesselYardHistory({
         )}
       </SectionCard>
     </section>
+  );
+}
+
+const DATE_HINT = '"2019", "2012-Q2", "2013-09", "2017-Spring", "… approx." or "Date unverified"';
+
+/** Record a period the register does not have, from the vessel's own records. */
+function AddYardPeriod({ vesselId, returnTo }: { vesselId: string; returnTo: string }) {
+  const flash = readFormFlash<YardPeriodFormFlash>(`add-period-${vesselId}`);
+  const v = (k: string) => flash?.values[k] ?? "";
+  return (
+    <details open={!!flash} className="border-t border-line-soft px-5 py-4">
+      {flash && <FlashCleanup name={`add-period-${vesselId}`} />}
+      <summary className="cursor-pointer select-none text-sm font-medium text-accent-bright hover:text-marine">
+        Add a yard period
+      </summary>
+      <p className="mt-2 max-w-3xl text-xs text-muted">
+        For a period the public register does not have — from maintenance logs, class survey history
+        or yard invoices. Give the dates as precisely as the record does, and no more.
+      </p>
+      {flash && (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad"
+        >
+          {flash.error}
+        </p>
+      )}
+      <form action={addYardPeriodAction} className="mt-4 space-y-4">
+        <input type="hidden" name="vesselId" value={vesselId} />
+        <input type="hidden" name="returnTo" value={returnTo} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <Field label="Type of period" className="sm:col-span-2">
+            <Input
+              name="periodType"
+              defaultValue={v("periodType")}
+              required
+              maxLength={120}
+              placeholder="Annual refit"
+            />
+          </Field>
+          <Field label="From" hint={DATE_HINT}>
+            <Input name="startLabel" defaultValue={v("startLabel")} required maxLength={40} />
+          </Field>
+          <Field label="To">
+            <Input name="endLabel" defaultValue={v("endLabel")} required maxLength={40} />
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <Field label="Yard">
+            <Input name="yardText" defaultValue={v("yardText")} maxLength={160} />
+          </Field>
+          <Field label="City">
+            <Input name="cityText" defaultValue={v("cityText")} maxLength={120} />
+          </Field>
+          <Field label="Country">
+            <Input name="countryText" defaultValue={v("countryText")} maxLength={120} />
+          </Field>
+          <Field label="Confidence">
+            <Select name="confidence" defaultValue={v("confidence")}>
+              <option value="">Not assessed</option>
+              {CONFIDENCE_LEVELS.map((c) => (
+                <option key={c} value={c}>
+                  {CONFIDENCE_LABELS[c]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Scope of work">
+          <Textarea
+            name="scopeSummary"
+            defaultValue={v("scopeSummary")}
+            maxLength={4000}
+            className="min-h-[70px]"
+          />
+        </Field>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Source" hint="A web address for the record, if it has one">
+            <Input name="sourceUrl" type="url" defaultValue={v("sourceUrl")} maxLength={500} />
+          </Field>
+          <Field label="Notes">
+            <Input name="notes" defaultValue={v("notes")} maxLength={2000} />
+          </Field>
+        </div>
+        <SubmitButton className="btn-primary" pendingText="Adding…">
+          Add yard period
+        </SubmitButton>
+      </form>
+    </details>
   );
 }

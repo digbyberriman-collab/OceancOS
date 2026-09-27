@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { canActForWholeVessel } from "@/lib/project";
 import { loadVesselDetail } from "@/lib/vessels/access";
 import { VesselDetailView } from "@/components/vessel/VesselDetailView";
 
@@ -21,6 +22,7 @@ export default async function VesselPage({
     <VesselDetailView
       vessel={vessel}
       canEdit={hasPermission(user, PERMISSIONS.VESSEL_EDIT)}
+      canAddPeriod={hasPermission(user, PERMISSIONS.PROJ_EDIT) && (await canActForWholeVessel(user.id, vessel.id))}
       returnTo={`/vessels/${vessel.id}`}
       searchParams={searchParams}
       eyebrow="Fleet register"
