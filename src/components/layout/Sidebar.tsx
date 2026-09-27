@@ -23,6 +23,7 @@ import {
   Anchor,
   ReceiptText,
   X,
+  FolderKanban,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[]
   { label: "Logistics", href: "/logistics", icon: Truck },
   { label: "Inventory", href: "/inventory", icon: Boxes },
   { section: "Knowledge", label: "Fleet register", href: "/vessels", icon: Ship },
+  { label: "Projects", href: "/projects", icon: FolderKanban },
   { label: "Drawings", href: "/drawings", icon: Ruler },
   { label: "Documents", href: "/documents", icon: FileText },
   { label: "Meetings", href: "/meetings", icon: Presentation },
@@ -50,7 +52,7 @@ const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[]
   { section: "System", label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Search", href: "/search", icon: Search },
   { label: "Admin", href: "/admin", icon: Settings },
-  { label: "Projects", href: "/admin/projects", icon: Ship },
+  { label: "Project admin", href: "/admin/projects", icon: Ship },
 ];
 
 /**
