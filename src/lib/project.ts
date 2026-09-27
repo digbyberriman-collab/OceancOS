@@ -7,6 +7,7 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "./db";
+import { PROJECT_STATUSES } from "./enums";
 import { forbidden } from "./errors";
 import { requestCache } from "./requestCache";
 
@@ -18,7 +19,9 @@ export type ProjectSummary = {
   code: string | null;
   vesselId: string;
   vesselName: string;
+  vesselYardNumber: string | null;
   status: string;
+  isDemo: boolean;
 };
 
 type RoleScope = { projectId: string | null; vesselId: string | null };
@@ -78,20 +81,44 @@ export const listProjectsForUser = requestCache(async (userId: string): Promise<
 
   const projects = await prisma.project.findMany({
     where,
-    include: { vessel: { select: { name: true } } },
-    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
+    include: { vessel: { select: { name: true, yardNumber: true } } },
+    orderBy: [{ code: "asc" }, { name: "asc" }],
     take: 200,
   });
 
-  return projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    code: p.code,
-    vesselId: p.vesselId,
-    vesselName: p.vessel.name,
-    status: p.status,
-  }));
+  return sortProjectSummaries(
+    projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      code: p.code,
+      vesselId: p.vesselId,
+      vesselName: p.vessel.name,
+      vesselYardNumber: p.vessel.yardNumber,
+      status: p.status,
+      isDemo: p.isDemo,
+    }))
+  );
 });
+
+/**
+ * Live projects first — active, then planned, then completed — each by code.
+ * Alphabetical status order would put COMPLETED before PLANNED, and the first
+ * project is the one a user lands in when nothing is selected.
+ */
+export function sortProjectSummaries<T extends { status: string; code: string | null; name: string }>(
+  projects: T[]
+): T[] {
+  const rank = (status: string) => {
+    const i = (PROJECT_STATUSES as readonly string[]).indexOf(status);
+    return i === -1 ? PROJECT_STATUSES.length : i;
+  };
+  return [...projects].sort(
+    (a, b) =>
+      rank(a.status) - rank(b.status) ||
+      (a.code ?? "").localeCompare(b.code ?? "") ||
+      a.name.localeCompare(b.name)
+  );
+}
 
 /** The ids of the projects this user can reach. Empty for a user with none. */
 export async function accessibleProjectIds(userId: string): Promise<string[]> {

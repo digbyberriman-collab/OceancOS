@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveProjectWhere, resolveUserRoleWhereForProject } from "@/lib/project";
+import { resolveProjectWhere, resolveUserRoleWhereForProject, sortProjectSummaries } from "@/lib/project";
 
 describe("resolveProjectWhere", () => {
   it("admits everything for an unscoped role", () => {
@@ -74,5 +74,31 @@ describe("resolveUserRoleWhereForProject", () => {
     const where = resolveUserRoleWhereForProject(project);
     expect(where.OR).not.toContainEqual({ projectId: "other" });
     expect(where.OR).not.toContainEqual({ vesselId: "other-vessel" });
+  });
+});
+
+describe("sortProjectSummaries", () => {
+  const p = (code: string, status: string) => ({ code, status, name: code });
+
+  it("lists active, then planned, then completed projects, each by code", () => {
+    const sorted = sortProjectSummaries([
+      p("Y709-2017", "COMPLETED"),
+      p("Y701", "ACTIVE"),
+      p("DEMO-02", "PLANNED"),
+      p("Y701-2012", "COMPLETED"),
+      p("DEMO-01", "ACTIVE"),
+    ]);
+    expect(sorted.map((x) => x.code)).toEqual(["DEMO-01", "Y701", "DEMO-02", "Y701-2012", "Y709-2017"]);
+  });
+
+  it("puts an unknown status after the known ones rather than dropping it", () => {
+    const sorted = sortProjectSummaries([p("B", "SOMETHING"), p("A", "COMPLETED")]);
+    expect(sorted.map((x) => x.code)).toEqual(["A", "B"]);
+  });
+
+  it("does not reorder the array it was given", () => {
+    const input = [p("B", "ACTIVE"), p("A", "ACTIVE")];
+    sortProjectSummaries(input);
+    expect(input.map((x) => x.code)).toEqual(["B", "A"]);
   });
 });

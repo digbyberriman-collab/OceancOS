@@ -179,6 +179,19 @@ export const DEPARTMENTS = [
 
 export const PROJECT_TYPES = ["REFIT", "NEW_BUILD", "CONVERSION"] as const;
 
+/**
+ * A project's place in its life. ACTIVE and PLANNED take new work; a COMPLETED
+ * project is the record of a yard period that has finished. The order is the
+ * order projects are listed in.
+ */
+export const PROJECT_STATUSES = ["ACTIVE", "PLANNED", "COMPLETED"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  ACTIVE: "Active",
+  PLANNED: "Planned",
+  COMPLETED: "Completed",
+};
+
 /** How far a vessel's particulars have been checked against its certificates. */
 export const VESSEL_VERIFICATION = ["UNVERIFIED", "PUBLIC_SOURCE", "CERTIFICATE_VERIFIED"] as const;
 export const VESSEL_VERIFICATION_LABELS: Record<(typeof VESSEL_VERIFICATION)[number], string> = {
@@ -191,7 +204,7 @@ export const DATA_GAP_STATUSES = ["OPEN", "IN_PROGRESS", "CLOSED"] as const;
 export const DATA_GAP_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
 /** Labels for status keys that read badly raw. StatusBadge consults this. */
-export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS };
+export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS, ...PROJECT_STATUS_LABELS };
 
 export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
   // shared
@@ -205,6 +218,9 @@ export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   COMPLETED: "ok",
   CLOSED: "muted",
   CANCELLED: "muted",
+  // projects (COMPLETED is shared above)
+  ACTIVE: "info",
+  PLANNED: "muted",
   // crew req
   NEW: "info",
   TRIAGED: "info",

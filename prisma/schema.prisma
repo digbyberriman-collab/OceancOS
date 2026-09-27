@@ -275,9 +275,12 @@ model Project {
   // Short project code shown in the header, e.g. "R-00721".
   code           String?         @unique
   type           String // REFIT | NEW_BUILD | CONVERSION
-  // No comment and no write path in the app today — see the note in
-  // ACTION_PLAN.md G3.1 on this column's CHECK constraint.
+  // ACTIVE | PLANNED | COMPLETED (CHECK). ACTIVE and PLANNED take new work;
+  // a COMPLETED project is a record of a yard period that has finished.
   status         String          @default("ACTIVE")
+  // Fictional walkthrough data. Kept apart from real vessels' lists and
+  // totals by projectScope(), and marked wherever it is shown.
+  isDemo         Boolean         @default(false)
   startDate      DateTime?
   targetEndDate  DateTime?
   // Yard period — drives the Home timing cards and the time-progress ring.
@@ -310,6 +313,8 @@ model Project {
   jobSections    JobSection[]
 
   @@index([vesselId])
+  @@index([vesselId, status])
+  @@index([isDemo])
 }
 
 model Department {
@@ -324,6 +329,8 @@ model VesselArea {
   vesselId String
   name     String // e.g. "Engine Room", "Owner's Suite"
   code     String?
+  // Belongs to the demo workspace; offered only on demo projects.
+  isDemo   Boolean @default(false)
   vessel   Vessel  @relation(fields: [vesselId], references: [id])
 
   changeOrders ChangeOrder[]
