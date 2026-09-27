@@ -12,6 +12,7 @@ import {
   resetTokenExpiry,
 } from "@/lib/passwordReset";
 import { Field, Input } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { BrandPanel } from "@/components/auth/BrandPanel";
 
@@ -113,7 +114,9 @@ export default function ForgotPage({ searchParams }: { searchParams: { sent?: st
                     placeholder="you@example.com"
                   />
                 </Field>
-                <button className="btn-primary btn-lg w-full">Send reset link</button>
+                <SubmitButton className="btn-primary btn-lg w-full" pendingText="Sending…">
+                  Send reset link
+                </SubmitButton>
               </form>
 
               <Link href="/login" className="btn-ghost mt-4 -ml-3.5">

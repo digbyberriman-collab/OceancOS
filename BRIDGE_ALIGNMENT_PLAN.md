@@ -611,8 +611,9 @@ Illegal transitions throw, exactly like the CO action does today.
 
 ## 6. Phased build plan
 
-Each phase ends with: schema migrated, seed extended, `npm run typecheck` clean, `npm run qa` extended, and a
-short manual QA checklist in `QA_TEST_REPORT.md`. Sizes are relative (S ≈ a day, M ≈ 2–4 days, L ≈ a week+).
+Each phase ends with: schema migrated, seed extended, `npm run typecheck` clean, `npm run qa`
+extended, and the phase's new flows covered by `tests/` and `e2e/` (see §9's progress log for what
+each phase actually added). Sizes are relative (S ≈ a day, M ≈ 2–4 days, L ≈ a week+).
 
 ### Phase 0 — Foundation (must precede everything)  · size M
 

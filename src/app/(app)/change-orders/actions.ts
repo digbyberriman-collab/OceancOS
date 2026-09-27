@@ -1,21 +1,29 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { assertPermission, hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject, requireProjectAccess, usersReachingProject } from "@/lib/project";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { ApprovalDecisionSchema, ChangeOrderCreateSchema, ChangeOrderStatusSchema } from "@/lib/validators";
-import { nextSequence } from "@/lib/utils";
+import { nextSequence } from "@/lib/sequence";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
 import { conflict, forbidden, invalid, notFound } from "@/lib/errors";
+import { applyTransition } from "@/lib/workflow/transition";
+import { getActiveProject, requireProjectAccess, usersWithPermissionOnProject } from "@/lib/project";
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
+  CO_STATUSES_AWAITING_DECISION,
+  approvalStageChanges,
+  assertTransitionChangeOrder,
+  canDecideApproval,
+  nextChangeOrderStatus,
+  nextDueApprovals,
   permissionForTransition,
+  type ApprovalRow,
 } from "@/lib/workflow/changeOrder";
-import { applyTransition } from "@/lib/workflow/applyTransition";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -28,18 +36,17 @@ export async function createChangeOrder(formData: FormData) {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CO_CREATE);
 
-  // The project comes from the caller's active project, never the form —
-  // the project <select> this used to read from listed every project in
-  // the database, unfiltered by what the caller could reach (C4).
+  // The project comes from the caller's active project, never from the
+  // submitted form — see the note on ChangeOrderCreateSchema.
   const project = await getActiveProject(user.id);
-  if (!project) throw invalid("Choose a project before creating a change order.");
+  if (!project) throw invalid("Choose a project before raising a change order.");
 
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
-  const number = await nextSequence("CO", () => prisma.changeOrder.count());
+  const number = await nextSequence("CO");
   const stages = defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview });
 
   const co = await prisma.changeOrder.create({
@@ -68,27 +75,124 @@ export async function createChangeOrder(formData: FormData) {
   redirect(`/change-orders/${co.id}`);
 }
 
-export async function transitionChangeOrder(id: string, toStatus: string, comment?: string) {
+/**
+ * Amend a change order while it is DRAFT or MORE_INFO.
+ *
+ * "Request more information" and "Revise" (REJECTED/MORE_INFO → DRAFT) both
+ * existed as transitions with no way to actually act on them — the title,
+ * description, cost estimate and every other field were frozen from
+ * creation, so an approver's question could only be answered with a
+ * free-text comment (ACTION_PLAN.md G3.9). This is that missing edit.
+ */
+export async function updateChangeOrder(formData: FormData) {
   const user = await requireUser();
-  const co = await prisma.changeOrder.findUnique({ where: { id } });
+  assertPermission(user, PERMISSIONS.CO_EDIT);
+
+  const id = String(formData.get("id") ?? "");
+  const co = await prisma.changeOrder.findUnique({
+    where: { id },
+    include: { approvals: { select: { id: true, stage: true, decision: true, order: true } } },
+  });
   if (!co) throw notFound("That change order");
 
-  const target = ChangeOrderStatusSchema.parse(toStatus);
+  await requireProjectAccess(user.id, co.projectId);
 
-  // applyTransition asserts the permission and the legal move (and refuses
-  // APPROVED / REJECTED / MORE_INFO outright — only decideChangeOrderApproval
-  // may reach them, see CO_GENERIC_UNREACHABLE), and checks project access.
+  if (co.status !== "DRAFT" && co.status !== "MORE_INFO") {
+    throw conflict(
+      `This change order is now ${co.status.replace(/_/g, " ").toLowerCase()}, so it can no longer be edited.`
+    );
+  }
+
+  const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
+  }
+  const data = parsed.data;
+
+  const { approvals, ...stored } = co;
+  const normalise = (v: unknown): unknown => (v instanceof Prisma.Decimal ? v.toNumber() : v ?? null);
+  const changed = (Object.keys(data) as (keyof typeof data)[]).filter(
+    (key) => normalise(data[key]) !== normalise((stored as unknown as Record<string, unknown>)[key])
+  );
+
+  // The review flags decide which optional stages the chain has. Editing them
+  // without restaging the approval rows would leave a requested review with
+  // no stage, or a stage nobody asked for.
+  const stages = approvalStageChanges(
+    approvals,
+    defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview })
+  );
+  if (stages.decided.length) {
+    const names = stages.decided.map((s) => (s === "CLASS" ? "Class" : "Flag")).join(" and ");
+    throw conflict(
+      `${names} review has already been decided on this change order. Revise it back to draft to change which reviews it needs.`
+    );
+  }
+  const stagesRemoved = approvals.filter((a) => stages.removeIds.includes(a.id)).map((a) => a.stage);
+  const stagesAdded = stages.create.map((c) => c.stage);
+
   await prisma.$transaction(async (tx) => {
-    await applyTransition({
-      entity: "ChangeOrder",
+    await tx.changeOrder.update({ where: { id }, data: { ...data, updatedById: user.id } });
+    if (stages.create.length) {
+      await tx.changeOrderApproval.createMany({
+        data: stages.create.map((c) => ({ changeOrderId: id, stage: c.stage, order: c.order, required: true })),
+      });
+    }
+    if (stages.removeIds.length) {
+      await tx.changeOrderApproval.deleteMany({ where: { id: { in: stages.removeIds }, decision: "PENDING" } });
+    }
+    if (changed.length) {
+      const restaged = [...stagesAdded.map((s) => `+${s}`), ...stagesRemoved.map((s) => `-${s}`)];
+      await tx.changeOrderHistory.create({
+        data: {
+          changeOrderId: id,
+          actorId: user.id,
+          event: "EDITED",
+          details: `Changed: ${changed.join(", ")}${restaged.length ? `; approval stages ${restaged.join(", ")}` : ""}`,
+        },
+      });
+    }
+  });
+
+  await recordAudit({
+    actorId: user.id,
+    action: "UPDATE",
+    resource: "ChangeOrder",
+    resourceId: id,
+    details: { changed, stagesAdded, stagesRemoved },
+  });
+
+  revalidatePath(`/change-orders/${id}`);
+  redirect(`/change-orders/${id}`);
+}
+
+export async function transitionChangeOrder(id: string, toStatus: string, comment?: string) {
+  const user = await requireUser();
+  const co = await prisma.changeOrder.findUnique({
+    where: { id },
+    include: { project: { select: { id: true, vesselId: true } } },
+  });
+  if (!co) throw notFound("That change order");
+
+  // permissionForTransition checks *what the role may do*, not *whether this
+  // project is one the caller can reach* — this was previously missing
+  // entirely (AUDIT_REPORT.md C5: "no record-level or project-level check").
+  await requireProjectAccess(user.id, co.projectId);
+
+  const target = ChangeOrderStatusSchema.parse(toStatus);
+  // Who can move it where — see lib/workflow/changeOrder.ts
+  assertPermission(user, permissionForTransition(target));
+  assertTransitionChangeOrder(co.status as ChangeOrderStatus, target);
+
+  // Conditional on the status this function read (see applyTransition); the
+  // interactive transaction rolls the history row back with it if someone
+  // else moved this change order first.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition(tx.changeOrder, {
       id,
-      projectId: co.projectId,
       from: co.status,
       to: target,
-      actor: user,
-      permission: permissionForTransition(target),
       data: { updatedById: user.id },
-      db: tx,
     });
     await tx.changeOrderHistory.create({
       data: {
@@ -100,6 +204,32 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
         details: comment,
       },
     });
+
+    // "Revise" (REJECTED → DRAFT, or MORE_INFO → DRAFT) used to leave every
+    // approval row exactly as the prior decision left it — a rejecting
+    // stage stayed REJECTED forever, permanently unable to block a
+    // resubmission from completing the chain without them. A revision is a
+    // fresh review: reset every row to PENDING so it is genuinely
+    // re-decided, whichever status the change order is revised from.
+    if ((co.status === "REJECTED" || co.status === "MORE_INFO") && target === "DRAFT") {
+      await tx.changeOrderApproval.updateMany({
+        where: { changeOrderId: id },
+        data: { decision: "PENDING", decidedById: null, decidedAt: null, comment: null },
+      });
+    }
+
+    // "Resume review" (MORE_INFO → UNDER_REVIEW) answers the question without
+    // restarting the chain: the stages that already approved keep their
+    // decision, and the stage that asked goes back to PENDING so it can
+    // actually decide. Left at MORE_INFO it could never be decided again
+    // (canDecideApproval only takes PENDING rows) and would block the chain
+    // for good.
+    if (co.status === "MORE_INFO" && target === "UNDER_REVIEW") {
+      await tx.changeOrderApproval.updateMany({
+        where: { changeOrderId: id, decision: "MORE_INFO" },
+        data: { decision: "PENDING", decidedById: null, decidedAt: null },
+      });
+    }
   });
 
   await recordAudit({
@@ -129,16 +259,11 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
     });
     if (firstPending) {
       const permKey = STAGE_PERMISSION[firstPending.stage as CoApprovalStage];
-      const approvers = await prisma.user.findMany({
-        where: {
-          active: true,
-          roles: { some: { role: { permissions: { some: { permission: { key: permKey } } } } } },
-        },
-        select: { id: true },
-      });
-      const recipients = await usersReachingProject(approvers.map((u) => u.id), co.projectId);
+      // Only the approvers on this project — see the note on
+      // usersWithPermissionOnProject in lib/project.ts.
+      const approverIds = await usersWithPermissionOnProject(co.project, permKey);
       await notify({
-        userIds: recipients,
+        userIds: approverIds,
         kind: "APPROVAL_REQUIRED",
         priority: "HIGH",
         title: `Approval required: ${co.number} (${firstPending.stage})`,
@@ -156,34 +281,31 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
 /**
  * Decide one stage of a change order's approval chain.
  *
- * This is the money path, rewritten rather than patched (G2.2 in
- * ACTION_PLAN.md): the decision is validated against a schema instead of
- * cast from a raw string (C9); a rejected stage terminates the chain
- * outright instead of merely dropping out of a "remaining" count a later
- * stage's approval could still complete (C7); the stage `order` column,
- * stored on every approval row since it was created and never once read,
- * now gates which stage may be decided next (C8); the status write goes
- * through `applyTransition` (C5's project check, plus the same atomic
- * conditional write every other transition gets); and all five writes -
- * the approval, the history row, and the change order's own status - land
- * in one transaction (C10).
+ * The money path. Rewritten for G2.2 — this used to be five unvalidated,
+ * untransacted, unordered writes that let a rejected change order become
+ * APPROVED (C7), wrote status outside the legal-transition map (C8), never
+ * validated the decision value (C9), and had no project check at all (part
+ * of C5). See AUDIT_REPORT.md §3 and the module doc on
+ * lib/workflow/changeOrder.ts's approval-decision helpers, which carry the
+ * actual decision logic and its own unit tests.
  */
 export async function decideChangeOrderApproval(formData: FormData) {
   const user = await requireUser();
 
   const parsed = ApprovalDecisionSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
-  const approvalId = parsed.data.approvalId ?? parsed.data.changeOrderApprovalId;
-  if (!approvalId) throw invalid("No approval was specified.");
-  if (parsed.data.decision === "DELEGATED") throw invalid("Delegating a decision is not supported yet.");
-  const decision = parsed.data.decision;
-  const comment = parsed.data.comment || null;
+  if (!parsed.success) {
+    throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
+  }
+  const { approvalId, decision, comment } = parsed.data;
 
   const approval = await prisma.changeOrderApproval.findUnique({
     where: { id: approvalId },
-    include: { changeOrder: true },
+    include: { changeOrder: { include: { project: { select: { id: true, vesselId: true } } } } },
   });
   if (!approval) throw notFound("That approval");
+  const co = approval.changeOrder;
+
+  await requireProjectAccess(user.id, co.projectId);
 
   const permKey = STAGE_PERMISSION[approval.stage as CoApprovalStage];
   if (!hasPermission(user, permKey as any)) {
@@ -191,172 +313,141 @@ export async function decideChangeOrderApproval(formData: FormData) {
     // permission key is not, because it would describe the permission model.
     throw forbidden(`You cannot decide the ${approval.stage} approval.`);
   }
-  await requireProjectAccess(user, approval.changeOrder.projectId);
 
-  if (approval.decision !== "PENDING") {
-    throw conflict("This stage was already decided.");
-  }
-  if (!["SUBMITTED", "UNDER_REVIEW"].includes(approval.changeOrder.status)) {
+  if (!CO_STATUSES_AWAITING_DECISION.includes(co.status as ChangeOrderStatus)) {
     throw conflict(
-      `This change order is ${approval.changeOrder.status.replace(/_/g, " ").toLowerCase()} and cannot be decided right now.`
+      `This change order is ${co.status.replace(/_/g, " ").toLowerCase()} and is not awaiting a decision.`
     );
   }
 
-  // The stage order is stored and was never read: a later stage could be
-  // decided before an earlier, still-pending required one. Refuse unless
-  // this is the lowest-order required stage still PENDING.
-  const stages = await prisma.changeOrderApproval.findMany({
-    where: { changeOrderId: approval.changeOrderId },
-    orderBy: { order: "asc" },
+  const siblings: ApprovalRow[] = await prisma.changeOrderApproval.findMany({
+    where: { changeOrderId: co.id },
+    select: { id: true, stage: true, decision: true, required: true, order: true },
   });
-  const nextDue = stages.find((s) => s.required && s.decision === "PENDING");
-  if (!nextDue || nextDue.id !== approval.id) {
-    throw conflict("An earlier approval stage is still pending and must be decided first.");
+  const current = siblings.find((s) => s.id === approvalId);
+  if (!current) throw notFound("That approval");
+  if (!canDecideApproval(current, siblings)) {
+    throw conflict(
+      current.decision !== "PENDING"
+        ? "This approval has already been decided."
+        : "An earlier stage in the chain has not decided yet."
+    );
   }
 
-  const { newStatus, fullyApproved } = await prisma.$transaction(async (tx) => {
-    // Conditional on the approval still being PENDING, mirroring
-    // applyTransition's own guard against two concurrent decisions.
-    const updated = await tx.changeOrderApproval.updateMany({
-      where: { id: approval.id, decision: "PENDING" },
+  const updatedSiblings = siblings.map((s) => (s.id === approvalId ? { ...s, decision } : s));
+  const nextStatus = nextChangeOrderStatus(co.status as ChangeOrderStatus, decision, updatedSiblings);
+  if (nextStatus) assertTransitionChangeOrder(co.status as ChangeOrderStatus, nextStatus);
+
+  // One transaction: the approval row, the history entry and — when the
+  // decision moves the change order — the status write and approvedCost all
+  // commit together or not at all (C10; previously five separate writes).
+  await prisma.$transaction(async (tx) => {
+    await tx.changeOrderApproval.update({
+      where: { id: approvalId },
       data: { decision, decidedById: user.id, decidedAt: new Date(), comment },
     });
-    if (updated.count !== 1) throw conflict();
 
     await tx.changeOrderHistory.create({
       data: {
-        changeOrderId: approval.changeOrderId,
+        changeOrderId: co.id,
         actorId: user.id,
         event: "APPROVAL",
+        fromStatus: co.status,
+        toStatus: nextStatus ?? co.status,
         details: `${approval.stage}: ${decision}${comment ? " — " + comment : ""}`,
       },
     });
 
-    // A REJECTED stage terminates the chain. It must not merely stop
-    // counting toward "remaining" - the bug that let a later stage's
-    // APPROVED still drive the change order to APPROVED once every OTHER
-    // required stage had cleared, overriding the rejection (C7).
-    let newStatus: ChangeOrderStatus;
-    let fullyApproved = false;
-    if (decision === "REJECTED") {
-      newStatus = "REJECTED";
-    } else if (decision === "MORE_INFO") {
-      newStatus = "MORE_INFO";
-    } else {
-      const remaining = await tx.changeOrderApproval.count({
-        where: { changeOrderId: approval.changeOrderId, decision: "PENDING", required: true },
-      });
-      fullyApproved = remaining === 0;
-      newStatus = fullyApproved ? "APPROVED" : "UNDER_REVIEW";
+    if (nextStatus) {
+      const data: Record<string, unknown> = { updatedById: user.id };
+      if (nextStatus === "APPROVED") {
+        // Read fresh, inside the transaction, rather than the snapshot this
+        // function loaded at the start — estimatedCost could have been
+        // edited in the gap between then and this write landing.
+        const fresh = await tx.changeOrder.findUniqueOrThrow({
+          where: { id: co.id },
+          select: { estimatedCost: true },
+        });
+        data.approvedCost = fresh.estimatedCost;
+      }
+      await applyTransition(tx.changeOrder, { id: co.id, from: co.status, to: nextStatus, data });
     }
-
-    if (newStatus !== approval.changeOrder.status) {
-      await applyTransition({
-        entity: "ChangeOrder",
-        id: approval.changeOrderId,
-        projectId: approval.changeOrder.projectId,
-        from: approval.changeOrder.status,
-        to: newStatus,
-        actor: user,
-        permission: permKey,
-        data: fullyApproved ? { approvedCost: approval.changeOrder.estimatedCost } : undefined,
-        db: tx,
-        viaCeremony: true,
-      });
-    }
-
-    return { newStatus, fullyApproved };
   });
 
   await recordAudit({
     actorId: user.id,
     action: decision === "APPROVED" ? "APPROVE" : decision === "REJECTED" ? "REJECT" : "STATUS",
     resource: "ChangeOrderApproval",
-    resourceId: approval.id,
-    details: { stage: approval.stage, comment },
+    resourceId: approvalId,
+    details: { stage: approval.stage, comment, coStatusAfter: nextStatus ?? co.status },
   });
 
-  // Notify on every outcome, not only full approval: a rejection or a
-  // request for more information previously told nobody at all, and
-  // advancing to the next stage never told that stage's approvers it was
-  // now their turn (workflow-logic [CHANGE ORDERS]).
-  const coLabel = `${approval.changeOrder.number} — ${approval.changeOrder.title}`;
-  if (decision === "REJECTED") {
+  // Notify on every decision that moves something, not only the one that
+  // happens to complete the chain — the chain notified nobody after the
+  // first stage before this, and a rejection notified nobody at all.
+  if (nextStatus === "REJECTED" || nextStatus === "MORE_INFO") {
     await notify({
-      userIds: [approval.changeOrder.createdById],
+      userIds: [co.createdById],
       kind: "STATUS_CHANGE",
       priority: "HIGH",
-      title: `Rejected at ${approval.stage.replace(/_/g, " ")}: ${coLabel}`,
+      title: `Change order ${co.number} ${nextStatus === "REJECTED" ? "rejected" : "needs more information"} — ${approval.stage}`,
       resource: "ChangeOrder",
-      resourceId: approval.changeOrderId,
+      resourceId: co.id,
     });
-  } else if (decision === "MORE_INFO") {
+  } else if (nextStatus === "APPROVED") {
     await notify({
-      userIds: [approval.changeOrder.createdById],
-      kind: "STATUS_CHANGE",
-      title: `More information requested at ${approval.stage.replace(/_/g, " ")}: ${coLabel}`,
-      resource: "ChangeOrder",
-      resourceId: approval.changeOrderId,
-    });
-  } else if (fullyApproved) {
-    await notify({
-      userIds: [approval.changeOrder.createdById],
+      userIds: [co.createdById],
       kind: "STATUS_CHANGE",
       priority: "HIGH",
-      title: `Fully approved: ${coLabel}`,
+      title: `Change order ${co.number} fully approved`,
       resource: "ChangeOrder",
-      resourceId: approval.changeOrderId,
+      resourceId: co.id,
     });
   } else {
-    const nextStage = await prisma.changeOrderApproval.findFirst({
-      where: { changeOrderId: approval.changeOrderId, decision: "PENDING", required: true },
-      orderBy: { order: "asc" },
-    });
-    if (nextStage) {
-      const nextPermKey = STAGE_PERMISSION[nextStage.stage as CoApprovalStage];
-      const candidates = await prisma.user.findMany({
-        where: {
-          active: true,
-          roles: { some: { role: { permissions: { some: { permission: { key: nextPermKey } } } } } },
-        },
-        select: { id: true },
-      });
-      const recipients = await usersReachingProject(
-        candidates.map((u) => u.id),
-        approval.changeOrder.projectId
+    // Chain not settled — tell whichever stage(s) are next in line. More
+    // than one can share the lowest order.
+    for (const stage of nextDueApprovals(updatedSiblings)) {
+      const approverIds = await usersWithPermissionOnProject(
+        co.project,
+        STAGE_PERMISSION[stage.stage as CoApprovalStage]
       );
       await notify({
-        userIds: recipients,
+        userIds: approverIds,
         kind: "APPROVAL_REQUIRED",
         priority: "HIGH",
-        title: `Approval required: ${approval.changeOrder.number} (${nextStage.stage})`,
+        title: `Approval required: ${co.number} (${stage.stage})`,
         resource: "ChangeOrder",
-        resourceId: approval.changeOrderId,
+        resourceId: co.id,
       });
     }
   }
 
-  revalidatePath(`/change-orders/${approval.changeOrderId}`);
+  revalidatePath(`/change-orders/${co.id}`);
   revalidatePath("/approvals");
 }
 
 export async function addChangeOrderComment(formData: FormData) {
   const user = await requireUser();
-  // A server action is reachable directly, with no render-time check at
-  // all — the detail page gating the comment form behind CO_VIEW never
-  // stopped a crafted request from posting here. Both this and
-  // addCrewRequestComment (crew-requests/actions.ts) took no permission,
-  // no parent lookup, and no project-access check at all, so an orphan
-  // comment could be written against an id that names no real change order
-  // (G2.12; auth-security's C5 "…and addChangeOrderComment").
   assertPermission(user, PERMISSIONS.CO_VIEW);
+
   const id = String(formData.get("id") ?? "");
   const body = String(formData.get("body") ?? "").trim();
-  if (!id || !body) return;
+  if (!id) return;
+  // A `required` textarea is satisfied by a single space, which used to
+  // trim to "" and silently no-op — no error, no revalidate, the box still
+  // showing what was typed with no way to tell whether it posted
+  // (ACTION_PLAN.md G3.6, forms-validation's [VALIDATION-MESSAGES]).
+  if (!body) throw invalid("Write something before posting.");
 
+  // No CO_COMMENT permission key exists — CO_VIEW plus project access is
+  // the check available without inventing one (a role-grant decision, not
+  // this pass's to make; see ACTION_PLAN.md G3.12 for the same situation on
+  // suppliers). Previously: no permission check, no existence check, no
+  // project check at all — any signed-in user, including GUEST, could post
+  // into any project's change order by id.
   const co = await prisma.changeOrder.findUnique({ where: { id }, select: { projectId: true } });
   if (!co) throw notFound("That change order");
-  await requireProjectAccess(user, co.projectId);
+  await requireProjectAccess(user.id, co.projectId);
 
   await prisma.comment.create({
     data: {

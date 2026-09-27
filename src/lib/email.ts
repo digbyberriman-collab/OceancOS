@@ -38,6 +38,18 @@ function fromAddress(): string {
   return process.env.SMTP_FROM || "OceancOS <noreply@oceancos.local>";
 }
 
+/**
+ * Recipient addresses don't belong in plaintext application logs — a failed
+ * send on the production SMTP path used to log the full address alongside
+ * the subject line (ACTION_PLAN.md G6.7). Keeps enough to spot a pattern
+ * (a whole domain failing, say) without logging the identifying part.
+ */
+function redact(email: string): string {
+  const at = email.indexOf("@");
+  if (at <= 0) return "<redacted>";
+  return `${email[0]}***${email.slice(at)}`;
+}
+
 export async function sendEmail(message: EmailMessage): Promise<SendResult> {
   const transport = emailTransportName();
 
@@ -50,8 +62,7 @@ export async function sendEmail(message: EmailMessage): Promise<SendResult> {
         resolve(dir, name),
         JSON.stringify({ ...message, from: fromAddress(), sentAt: new Date().toISOString() }, null, 2)
       );
-      // eslint-disable-next-line no-console
-      console.log(`[email:outbox] ${message.subject} → ${message.to} (${name})`);
+      console.log(`[email:outbox] ${message.subject} → ${redact(message.to)} (${name})`);
       return { delivered: true, transport };
     }
 
@@ -76,8 +87,7 @@ export async function sendEmail(message: EmailMessage): Promise<SendResult> {
     return { delivered: true, transport };
   } catch (err) {
     const error = err instanceof Error ? err.message : "Unknown mail error";
-    // eslint-disable-next-line no-console
-    console.error(`[email] failed to send "${message.subject}" to ${message.to}: ${error}`);
+    console.error(`[email] failed to send "${message.subject}" to ${redact(message.to)}: ${error}`);
     return { delivered: false, transport, error };
   }
 }

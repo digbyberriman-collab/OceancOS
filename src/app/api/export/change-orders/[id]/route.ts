@@ -3,8 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { listProjectsForUser } from "@/lib/project";
-import { appBaseUrl, renderPdf } from "@/lib/export/pdf";
+import { appBaseUrl, PdfBusyError, renderPdf } from "@/lib/export/pdf";
 import { exportFilename } from "@/lib/export/table";
 
 export const dynamic = "force-dynamic";
@@ -28,14 +27,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
-    select: { id: true, number: true, projectId: true },
+    select: { id: true, number: true },
   });
   if (!co) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const projects = await listProjectsForUser(user.id);
-  if (!projects.some((p) => p.id === co.projectId)) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
 
   const sessionToken = cookies().get("oc_session")?.value;
 
@@ -52,6 +46,12 @@ export async function GET(request: Request, { params }: { params: { id: string }
       },
     });
   } catch (err) {
+    if (err instanceof PdfBusyError) {
+      return NextResponse.json(
+        { error: "The PDF renderer is busy", detail: err.message, hint: "Try again in a few seconds." },
+        { status: 503 }
+      );
+    }
     // A missing browser is a deployment problem, not a bad request. Say so
     // plainly rather than returning a stack trace from inside Playwright.
     const message = err instanceof Error ? err.message : "PDF rendering failed";

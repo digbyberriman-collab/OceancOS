@@ -13,7 +13,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge, Badge } from "@/components/ui/Badge";
-import { fmtDate, fmtMoney } from "@/lib/utils";
+import { aggregateCurrency, fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { BudgetSummary } from "@/components/dashboard/BudgetSummary";
 import { Panel } from "@/components/dashboard/Panel";
@@ -23,100 +23,101 @@ import { StepArea } from "@/components/charts/StepArea";
 import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
 import { cumulativeByDate } from "@/lib/charts/geometry";
 import { projectTiming } from "@/lib/metrics/project";
-import { getActiveProject, scopedProjectFilter } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
+import { VesselStrip } from "@/components/vessel/VesselStrip";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  // Every panel here aggregates across modules, so no single module page's
-  // own guard protects it — each one is gated on the permission of the data
-  // it renders, and the query is skipped rather than fetched and hidden.
-  // Before this, only the budget panel checked anything (C15 in
-  // AUDIT_REPORT_ADDENDUM.md): a signed-in user with none of these
-  // permissions still saw every other panel's data, platform-wide.
-  const canViewCO = hasPermission(user, PERMISSIONS.CO_VIEW);
-  const canViewCR = hasPermission(user, PERMISSIONS.CR_VIEW);
-  const canViewSchedule = hasPermission(user, PERMISSIONS.SCH_VIEW);
-  const canViewRisks = hasPermission(user, PERMISSIONS.RSK_VIEW);
-  const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  // Every count and list below reflects only the projects this user can
+  // reach — a project-scoped user must never see a number on their own
+  // dashboard that comes from work they cannot open. AuditLog is the one
+  // exception: it carries no projectId at all (a genuinely cross-project
+  // log), so it stays unscoped here.
+  const scope = await projectScope(user.id);
+
+  // Five sequential stages down to two (ACTION_PLAN.md G4.4): only
+  // `changeOrders` below genuinely depends on a result from this batch
+  // (`activeProject.id`) — budgets, approvals and the active project itself
+  // depended on nothing but `user.id`/`scope`, both already in hand, and
+  // previously ran as four separate awaited round trips after this one.
+  // `getActiveProject` is `requestCache`d (G4.3), so calling it here costs
+  // nothing extra on top of `(app)/layout.tsx`'s own call.
+  const [
+    coOpen,
+    coPending,
+    crOpen,
+    crOverdue,
+    milestonesUpcoming,
+    risksOpen,
+    recent,
+    budgets,
+    myApprovals,
+    activeProject,
+  ] = await Promise.all([
+    prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
+    prisma.changeOrder.count({
+      where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+    }),
+    prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
+    prisma.crewRequest.count({
+      where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
+    }),
+    prisma.milestone.findMany({
+      where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
+      orderBy: { date: "asc" },
+      take: 5,
+    }),
+    prisma.risk.findMany({
+      where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
+      orderBy: { rating: "desc" },
+      take: 5,
+    }),
+    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
+    // A backstop cap, not a real page size — see the identical note on
+    // /financials (ACTION_PLAN.md G4.1): `forecast`'s per-row conditional
+    // can't be expressed as a Prisma `aggregate` without raw SQL, and
+    // Budget rows are one per project × category, not one per user action.
+    prisma.budget.findMany({
+      where: scope,
+      include: { project: { select: { currency: true } } },
+      take: 2000,
+    }),
+    prisma.changeOrderApproval.findMany({
+      where: { decision: "PENDING", changeOrder: scope },
+      include: { changeOrder: { include: { project: { select: { currency: true } } } } },
+      take: 5,
+    }),
+    getActiveProject(user.id),
+  ]);
+
+  const original = budgets.reduce((s, b) => s + toNumber(b.originalAmount), 0);
+  const approved = budgets.reduce((s, b) => s + toNumber(b.approvedChanges), 0);
+  const pending = budgets.reduce((s, b) => s + toNumber(b.pendingChanges), 0);
+  const actual = budgets.reduce((s, b) => s + toNumber(b.actual), 0);
+  const forecast = budgets.reduce(
+    (s, b) =>
+      s + (b.forecastFinal.isZero() ? toNumber(b.originalAmount) + toNumber(b.approvedChanges) : toNumber(b.forecastFinal)),
+    0
+  );
+  // Only safe to label this rollup with one currency when every accessible
+  // project actually shares it (ACTION_PLAN.md G3.10) — same reasoning as
+  // /financials, which this widget links to.
+  const budgetCurrency = aggregateCurrency(budgets.map((b) => b.project.currency));
+  const mixedBudgetCurrencies = budgets.length > 0 && budgetCurrency === null;
+
   const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
-  const scope = await scopedProjectFilter(user);
-  const now = new Date();
-
-  const [coOpen, coPending, approvalsPending] = canViewCO
-    ? await Promise.all([
-        prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
-        prisma.changeOrder.count({
-          where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
-        }),
-        prisma.approval.count({ where: { ...scope, status: "PENDING" } }),
-      ])
-    : [0, 0, 0];
-
-  const [crOpen, crOverdue] = canViewCR
-    ? await Promise.all([
-        prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
-        prisma.crewRequest.count({
-          where: { ...scope, dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
-        }),
-      ])
-    : [0, 0];
-
-  const milestonesUpcoming = canViewSchedule
-    ? await prisma.milestone.findMany({
-        where: { ...scope, date: { gte: now }, status: { not: "COMPLETED" } },
-        orderBy: { date: "asc" },
-        take: 5,
-      })
-    : [];
-
-  const risksOpen = canViewRisks
-    ? await prisma.risk.findMany({
-        where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
-        orderBy: { rating: "desc" },
-        take: 5,
-      })
-    : [];
-
-  // AuditLog carries no project column at all, so AUDIT_VIEW is the only
-  // gate available — the same one /admin's own audit log uses.
-  const recent = canViewAudit
-    ? await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 })
-    : [];
-
-  const myApprovals = canViewCO
-    ? await prisma.changeOrderApproval.findMany({
-        where: { decision: "PENDING", changeOrder: scope },
-        include: { changeOrder: true },
-        take: 5,
-      })
-    : [];
-
-  // Budget rollup — already correctly gated below; unaffected by this pass.
-  const budgets = await prisma.budget.findMany();
-  const original = budgets.reduce((s, b) => s + b.originalAmount, 0);
-  const approved = budgets.reduce((s, b) => s + b.approvedChanges, 0);
-  const pending = budgets.reduce((s, b) => s + b.pendingChanges, 0);
-  const actual = budgets.reduce((s, b) => s + b.actual, 0);
-  const forecast = budgets.reduce((s, b) => s + (b.forecastFinal || b.originalAmount + b.approvedChanges), 0);
-
-  // ---- Charts -------------------------------------------------------------
-  const activeProject = await getActiveProject(user.id);
-
-  const changeOrders = canViewCO
-    ? await prisma.changeOrder.findMany({
-        // The active project specifically, for the "by status" donut and the
-        // value chart — not every reachable project. `{ in: [] }` when there
-        // is none, matching nothing, not the `undefined` this used to fall
-        // to (which Prisma drops from `where` entirely, matching every row).
-        where: { projectId: { in: activeProject ? [activeProject.id] : [] } },
-        select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
-        orderBy: { createdAt: "asc" },
-      })
-    : [];
+  // ---- Charts ---------------------------------------------------------------
+  // The one genuinely dependent stage: needs `activeProject.id` from above.
+  const changeOrders = await prisma.changeOrder.findMany({
+    where: activeProject ? { projectId: activeProject.id } : scope,
+    select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+    take: 5000,
+  });
 
   // Statuses are states, so they wear the status colours rather than arbitrary
   // series hues, and cancelled work is deliberately recessive.
@@ -142,8 +143,8 @@ export default async function DashboardPage() {
   const committed = changeOrders.filter((co) => co.approvedCost != null);
   const workPct = committed.length
     ? Math.round(
-        committed.reduce((sum, co) => sum + (COMPLETION_BY_STATUS[co.status] ?? 0) * (co.approvedCost ?? 0), 0) /
-          Math.max(1, committed.reduce((sum, co) => sum + (co.approvedCost ?? 0), 0))
+        committed.reduce((sum, co) => sum + (COMPLETION_BY_STATUS[co.status] ?? 0) * toNumber(co.approvedCost), 0) /
+          Math.max(1, committed.reduce((sum, co) => sum + toNumber(co.approvedCost), 0))
       )
     : null;
 
@@ -165,7 +166,7 @@ export default async function DashboardPage() {
       points: cumulativeByDate(
         changeOrders
           .filter((co) => PENDING_STATUSES.includes(co.status))
-          .map((co) => ({ at: co.createdAt, amount: co.estimatedCost }))
+          .map((co) => ({ at: co.createdAt, amount: toNumber(co.estimatedCost) }))
       ),
     },
     {
@@ -175,7 +176,7 @@ export default async function DashboardPage() {
       points: cumulativeByDate(
         changeOrders
           .filter((co) => APPROVED_STATUSES.includes(co.status))
-          .map((co) => ({ at: co.createdAt, amount: co.approvedCost ?? co.estimatedCost }))
+          .map((co) => ({ at: co.createdAt, amount: toNumber(co.approvedCost ?? co.estimatedCost) }))
       ),
     },
   ];
@@ -188,33 +189,26 @@ export default async function DashboardPage() {
         subtitle="Live operational view across all active vessels and projects."
       />
 
-      {/* Stat row — a card for data the viewer cannot see is omitted rather
-          than shown as a misleading zero. */}
+      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} />}
+
+      {/* Stat row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">
-        {canViewCO && (
-          <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
-        )}
-        {canViewCO && (
-          <StatCard
-            label="Awaiting approval"
-            value={coPending + approvalsPending}
-            href="/approvals"
-            tone="warn"
-            icon={ClipboardCheck}
-          />
-        )}
-        {canViewCR && (
-          <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
-        )}
-        {canViewCR && (
-          <StatCard
-            label="Overdue items"
-            value={crOverdue}
-            tone={crOverdue > 0 ? "bad" : "muted"}
-            href="/crew-requests?overdue=1"
-            icon={AlertTriangle}
-          />
-        )}
+        <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
+        <StatCard
+          label="Awaiting approval"
+          value={coPending}
+          href="/approvals"
+          tone="warn"
+          icon={ClipboardCheck}
+        />
+        <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
+        <StatCard
+          label="Overdue items"
+          value={crOverdue}
+          tone={crOverdue > 0 ? "bad" : "muted"}
+          href="/crew-requests?overdue=1"
+          icon={AlertTriangle}
+        />
       </div>
 
       {/* Budget + milestones */}
@@ -234,6 +228,8 @@ export default async function DashboardPage() {
               pending={pending}
               actual={actual}
               forecast={forecast}
+              currency={budgetCurrency ?? undefined}
+              mixed={mixedBudgetCurrencies}
             />
           ) : (
             <p className="text-sm text-muted">You don&apos;t have access to financial data.</p>
@@ -241,9 +237,7 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Upcoming milestones">
-          {!canViewSchedule ? (
-            <p className="text-sm text-muted">You don&apos;t have access to the schedule.</p>
-          ) : milestonesUpcoming.length === 0 ? (
+          {milestonesUpcoming.length === 0 ? (
             <p className="text-sm text-muted">No milestones scheduled.</p>
           ) : (
             <ol className="relative space-y-3.5 pl-1">
@@ -272,11 +266,7 @@ export default async function DashboardPage() {
         style={{ animationDelay: "90ms" }}
       >
         <Panel title="Change orders by status" link={{ href: "/change-orders", label: "All change orders" }}>
-          {!canViewCO ? (
-            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
-          ) : (
-            <Donut slices={statusSlices} centreLabel="change orders" format="count" />
-          )}
+          <Donut slices={statusSlices} centreLabel="change orders" format="count" />
         </Panel>
 
         <Panel title="Progress against the yard period">
@@ -311,9 +301,7 @@ export default async function DashboardPage() {
           title="Approvals waiting on you and others"
           link={{ href: "/approvals", label: "All approvals" }}
         >
-          {!canViewCO ? (
-            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
-          ) : myApprovals.length === 0 ? (
+          {myApprovals.length === 0 ? (
             <p className="text-sm text-muted">All caught up.</p>
           ) : (
             <div className="-mx-2 overflow-x-auto">
@@ -322,7 +310,7 @@ export default async function DashboardPage() {
                   <tr>
                     <th>Stage</th>
                     <th>Change order</th>
-                    {canViewFinancials && <th className="text-right">Cost</th>}
+                    <th className="text-right">Cost</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -341,11 +329,9 @@ export default async function DashboardPage() {
                           {a.changeOrder.title}
                         </Link>
                       </td>
-                      {canViewFinancials && (
-                        <td className="text-right tnum text-white">
-                          {fmtMoney(a.changeOrder.estimatedCost)}
-                        </td>
-                      )}
+                      <td className="text-right tnum text-white">
+                        {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
+                      </td>
                       <td>
                         <StatusBadge value={a.changeOrder.status} />
                       </td>
@@ -358,9 +344,7 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Top risks" link={{ href: "/risks", label: "Risk register" }}>
-          {!canViewRisks ? (
-            <p className="text-sm text-muted">You don&apos;t have access to the risk register.</p>
-          ) : risksOpen.length === 0 ? (
+          {risksOpen.length === 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted">
               <ShieldAlert className="h-4 w-4 text-ok" />
               No open risks.
@@ -407,9 +391,7 @@ export default async function DashboardPage() {
       {/* Recent activity */}
       <div className="animate-fade-up" style={{ animationDelay: "180ms" }}>
         <Panel title="Recent activity">
-          {!canViewAudit ? (
-            <p className="text-sm text-muted">You don&apos;t have access to the audit log.</p>
-          ) : recent.length === 0 ? (
+          {recent.length === 0 ? (
             <p className="text-sm text-muted">No activity yet.</p>
           ) : (
             <ul className="divide-y divide-line-soft">

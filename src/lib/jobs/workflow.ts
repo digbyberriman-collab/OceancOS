@@ -7,7 +7,8 @@
 // screen can never disagree.
 
 import { PERMISSIONS, type PermissionKey } from "@/lib/rbac";
-import type { JobStatus } from "@/lib/enums";
+import { JOB_STATUS_LABELS, type JobStatus } from "@/lib/enums";
+import { conflict } from "@/lib/errors";
 
 export const JOB_TERMINAL_STATUSES: JobStatus[] = [
   "CANCELLED_QUOTE",
@@ -23,12 +24,20 @@ export const JOB_TERMINAL_STATUSES: JobStatus[] = [
  */
 export const JOB_LEGAL_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   NEW_REQUEST: ["QUOTE_SENT", "CANCELLED_QUOTE"],
-  QUOTE_SENT: ["CLIENT_ACCEPTED", "EXPIRED", "CANCELLED_QUOTE"],
-  EXPIRED: ["CLIENT_ACCEPTED", "CANCELLED_QUOTE"],
+  // QUOTE_SENT → QUOTE_SENT and EXPIRED → QUOTE_SENT ("Revise quote",
+  // ACTION_PLAN.md G3.9): without these, a mispriced or lapsed quote had no
+  // way back except cancel-and-recreate under a new job code, which loses
+  // the thread, the attachments and the history of the original.
+  QUOTE_SENT: ["QUOTE_SENT", "CLIENT_ACCEPTED", "EXPIRED", "CANCELLED_QUOTE"],
+  EXPIRED: ["QUOTE_SENT", "CLIENT_ACCEPTED", "CANCELLED_QUOTE"],
   CLIENT_ACCEPTED: ["ACCEPTED", "CANCELLED_QUOTE"],
   ACCEPTED: ["YARD_COMPLETED", "CANCELLED_WORKS"],
   YARD_COMPLETED: ["WORKS_ACCEPTED", "MINOR_DEFICIENCY"],
-  MINOR_DEFICIENCY: ["WORKS_ACCEPTED", "CANCELLED_WORKS"],
+  // MINOR_DEFICIENCY → YARD_COMPLETED ("Deficiency rectified") is the yard's
+  // only way to hand rectified work back — without it, a deficiency was a
+  // dead end: accept the works with the defect outstanding, or cancel works
+  // already done.
+  MINOR_DEFICIENCY: ["YARD_COMPLETED", "WORKS_ACCEPTED", "CANCELLED_WORKS"],
   WORKS_ACCEPTED: ["CLOSED"],
   CANCELLED_QUOTE: [],
   CANCELLED_WORKS: [],
@@ -54,11 +63,46 @@ export function canTransitionJob(from: JobStatus, to: JobStatus): boolean {
   return JOB_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * `ActionError`, not a bare `Error` (ACTION_PLAN.md G3.6, AUDIT_REPORT.md
+ * T3's "two incompatible failure conventions"). A caller hits this only when
+ * the job moved between the page being rendered and the button being
+ * clicked — someone else acted first, or a double-submit landed after the
+ * first one already succeeded — so `conflict()` names it for what it is
+ * rather than leaving the boundary's generic "something went wrong" for a
+ * situation the message can actually explain.
+ */
 export function assertTransitionJob(from: JobStatus, to: JobStatus) {
   if (!canTransitionJob(from, to)) {
-    throw new Error(`Illegal transition ${from} → ${to}`);
+    throw conflict(
+      `This job is now ${JOB_STATUS_LABELS[from] ?? from}, so it can no longer move to ${JOB_STATUS_LABELS[to] ?? to}. Reload to see its current state.`
+    );
   }
 }
+
+/**
+ * Transitions that must never be reached through the plain transitionJob
+ * action, however legal the edge and however permitted the caller —
+ * because reaching them any other way skips a ceremony this module cannot
+ * see: a confirmation code, a fingerprint check, an audit record of who
+ * signed and from where.
+ *
+ * Before this, the only thing keeping `CLIENT_ACCEPTED` out of reach was
+ * `NOT_OFFERED` below — a UI-layer filter this file's own header comment
+ * claimed made the server and the screen unable to disagree, while
+ * transitionJob never actually checked it. AUDIT_REPORT.md's Critical C2:
+ * any holder of job.accept could post `to=CLIENT_ACCEPTED` directly and
+ * commit the vessel to a quote's full value with no code, no change-order
+ * gate, and no fingerprint proving the price wasn't altered — and the
+ * resulting record was unsigned, since transitionJob never set
+ * clientAcceptedAt/clientAcceptedById either.
+ *
+ * This list is deliberately not `NOT_OFFERED`: that one also hides
+ * `EXPIRED`, but for an unrelated reason (nobody manually presses a button
+ * for the clock to do its job) — merging the two would smuggle a UI
+ * decision into a security control, or vice versa.
+ */
+export const JOB_TRANSITIONS_REQUIRING_CEREMONY: JobStatus[] = ["CLIENT_ACCEPTED"];
 
 /** Statuses counted as money the client has committed to. */
 export const JOB_ACCEPTED_STATUSES: JobStatus[] = [
@@ -128,30 +172,36 @@ const ACTIONS: Record<JobStatus, Omit<JobAction, "to">> = {
 };
 
 /**
- * Legal edges that the generic transition action must never accept, however
- * the UI is driven — not merely edges the UI declines to render a button
- * for. Two different reasons put a status here:
+ * Transitions offered as buttons.
  *
- * - `CLIENT_ACCEPTED` needs the acceptance ceremony's confirmation code and
- *   quote fingerprint (`jobs/[id]/accept/actions.ts`), not a plain status
- *   write. Before this list was consulted by both the button filter and
- *   `applyTransition` (`lib/workflow/applyTransition.ts`), it was consulted
- *   only by the former — `transitionJob` would accept `CLIENT_ACCEPTED`
- *   directly from anyone holding `JOB_ACCEPT`, skipping the ceremony
- *   entirely. See C2 in AUDIT_REPORT.md and G1.3/G2.3 in ACTION_PLAN.md.
- * - `EXPIRED` is reached by the clock, not by anyone pressing a button
- *   (nothing currently runs that clock — see G3.9 — but the status still
- *   should never be one a person sets by calling the generic action).
- *
- * This was `NOT_OFFERED`, read only by `jobActions()` below. Renamed and
- * exported so the server enforces exactly what the screen offers, rather
- * than the two silently drifting apart — the thing this file's own header
- * comment already claimed before it was true.
+ * EXPIRED is excluded: it is reached by the clock, not by anyone pressing a
+ * button. Accept is excluded here too because it runs through the two-step
+ * confirmation and emailed code in Phase 2 rather than a plain transition.
+ * QUOTE_SENT is excluded because issuing or revising a quote needs the full
+ * line-item form at /jobs/[id]/quote, not a bare status flip — that form is
+ * offered separately, keyed off `canQuote` rather than this list.
  */
-export const JOB_GENERIC_UNREACHABLE: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED"];
+const NOT_OFFERED: JobStatus[] = ["EXPIRED", "CLIENT_ACCEPTED", "QUOTE_SENT"];
+
+/**
+ * Per-edge label overrides, for the one target status two different sources
+ * mean something different by: YARD_COMPLETED said from ACCEPTED is "the
+ * yard finished the work", said from MINOR_DEFICIENCY it is "the yard fixed
+ * what was flagged" — worth a different label even though it's the same
+ * permission and the same target status.
+ */
+function actionLabel(from: JobStatus, to: JobStatus): string {
+  if (from === "MINOR_DEFICIENCY" && to === "YARD_COMPLETED") return "Deficiency rectified";
+  return ACTIONS[to].label;
+}
 
 export function jobActions(from: JobStatus): JobAction[] {
   return (JOB_LEGAL_TRANSITIONS[from] ?? [])
-    .filter((to) => !JOB_GENERIC_UNREACHABLE.includes(to))
-    .map((to) => ({ to, ...ACTIONS[to] }));
+    .filter((to) => !NOT_OFFERED.includes(to))
+    .map((to) => ({ to, ...ACTIONS[to], label: actionLabel(from, to) }));
+}
+
+/** The audience side of a plain status transition — see `transitionJob`. */
+export function jobActionSide(to: JobStatus): "client" | "yard" {
+  return ACTIONS[to].side;
 }

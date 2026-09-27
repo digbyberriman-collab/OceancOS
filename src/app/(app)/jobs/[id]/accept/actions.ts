@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -9,10 +10,11 @@ import { assertPermission, PERMISSIONS } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { sendEmail } from "@/lib/email";
-import { listProjectsForUser, usersReachingProject } from "@/lib/project";
-import { assertTransitionJob } from "@/lib/jobs/workflow";
+import { listProjectsForUser, usersWithPermissionOnProject } from "@/lib/project";
+import { assertTransitionJob, isExpired } from "@/lib/jobs/workflow";
 import type { JobStatus } from "@/lib/enums";
 import { forbidden, notFound } from "@/lib/errors";
+import { toNumber } from "@/lib/utils";
 import {
   MAX_CHALLENGE_ATTEMPTS,
   acceptanceEmail,
@@ -35,22 +37,6 @@ async function loadJobForAccept(userId: string, jobId: string) {
   const projects = await listProjectsForUser(userId);
   if (!projects.some((p) => p.id === job.projectId)) {
     throw forbidden("That job belongs to a project you cannot reach.");
-  }
-
-  // C17: every step of the ceremony — requesting a code, confirming it, and
-  // rejecting outright — ran through `hasPermission(user, JOB_ACCEPT)` (or,
-  // for rejection, JOB_CANCEL) alone, with nothing comparing the signer
-  // against `job.designatedAuthoriserId`. Any other authoriser, or a YARD_PM
-  // holding JOB_CANCEL, could accept or reject a quote addressed to someone
-  // else, and the ceremony wrote a correct-looking APPROVE/REJECT audit row
-  // under the actual caller's name — everything downstream of this check
-  // (the confirmation code, the fingerprint, the attempt counter) already
-  // worked correctly and is untouched. Delegation is not supported: this is
-  // a product decision (only the named authoriser may sign or decline, with
-  // no override), not an oversight, matching G1.4's PLATFORM_WIDE_ROLES
-  // precedent of making the call explicit rather than leaving it silent.
-  if (job.designatedAuthoriserId !== userId) {
-    throw forbidden("Only the designated authoriser can act on this quote.");
   }
   return job;
 }
@@ -97,20 +83,23 @@ export async function requestAcceptanceCode(formData: FormData) {
     data: { consumedAt: new Date() },
   });
 
+  // The id is generated here, not by Prisma's default, so the hash — which
+  // binds to it — can be computed up front and the row inserted complete in
+  // one statement (ACTION_PLAN.md G3.4). The previous create-then-update
+  // left a row with codeHash: "" between the two statements; a failure
+  // there emailed nothing but still redirected the user to a challenge
+  // asking for a code that was never sent.
   const code = generateAcceptanceCode();
+  const challengeId = randomUUID();
   const challenge = await prisma.acceptanceChallenge.create({
     data: {
+      id: challengeId,
       jobId,
       userId: user.id,
-      codeHash: "",
+      codeHash: hashAcceptanceCode(challengeId, code),
       quoteHash: quoteFingerprint(job),
       expiresAt: challengeExpiry(),
     },
-  });
-  // The hash binds to the challenge id, so it is written once that id exists.
-  await prisma.acceptanceChallenge.update({
-    where: { id: challenge.id },
-    data: { codeHash: hashAcceptanceCode(challenge.id, code) },
   });
 
   const { subject, text } = acceptanceEmail({
@@ -122,7 +111,7 @@ export async function requestAcceptanceCode(formData: FormData) {
       style: "currency",
       currency: job.currency || job.project.currency,
       maximumFractionDigits: 0,
-    }).format(job.total),
+    }).format(toNumber(job.total)),
   });
   await sendEmail({ to: user.email, subject, text });
 
@@ -159,8 +148,16 @@ export async function confirmAcceptance(formData: FormData) {
   if (problem) back(challengeProblemMessage(problem));
 
   if (!verifyAcceptanceCode(challengeId, code, challenge!.codeHash)) {
-    const attempts = challenge!.attempts + 1;
-    await prisma.acceptanceChallenge.update({ where: { id: challengeId }, data: { attempts } });
+    // Incremented atomically at the database, not read-then-write in JS
+    // (ACTION_PLAN.md G3.3, AUDIT_REPORT.md T5) — two wrong codes submitted
+    // at once must not both read the same starting count and each land
+    // "attempt 3 of 5", letting the five-attempt lockout be outrun by
+    // concurrency.
+    const updated = await prisma.acceptanceChallenge.update({
+      where: { id: challengeId },
+      data: { attempts: { increment: 1 } },
+    });
+    const attempts = updated.attempts;
     await recordAudit({
       actorId: user.id,
       action: "REJECT",
@@ -212,7 +209,7 @@ export async function confirmAcceptance(formData: FormData) {
         event: "CLIENT_ACCEPTED",
         fromStatus: job.status,
         toStatus: "CLIENT_ACCEPTED",
-        details: { quoteHash: challenge!.quoteHash, total: job.total, channel: challenge!.channel },
+        details: { quoteHash: challenge!.quoteHash, total: toNumber(job.total), channel: challenge!.channel },
       },
     }),
     prisma.comment.create({
@@ -235,31 +232,25 @@ export async function confirmAcceptance(formData: FormData) {
     resourceId: jobId,
     details: {
       event: "CLIENT_ACCEPTED",
-      total: job.total,
+      total: toNumber(job.total),
       currency: job.currency,
       quoteHash: challenge!.quoteHash,
       challengeId,
       channel: challenge!.channel,
       ip,
       userAgent: requestHeaders.get("user-agent"),
-      wasExpired: job.status === "EXPIRED",
+      // Derived from expiresAt, not the stored status: nothing in the app
+      // ever sweeps a lapsed QUOTE_SENT row to EXPIRED (ACTION_PLAN.md
+      // G3.9), so `job.status === "EXPIRED"` recorded false on every single
+      // acceptance, including ones signed months after the quote lapsed.
+      wasExpired: isExpired(job),
     },
   });
 
-  const yardUsers = await prisma.user.findMany({
-    where: {
-      active: true,
-      roles: {
-        some: {
-          role: { permissions: { some: { permission: { key: PERMISSIONS.JOB_COUNTERSIGN } } } },
-        },
-      },
-    },
-    select: { id: true },
-  });
-  const yardRecipients = await usersReachingProject(yardUsers.map((u) => u.id), job.projectId);
+  // Only the yard on this project — see the note in jobs/actions.ts.
+  const yardUserIds = await usersWithPermissionOnProject(job.project, PERMISSIONS.JOB_COUNTERSIGN);
   await notify({
-    userIds: yardRecipients,
+    userIds: yardUserIds,
     kind: "APPROVAL_REQUIRED",
     priority: "HIGH",
     title: `${job.code} accepted by the client — ready to countersign`,

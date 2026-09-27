@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { ROLE_KEYS, DEPARTMENTS, PLATFORM_WIDE_ROLES } from "../src/lib/enums";
 import { ROLE_PERMISSIONS, PERMISSIONS } from "../src/lib/rbac";
 import { seedJobs } from "./seedJobs";
+import { DEFAULT_REGISTER_PATH, readVesselRegister } from "../src/lib/vessels/workbook";
+import { importVesselRegister } from "../src/lib/vessels/importRegister";
 
 const prisma = new PrismaClient();
 
@@ -66,7 +68,7 @@ async function main() {
   const vessel = await prisma.vessel.upsert({
     where: { id: "v1" },
     update: {},
-    create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, builtYear: 2018 },
+    create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, deliveredYear: 2018, vesselType: "Motor yacht" },
   });
 
   // Yard period for the primary project. These dates drive the Home timing
@@ -99,7 +101,7 @@ async function main() {
   const vessel2 = await prisma.vessel.upsert({
     where: { id: "v2" },
     update: {},
-    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, builtYear: 2012 },
+    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, deliveredYear: 2012, vesselType: "Motor yacht" },
   });
 
   const project2YardPeriod = {
@@ -150,6 +152,15 @@ async function main() {
     { email: "class@oceancos.dev", name: "Carl Class", role: "CLASS_SURVEYOR" },
     { email: "flag@oceancos.dev", name: "Flo Flag", role: "FLAG_SURVEYOR" },
     { email: "contractor@oceancos.dev", name: "Connor Contractor", role: "CONTRACTOR" },
+    // ACTION_PLAN.md G6.9: these seven roles previously had no seeded
+    // account at all, so nobody had ever walked through the app as one.
+    { email: "officer@oceancos.dev", name: "Owen Officer", role: "CHIEF_OFFICER" },
+    { email: "purser@oceancos.dev", name: "Paula Purser", role: "PURSER" },
+    { email: "hod@oceancos.dev", name: "Devon Hod", role: "HOD" },
+    { email: "tradelead@oceancos.dev", name: "Trent Tradelead", role: "YARD_TRADE_LEAD" },
+    { email: "supplier@oceancos.dev", name: "Sonia Supplier", role: "SUPPLIER" },
+    { email: "auditor@oceancos.dev", name: "Amara Auditor", role: "AUDITOR" },
+    { email: "guest@oceancos.dev", name: "Gia Guest", role: "GUEST" },
   ];
 
   for (const u of userSeeds) {
@@ -173,6 +184,28 @@ async function main() {
       } else {
         await prisma.userRole.create({ data: { userId: user.id, roleId: role.id, projectId } });
       }
+    }
+  }
+
+  // A project-scoped user, reaching only p1 ("2026 Refit"), never p2.
+  //
+  // Every one of the nineteen accounts above holds an unscoped role
+  // assignment, so every one of them can already reach both seeded
+  // projects — none of them can exercise the scoping this project adds
+  // (AUDIT_REPORT.md's [TENANCY] Criticals and ACTION_PLAN.md's G2.1). This
+  // account is what e2e/tenancy.spec.ts signs in as.
+  const scopedUser = await prisma.user.upsert({
+    where: { email: "scoped@oceancos.dev" },
+    update: { name: "Sam Scoped" },
+    create: { email: "scoped@oceancos.dev", name: "Sam Scoped", passwordHash },
+  });
+  const pmRole = await prisma.role.findUnique({ where: { key: "PROJECT_MANAGER" } });
+  if (pmRole) {
+    const exists = await prisma.userRole.findFirst({
+      where: { userId: scopedUser.id, roleId: pmRole.id, projectId: project.id },
+    });
+    if (!exists) {
+      await prisma.userRole.create({ data: { userId: scopedUser.id, roleId: pmRole.id, projectId: project.id } });
     }
   }
 
@@ -332,6 +365,48 @@ async function main() {
     });
   }
 
+  // One change order and one crew request that live on p2 only — the record
+  // e2e/tenancy.spec.ts proves scoped@oceancos.dev cannot reach.
+  if (pm && crew) {
+    const existingP2Co = await prisma.changeOrder.findUnique({ where: { number: "CO-P2-0001" } });
+    if (!existingP2Co) {
+      await prisma.changeOrder.create({
+        data: {
+          projectId: "p2",
+          number: "CO-P2-0001",
+          title: "Northern Light galley refrigeration replacement",
+          description: "Replace both under-counter refrigeration units in the crew galley.",
+          reason: "Compressors beyond economic repair.",
+          departmentCode: "INTERIOR",
+          priority: "MEDIUM",
+          estimatedCost: 9_400,
+          scheduleImpactDays: 2,
+          status: "DRAFT",
+          createdById: pm.id,
+          updatedById: pm.id,
+          history: { create: { actorId: pm.id, event: "CREATED", toStatus: "DRAFT" } },
+        },
+      });
+    }
+    const existingP2Cr = await prisma.crewRequest.findFirst({ where: { projectId: "p2" } });
+    if (!existingP2Cr) {
+      await prisma.crewRequest.create({
+        data: {
+          projectId: "p2",
+          number: "REQ-P2-0001",
+          title: "Sundeck helm chair upholstery",
+          description: "Split seam on the port helm chair, exposed foam.",
+          category: "INTERIOR",
+          priority: "LOW",
+          status: "NEW",
+          requestedById: crew.id,
+          createdById: crew.id,
+          updatedById: crew.id,
+        },
+      });
+    }
+  }
+
   // Sample risks
   const risksData = [
     { title: "Long-lead glass not confirmed", category: "SUPPLY_CHAIN", likelihood: 4, impact: 5, status: "OPEN" },
@@ -377,6 +452,36 @@ async function main() {
   }
 
   await seedJobs(prisma, project.id, projectYardPeriod.arrivalDate);
+
+  // The Oceanco Y700 register: 22 vessels, each with a project, and the
+  // evidence behind every figure. The same loader runs in production through
+  // `npm run vessels:import`.
+  const register = await readVesselRegister(DEFAULT_REGISTER_PATH);
+  const imported = await importVesselRegister(prisma, register);
+  console.log(
+    `  vessel register: ${register.vessels.length} vessels ` +
+      `(${imported.vesselsCreated} new, ${imported.projectsCreated} projects created, ` +
+      `${imported.observationsAdded} observations added)`
+  );
+
+  // src/lib/sequence.ts allocates CO-/REQ- numbers from these counters, not
+  // from a row count — sync them to what this seed actually created so the
+  // next real create continues the sequence instead of colliding with a
+  // seeded number (ACTION_PLAN.md G3.3).
+  const [coCount, crCount] = await Promise.all([
+    prisma.changeOrder.count(),
+    prisma.crewRequest.count(),
+  ]);
+  await prisma.counter.upsert({
+    where: { key: "CO" },
+    create: { key: "CO", value: coCount },
+    update: { value: coCount },
+  });
+  await prisma.counter.upsert({
+    where: { key: "REQ" },
+    create: { key: "REQ", value: crCount },
+    update: { value: crCount },
+  });
 
   console.log("Done.");
 }

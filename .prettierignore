@@ -1,0 +1,7 @@
+.next
+node_modules
+uploads
+.mail
+playwright-report
+test-results
+coverage

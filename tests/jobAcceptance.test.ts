@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { Prisma } from "@prisma/client";
 import {
   CHALLENGE_TTL_MINUTES,
   MAX_CHALLENGE_ATTEMPTS,
@@ -12,14 +13,16 @@ import {
   verifyAcceptanceCode,
 } from "@/lib/jobs/acceptance";
 
+const dec = (n: number) => new Prisma.Decimal(n);
+
 const quote = {
   code: "D.0130.05",
-  total: 1_485,
+  total: dec(1_485),
   currency: "EUR",
   validityDays: 5,
   lines: [
-    { description: "Skilled worker", quantity: 16, unit: "HR", unitPrice: 67.5 },
-    { description: "Materials", quantity: 1, unit: "UN", unitPrice: 405 },
+    { description: "Skilled worker", quantity: dec(16), unit: "HR", unitPrice: dec(67.5) },
+    { description: "Materials", quantity: dec(1), unit: "UN", unitPrice: dec(405) },
   ],
 };
 
@@ -118,13 +121,13 @@ describe("quote fingerprint", () => {
   });
 
   it("changes when the total changes", () => {
-    expect(quoteFingerprint({ ...quote, total: 1_486 })).not.toBe(quoteFingerprint(quote));
+    expect(quoteFingerprint({ ...quote, total: dec(1_486) })).not.toBe(quoteFingerprint(quote));
   });
 
   it("changes when a line price changes", () => {
     const altered = {
       ...quote,
-      lines: [{ ...quote.lines[0], unitPrice: 70 }, quote.lines[1]],
+      lines: [{ ...quote.lines[0], unitPrice: dec(70) }, quote.lines[1]],
     };
     expect(quoteFingerprint(altered)).not.toBe(quoteFingerprint(quote));
   });

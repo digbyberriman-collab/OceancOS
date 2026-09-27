@@ -7,9 +7,8 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "./db";
-import type { CurrentUser } from "./auth";
 import { forbidden } from "./errors";
-import { PLATFORM_WIDE_ROLES, type RoleKey } from "./enums";
+import { requestCache } from "./requestCache";
 
 const SESSION_COOKIE = "oc_session";
 
@@ -17,108 +16,118 @@ export type ProjectSummary = {
   id: string;
   name: string;
   code: string | null;
+  vesselId: string;
   vesselName: string;
   status: string;
 };
 
+type RoleScope = { projectId: string | null; vesselId: string | null };
+
+/**
+ * The Prisma `where` a set of role scopes admits for `Project`, or `null` when
+ * they admit none.
+ *
+ * Pure — no database, which is what makes this the one part of the scoping
+ * model with direct unit test coverage (`tests/project.test.ts`). Everything
+ * below that touches Prisma is a thin wrapper around this decision, so there
+ * is exactly one place it is made.
+ *
+ * A user whose role assignments name specific projects or vessels reaches
+ * only those; a user with an unscoped assignment (the common case for
+ * owner-side staff) reaches every active project. `null` — not an empty `OR`,
+ * which would still match everything — is what a scoped user with no project
+ * or vessel named resolves to.
+ */
+export function resolveProjectWhere(
+  scopes: RoleScope[]
+):
+  | { archivedAt: null }
+  | { archivedAt: null; OR: Array<{ id: { in: string[] } } | { vesselId: { in: string[] } }> }
+  | null {
+  const projectIds = scopes.map((s) => s.projectId).filter((x): x is string => !!x);
+  const vesselIds = scopes.map((s) => s.vesselId).filter((x): x is string => !!x);
+  const hasUnscopedRole = scopes.some((s) => !s.projectId && !s.vesselId);
+
+  if (hasUnscopedRole) return { archivedAt: null };
+  if (!projectIds.length && !vesselIds.length) return null;
+
+  return {
+    archivedAt: null,
+    OR: [
+      ...(projectIds.length ? [{ id: { in: projectIds } }] : []),
+      ...(vesselIds.length ? [{ vesselId: { in: vesselIds } }] : []),
+    ],
+  };
+}
+
 /**
  * Projects the user may work in.
  *
- * A user whose role assignments name specific projects sees only those. An
- * assignment that names neither a project nor a vessel sees every active
- * project only when the role itself is one of `PLATFORM_WIDE_ROLES` — the
- * fleet-wide owner-side case this function was written for. The same
- * unscoped shape on any other role is a provisioning gap, not a grant, and
- * resolves to no project (C16 in AUDIT_REPORT_ADDENDUM.md: this branch used
- * to grant every project to every unscoped role, which is how a yard PM or
- * a contractor engaged for one vessel could reach every vessel on the
- * platform). Archived projects are never listed.
+ * A user whose role assignments name specific projects sees only those; a user
+ * with an unscoped assignment (the common case for owner-side staff) sees every
+ * active project. Archived projects are never listed.
  */
-export async function listProjectsForUser(userId: string): Promise<ProjectSummary[]> {
+export const listProjectsForUser = requestCache(async (userId: string): Promise<ProjectSummary[]> => {
   const scopes = await prisma.userRole.findMany({
     where: { userId },
-    select: { projectId: true, vesselId: true, role: { select: { key: true } } },
+    select: { projectId: true, vesselId: true },
   });
 
-  const projectIds = scopes.map((s) => s.projectId).filter((x): x is string => !!x);
-  const vesselIds = scopes.map((s) => s.vesselId).filter((x): x is string => !!x);
-  const hasUnscopedPlatformRole = scopes.some(
-    (s) => !s.projectId && !s.vesselId && PLATFORM_WIDE_ROLES.has(s.role.key as RoleKey)
-  );
-
-  const where = hasUnscopedPlatformRole
-    ? { archivedAt: null }
-    : {
-        archivedAt: null,
-        OR: [
-          ...(projectIds.length ? [{ id: { in: projectIds } }] : []),
-          ...(vesselIds.length ? [{ vesselId: { in: vesselIds } }] : []),
-        ],
-      };
-
-  // No platform-wide role, and no project or vessel named, would otherwise
-  // match everything: the fail-closed default for a data gap.
-  if (!hasUnscopedPlatformRole && !projectIds.length && !vesselIds.length) return [];
+  const where = resolveProjectWhere(scopes);
+  if (!where) return [];
 
   const projects = await prisma.project.findMany({
     where,
     include: { vessel: { select: { name: true } } },
-    orderBy: [{ status: "asc" }, { name: "asc" }],
+    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
+    take: 200,
   });
 
   return projects.map((p) => ({
     id: p.id,
     name: p.name,
     code: p.code,
+    vesselId: p.vesselId,
     vesselName: p.vessel.name,
     status: p.status,
   }));
+});
+
+/** The ids of the projects this user can reach. Empty for a user with none. */
+export async function accessibleProjectIds(userId: string): Promise<string[]> {
+  return (await listProjectsForUser(userId)).map((p) => p.id);
 }
 
 /**
- * Asserts `user` can reach `projectId` — the write-path guard.
+ * A Prisma filter fragment scoping a query to the projects this user can
+ * reach — the value of a `projectId` filter on any project-scoped model, e.g.
+ * `prisma.changeOrder.findMany({ where: projectScope(userId) })`.
  *
- * Every create, update or transition that takes a project id from a
- * submitted form or a route param must call this before touching the
- * database. The active-project switcher and `getActiveProject` already only
- * ever offer a project the user can reach, but a request is not obliged to
- * agree with what the UI offered it — `projectId` read straight off a
- * change-order or crew-request create form is exactly this gap (T4 in
- * AUDIT_REPORT.md). Not yet called anywhere: application is G2.1.
+ * Always a concrete `{ in: [...ids] }`, never `undefined`. A user who can
+ * reach every project (an unscoped role) gets every active project id
+ * enumerated rather than an unfiltered query — functionally the same result,
+ * but the type of the return value cannot be mistaken for "no restriction"
+ * the way `projectId ? { projectId } : undefined` was. **That ternary, found
+ * in the change-order spreadsheet export, is the bug this replaces**: for a
+ * user who could reach no project it fell through to `undefined` and
+ * returned every project's data. `{ in: [] }` cannot do that — it matches
+ * nothing.
  */
-export async function requireProjectAccess(
-  user: NonNullable<CurrentUser>,
-  projectId: string
-): Promise<void> {
-  const available = await listProjectsForUser(user.id);
-  if (!available.some((p) => p.id === projectId)) {
-    throw forbidden("You do not have access to that project.");
+export async function projectScope(userId: string): Promise<{ projectId: { in: string[] } }> {
+  return { projectId: { in: await accessibleProjectIds(userId) } };
+}
+
+/**
+ * Refuse unless the user can reach this project. The record-level counterpart
+ * to `projectScope`'s list-level filter — call this before a write to (or a
+ * direct read of) something identified by its own id rather than reached
+ * through a list.
+ */
+export async function requireProjectAccess(userId: string, projectId: string): Promise<void> {
+  const ids = await accessibleProjectIds(userId);
+  if (!ids.includes(projectId)) {
+    throw forbidden("That belongs to a project you cannot reach.");
   }
-}
-
-/**
- * A Prisma `where` fragment scoping a query to the projects `user` can
- * reach: `{ projectId: { in: [...] } }`.
- *
- * For a user who can reach no project this is `{ projectId: { in: [] } }` —
- * an empty `IN` list, which matches no row. It is never `undefined`, which
- * Prisma drops from a `where` entirely rather than treating as "match
- * nothing". That distinction is C4's exact failure: the change-order export
- * route used `projectId ? { projectId } : undefined`, which fell to
- * `undefined` for a user who could reach no project, and that user
- * exported every change order in the database. Not yet called anywhere:
- * application is G2.1.
- *
- * Only for a model whose scoping column is literally `projectId`. A model
- * scoped some other way (`PurchaseOrder.projectId` is nullable; `Supplier`
- * has no project column at all and is a fleet-wide directory) needs its own
- * fragment built from `listProjectsForUser` directly.
- */
-export async function scopedProjectFilter(
-  user: NonNullable<CurrentUser>
-): Promise<{ projectId: { in: string[] } }> {
-  const available = await listProjectsForUser(user.id);
-  return { projectId: { in: available.map((p) => p.id) } };
 }
 
 /**
@@ -127,8 +136,17 @@ export async function scopedProjectFilter(
  * Falls back to their first available project when nothing is selected yet, or
  * when the stored selection is no longer one they can reach. Returns null only
  * when the user has access to no project at all.
+ *
+ * Wrapped in `requestCache` — React's `cache()` where it's actually
+ * available (ACTION_PLAN.md G4.3) — because `(app)/layout.tsx` calls it, and
+ * the page under it (`jobs/page.tsx`, `dashboard/page.tsx`, …) calls it
+ * again for the same userId, previously re-running its full four-query
+ * sequence (this function's own session lookup, plus `listProjectsForUser`'s
+ * two, plus the final `project.findUnique`) a second time.
+ * `listProjectsForUser` is also cached, so the two calls to it here and in
+ * `(app)/layout.tsx` collapse into one query too.
  */
-export async function getActiveProject(userId: string) {
+export const getActiveProject = requestCache(async (userId: string) => {
   const token = cookies().get(SESSION_COOKIE)?.value;
   const session = token
     ? await prisma.session.findUnique({ where: { token }, select: { activeProjectId: true } })
@@ -145,21 +163,7 @@ export async function getActiveProject(userId: string) {
     include: { vessel: true },
   });
   return project;
-}
-
-/**
- * Filter a candidate list of user ids down to those who can reach
- * `projectId` — for a role-based notification fan-out, so "everyone
- * holding this permission" does not mean "everyone on the platform"
- * (workflow-logic `[NOTIFICATIONS]` — recipient lookups are global, not
- * scoped to the project).
- */
-export async function usersReachingProject(userIds: string[], projectId: string): Promise<string[]> {
-  const reach = await Promise.all(
-    userIds.map(async (id) => ((await listProjectsForUser(id)).some((p) => p.id === projectId) ? id : null))
-  );
-  return reach.filter((id): id is string => !!id);
-}
+});
 
 /** Persist the selection against the current session. */
 export async function storeActiveProject(userId: string, projectId: string) {
@@ -167,13 +171,57 @@ export async function storeActiveProject(userId: string, projectId: string) {
   if (!token) return;
 
   // Never store a project the user cannot reach.
-  const available = await listProjectsForUser(userId);
-  if (!available.some((p) => p.id === projectId)) {
-    throw new Error("Forbidden: no access to that project");
-  }
+  await requireProjectAccess(userId, projectId);
 
   await prisma.session.update({
     where: { token },
     data: { activeProjectId: projectId },
   });
+}
+
+/**
+ * The `UserRole` filter that admits a role scope reaching a given project —
+ * the inverse of `resolveProjectWhere`. That function asks "which projects
+ * can this role scope reach"; this asks "which role scopes reach this
+ * project". Used to find who to notify about something that happened on one
+ * project, without notifying everyone who holds the permission platform-wide.
+ *
+ * Pure, for the same reason `resolveProjectWhere` is.
+ */
+export function resolveUserRoleWhereForProject(project: { id: string; vesselId: string }) {
+  return {
+    OR: [
+      { projectId: null, vesselId: null },
+      { projectId: project.id },
+      { vesselId: project.vesselId },
+    ],
+  };
+}
+
+/**
+ * Active users holding `permKey` through a role scope that reaches `project`.
+ *
+ * Replaces the pattern of selecting every user who holds a permission
+ * anywhere on the platform to notify them about one project's job or change
+ * order — AUDIT_REPORT.md's `[NOTIFICATIONS] — Recipient lookups are global`:
+ * every yard PM on the platform was notified of every new quote request on
+ * every vessel, including the job code and title of one they could not open.
+ */
+export async function usersWithPermissionOnProject(
+  project: { id: string; vesselId: string },
+  permKey: string
+): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      active: true,
+      roles: {
+        some: {
+          role: { permissions: { some: { permission: { key: permKey } } } },
+          ...resolveUserRoleWhereForProject(project),
+        },
+      },
+    },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
 }

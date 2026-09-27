@@ -2,28 +2,34 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { getActiveProject } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
 import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
+import { toNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-type Row = Awaited<ReturnType<typeof loadRows>>[number];
+type Row = NonNullable<Awaited<ReturnType<typeof loadRows>>>[number];
 
 /**
- * `projectId` is null, never undefined, for a user who can reach no
- * project — `{ in: [] }` matches no row. The ternary this replaced
- * (`projectId ? { projectId } : undefined`) fell to `undefined` for that
- * exact case, which Prisma drops from `where` entirely rather than
- * treating as "match nothing", so that user exported every change order in
- * the database. See C4 in AUDIT_REPORT.md and G1.2's scopedProjectFilter.
+ * Pinned to one project when the caller has one active; otherwise every
+ * project they can reach — never every project in the database. The old
+ * `projectId ? { projectId } : undefined` fell to "no filter at all" for a
+ * user with no active project, which for a user who could reach *no*
+ * project meant exporting everyone else's change orders too. See
+ * AUDIT_REPORT.md §6 and `projectScope`'s own docstring.
  */
-async function loadRows(projectId: string | null) {
-  return prisma.changeOrder.findMany({
-    where: { projectId: projectId ? projectId : { in: [] }, archivedAt: null },
+const EXPORT_CAP = 10_000;
+
+/** `null` when the result would exceed EXPORT_CAP — too many to build a workbook from safely. */
+async function loadRows(userId: string, projectId?: string) {
+  const rows = await prisma.changeOrder.findMany({
+    where: { archivedAt: null, ...(projectId ? { projectId } : await projectScope(userId)) },
     include: { project: { include: { vessel: true } } },
     orderBy: { number: "asc" },
+    take: EXPORT_CAP + 1,
   });
+  return rows.length > EXPORT_CAP ? null : rows;
 }
 
 /**
@@ -40,7 +46,13 @@ export async function GET(request: Request) {
 
   const format = new URL(request.url).searchParams.get("format") === "csv" ? "csv" : "xlsx";
   const project = await getActiveProject(user.id);
-  const rows = await loadRows(project?.id ?? null);
+  const rows = await loadRows(user.id, project?.id);
+  if (rows === null) {
+    return NextResponse.json(
+      { error: `There are more than ${EXPORT_CAP.toLocaleString()} change orders in scope — too many to export in one file.` },
+      { status: 413 }
+    );
+  }
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const sheet: Sheet<Row> = {
@@ -56,8 +68,8 @@ export async function GET(request: Request) {
       { header: "Department", type: "text", value: (r) => r.departmentCode ?? "", width: 16 },
       ...(showMoney
         ? ([
-            { header: "Estimated cost", type: "money", value: (r: Row) => r.estimatedCost, width: 16 },
-            { header: "Approved cost", type: "money", value: (r: Row) => r.approvedCost ?? null, width: 16 },
+            { header: "Estimated cost", type: "money", value: (r: Row) => toNumber(r.estimatedCost), width: 16 },
+            { header: "Approved cost", type: "money", value: (r: Row) => (r.approvedCost != null ? toNumber(r.approvedCost) : null), width: 16 },
           ] as const)
         : []),
       { header: "Schedule impact (days)", type: "number", value: (r) => r.scheduleImpactDays, width: 20 },

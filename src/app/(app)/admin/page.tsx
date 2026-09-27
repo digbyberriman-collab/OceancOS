@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -10,26 +11,47 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const user = await requireUser();
-  if (!hasPermission(user, PERMISSIONS.ADM_USERS) && !hasPermission(user, PERMISSIONS.AUDIT_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Admin tools are restricted." />;
+  // Two separate grants, rendered separately below: ADM_USERS for the user
+  // directory (names, emails, role assignments — the roster the reset flow
+  // takes care not to leak) and AUDIT_VIEW for the audit log. Before
+  // ACTION_PLAN.md G6.9, ADM_USERS was granted to no role, so this page's
+  // "either" guard meant AUDIT_VIEW alone — held by AUDITOR, a read-only
+  // role by design — actually decided who saw the full user directory too.
+  const canSeeUsers = hasPermission(user, PERMISSIONS.ADM_USERS);
+  const canSeeAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  if (!canSeeUsers && !canSeeAudit) {
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Admin tools are restricted." />;
   }
-  // The user directory (every account's email and role assignment) is its
-  // own gate, independent of the AUDIT_VIEW that lets someone into this page
-  // at all — before this, any AUDIT_VIEW holder without ADM_USERS (both
-  // OWNERS_REP and PROJECT_MANAGER, live-confirmed) saw the full directory
-  // as a side effect of a page meant for oversight, not a phone book.
-  const canViewUsers = hasPermission(user, PERMISSIONS.ADM_USERS);
-
   const [users, vessels, projects, depts, audit] = await Promise.all([
-    canViewUsers
-      ? prisma.user.findMany({ include: { roles: { include: { role: true } } }, orderBy: { name: "asc" } })
+    canSeeUsers
+      ? prisma.user.findMany({
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            roles: { select: { role: { select: { key: true } } } },
+          },
+          orderBy: { name: "asc" },
+          take: 500,
+        })
       : [],
-    prisma.vessel.findMany({ where: { archivedAt: null }, orderBy: { name: "asc" } }),
-    prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true }, orderBy: { name: "asc" } }),
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
-    hasPermission(user, PERMISSIONS.AUDIT_VIEW)
-      ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 })
+    canSeeUsers
+      ? prisma.vessel.findMany({
+          where: { archivedAt: null },
+          orderBy: [{ yardNumber: "asc" }, { name: "asc" }],
+          take: 200,
+        })
       : [],
+    canSeeUsers
+      ? prisma.project.findMany({
+          where: { archivedAt: null },
+          include: { vessel: true },
+          orderBy: [{ code: "asc" }, { name: "asc" }],
+          take: 200,
+        })
+      : [],
+    canSeeUsers ? prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }) : [],
+    canSeeAudit ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : [],
   ]);
 
   return (
@@ -46,82 +68,70 @@ export default async function AdminPage() {
         }
       />
 
-      {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {canViewUsers && (
-          <div className="stat-card">
-            <div className="stat-label">Users</div>
-            <div className="stat-value text-white">{users.length}</div>
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
+      {canSeeUsers && (
+        <>
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="stat-card">
+              <div className="stat-label">Users</div>
+              <div className="stat-value text-white">{users.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Projects</div>
+              <div className="stat-value text-accent-bright">{projects.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-accent/60" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Vessels</div>
+              <div className="stat-value text-marine">{vessels.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Departments</div>
+              <div className="stat-value text-muted">{depts.length}</div>
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
+            </div>
           </div>
-        )}
-        <div className="stat-card">
-          <div className="stat-label">Projects</div>
-          <div className="stat-value text-accent-bright">{projects.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-accent/60" />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Vessels</div>
-          <div className="stat-value text-marine">{vessels.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-marine/40" />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Departments</div>
-          <div className="stat-value text-muted">{depts.length}</div>
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-line" />
-        </div>
-      </div>
 
-      {/* Main grid: Users + Projects/Vessels/Depts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Users card — its own gate, not the page's AUDIT_VIEW entry bar */}
-        {canViewUsers ? (
-          <div className="surface overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
-              <Users size={14} className="text-marine shrink-0" />
-              <span className="text-sm font-semibold text-white">Users</span>
-              <span className="text-[11px] text-faint tnum ml-1">{users.length}</span>
-            </div>
-            <table className="table-base">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th className="w-40">Roles</th>
+          {/* Main grid: Users + Projects/Vessels/Depts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Users card */}
+        <div className="surface overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
+            <Users size={14} className="text-marine shrink-0" />
+            <span className="text-sm font-semibold text-white">Users</span>
+            <span className="text-[11px] text-faint tnum ml-1">{users.length}</span>
+          </div>
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Email</th>
+                <th scope="col" className="w-40">Roles</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="row-hover">
+                  <td>
+                    <span className="font-medium text-white">{u.name}</span>
+                  </td>
+                  <td className="text-muted text-xs">{u.email}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-1">
+                      {u.roles.map((r) => (
+                        <Badge key={r.role.key} tone="info">
+                          {r.role.key.replace(/_/g, " ")}
+                        </Badge>
+                      ))}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="row-hover">
-                    <td>
-                      <span className="font-medium text-white">{u.name}</span>
-                    </td>
-                    <td className="text-muted text-xs">{u.email}</td>
-                    <td>
-                      <div className="flex flex-wrap gap-1">
-                        {u.roles.map((r) => (
-                          <Badge key={r.role.key} tone="info">
-                            {r.role.key.replace(/_/g, " ")}
-                          </Badge>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="surface overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
-              <Users size={14} className="text-marine shrink-0" />
-              <span className="text-sm font-semibold text-white">Users</span>
-            </div>
-            <div className="px-4 py-6 text-sm text-faint text-center">
-              You don&apos;t have permission to view the user directory.
-            </div>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         {/* Right column: Projects, Vessels, Departments */}
         <div className="space-y-4">
@@ -164,8 +174,14 @@ export default async function AdminPage() {
               ) : (
                 <ul className="divide-y divide-line-soft">
                   {vessels.map((v) => (
-                    <li key={v.id} className="px-4 py-2 text-sm text-muted hover:text-white transition-colors">
-                      {v.name}
+                    <li key={v.id}>
+                      <Link
+                        href={`/vessels/${v.id}`}
+                        className="flex items-baseline gap-2 px-4 py-2 text-sm text-muted hover:text-white transition-colors"
+                      >
+                        {v.yardNumber && <span className="text-[11px] text-faint tnum">{v.yardNumber}</span>}
+                        {v.name}
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -192,9 +208,11 @@ export default async function AdminPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
       {/* Audit log */}
-      {audit.length > 0 && (
+      {canSeeAudit && audit.length > 0 && (
         <div className="surface overflow-hidden">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
             <ScrollText size={14} className="text-marine shrink-0" />
@@ -205,11 +223,11 @@ export default async function AdminPage() {
             <table className="table-base">
               <thead>
                 <tr>
-                  <th className="w-40">When</th>
-                  <th className="w-32">Action</th>
-                  <th className="w-40">Resource</th>
-                  <th className="w-28">Actor</th>
-                  <th>Details</th>
+                  <th scope="col" className="w-40">When</th>
+                  <th scope="col" className="w-32">Action</th>
+                  <th scope="col" className="w-40">Resource</th>
+                  <th scope="col" className="w-28">Actor</th>
+                  <th scope="col">Details</th>
                 </tr>
               </thead>
               <tbody>

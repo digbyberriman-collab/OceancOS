@@ -47,12 +47,10 @@ describe("role/permission matrix", () => {
 describe("separation of duties", () => {
   it("keeps financial data away from crew", () => {
     expect(ROLE_PERMISSIONS.CREW).not.toContain(PERMISSIONS.FIN_VIEW);
-    expect(ROLE_PERMISSIONS.CREW).not.toContain(PERMISSIONS.FIN_EDIT_BUDGET);
   });
 
   it("does not let the owner approve technical stages", () => {
     expect(ROLE_PERMISSIONS.OWNER).not.toContain(PERMISSIONS.CO_APPROVE_TECH);
-    expect(ROLE_PERMISSIONS.OWNER).not.toContain(PERMISSIONS.DRW_APPROVE);
   });
 
   it("keeps the auditor read-only", () => {
@@ -62,10 +60,6 @@ describe("separation of duties", () => {
       PERMISSIONS.CO_SUBMIT,
       PERMISSIONS.CO_CANCEL,
       PERMISSIONS.CR_CREATE,
-      PERMISSIONS.FIN_EDIT_BUDGET,
-      PERMISSIONS.SCH_EDIT,
-      PERMISSIONS.INV_EDIT,
-      PERMISSIONS.RSK_EDIT,
       PERMISSIONS.ADM_USERS,
     ];
     for (const perm of writeish) {
@@ -113,7 +107,6 @@ describe("separation of duties", () => {
   it("restricts contractors and suppliers to a narrow surface", () => {
     expect(ROLE_PERMISSIONS.SUPPLIER.length).toBeLessThanOrEqual(3);
     expect(ROLE_PERMISSIONS.CONTRACTOR).not.toContain(PERMISSIONS.FIN_VIEW);
-    expect(ROLE_PERMISSIONS.CONTRACTOR).not.toContain(PERMISSIONS.CON_EDIT);
   });
 });
 

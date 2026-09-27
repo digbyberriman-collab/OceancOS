@@ -1,323 +1,96 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PERMISSIONS } from "@/lib/rbac";
+import { describe, it, expect } from "vitest";
+import { applyTransition, type StatusUpdatable } from "@/lib/workflow/transition";
 import { isActionError } from "@/lib/errors";
 
-const { jobUpdateMany, changeOrderUpdateMany, crewRequestUpdateMany, requireProjectAccess } = vi.hoisted(() => ({
-  jobUpdateMany: vi.fn(),
-  changeOrderUpdateMany: vi.fn(),
-  crewRequestUpdateMany: vi.fn(),
-  requireProjectAccess: vi.fn(),
-}));
-
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    job: { updateMany: jobUpdateMany },
-    changeOrder: { updateMany: changeOrderUpdateMany },
-    crewRequest: { updateMany: crewRequestUpdateMany },
-  },
-}));
-
-vi.mock("@/lib/project", () => ({
-  requireProjectAccess,
-}));
-
-import { applyTransition } from "@/lib/workflow/applyTransition";
-
-function fakeUser(perms: string[]) {
+/**
+ * A tiny in-memory stand-in for a Prisma model delegate, faithful to the one
+ * behaviour this module depends on: `updateMany` only touches rows matching
+ * every key in `where`, and reports how many it touched.
+ */
+function fakeModel(rows: Record<string, unknown>[]): StatusUpdatable & { rows: Record<string, unknown>[] } {
   return {
-    id: "u1",
-    email: "u@example.com",
-    name: "Test User",
-    roles: [],
-    roleKeys: [],
-    permissions: new Set(perms),
-  } as any;
+    rows,
+    async updateMany({ where, data }) {
+      let count = 0;
+      for (const row of rows) {
+        if (Object.entries(where).every(([k, v]) => row[k] === v)) {
+          Object.assign(row, data);
+          count++;
+        }
+      }
+      return { count };
+    },
+  };
 }
 
-beforeEach(() => {
-  jobUpdateMany.mockReset();
-  changeOrderUpdateMany.mockReset();
-  crewRequestUpdateMany.mockReset();
-  requireProjectAccess.mockReset();
-  requireProjectAccess.mockResolvedValue(undefined);
-});
+describe("applyTransition", () => {
+  it("writes the new status when the row still has the status the caller read", async () => {
+    const model = fakeModel([{ id: "j1", status: "QUOTE_SENT" }]);
+    await applyTransition(model, { id: "j1", from: "QUOTE_SENT", to: "CLIENT_ACCEPTED" });
+    expect(model.rows[0].status).toBe("CLIENT_ACCEPTED");
+  });
 
-describe("applyTransition — the single status write path", () => {
-  it("writes the new status conditionally on the status just read", async () => {
-    jobUpdateMany.mockResolvedValue({ count: 1 });
-
-    await applyTransition({
-      entity: "Job",
+  it("merges extra data in alongside the status", async () => {
+    const model = fakeModel([{ id: "j1", status: "QUOTE_SENT", yardAcceptedAt: null }]);
+    await applyTransition(model, {
       id: "j1",
-      projectId: "p1",
-      from: "NEW_REQUEST",
-      to: "QUOTE_SENT",
-      actor: fakeUser([PERMISSIONS.JOB_ISSUE_QUOTE]),
-      permission: PERMISSIONS.JOB_ISSUE_QUOTE,
+      from: "QUOTE_SENT",
+      to: "ACCEPTED",
+      data: { yardAcceptedAt: "2026-01-01", updatedById: "u1" },
     });
-
-    expect(jobUpdateMany).toHaveBeenCalledWith({
-      where: { id: "j1", status: "NEW_REQUEST" },
-      data: { status: "QUOTE_SENT" },
+    expect(model.rows[0]).toMatchObject({
+      status: "ACCEPTED",
+      yardAcceptedAt: "2026-01-01",
+      updatedById: "u1",
     });
   });
 
-  it("merges extra data into the same write", async () => {
-    jobUpdateMany.mockResolvedValue({ count: 1 });
-
-    await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "ACCEPTED",
-      to: "YARD_COMPLETED",
-      actor: fakeUser([PERMISSIONS.JOB_COMPLETE]),
-      permission: PERMISSIONS.JOB_COMPLETE,
-      data: { progressPct: 100 },
-    });
-
-    expect(jobUpdateMany).toHaveBeenCalledWith({
-      where: { id: "j1", status: "ACCEPTED" },
-      data: { status: "YARD_COMPLETED", progressPct: 100 },
-    });
-  });
-
-  it("throws a conflict, not a silent no-op, when no row matched the expected status", async () => {
-    jobUpdateMany.mockResolvedValue({ count: 0 });
-
-    const err = await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "NEW_REQUEST",
-      to: "QUOTE_SENT",
-      actor: fakeUser([PERMISSIONS.JOB_ISSUE_QUOTE]),
-      permission: PERMISSIONS.JOB_ISSUE_QUOTE,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("conflict");
-  });
-
-  it("throws for an illegal transition without writing anything", async () => {
-    const err = await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "NEW_REQUEST",
-      to: "WORKS_ACCEPTED",
-      actor: fakeUser([PERMISSIONS.JOB_WORKS_ACCEPT]),
-      permission: PERMISSIONS.JOB_WORKS_ACCEPT,
-    }).catch((e) => e);
-
-    expect(err).toBeInstanceOf(Error);
-    expect(jobUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("throws forbidden when the actor lacks the permission, without writing anything", async () => {
-    const err = await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "NEW_REQUEST",
-      to: "QUOTE_SENT",
-      actor: fakeUser([]),
-      permission: PERMISSIONS.JOB_ISSUE_QUOTE,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("forbidden");
-    expect(jobUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("checks project access before writing", async () => {
-    requireProjectAccess.mockRejectedValue(new Error("no access"));
-
+  it("throws a conflict and writes nothing when the row has already moved on", async () => {
+    // Two requests read QUOTE_SENT; one wins the race and moves it to
+    // CANCELLED_QUOTE before the second one's write lands.
+    const model = fakeModel([{ id: "j1", status: "CANCELLED_QUOTE" }]);
     await expect(
-      applyTransition({
-        entity: "Job",
-        id: "j1",
-        projectId: "p-other",
-        from: "NEW_REQUEST",
-        to: "QUOTE_SENT",
-        actor: fakeUser([PERMISSIONS.JOB_ISSUE_QUOTE]),
-        permission: PERMISSIONS.JOB_ISSUE_QUOTE,
-      })
-    ).rejects.toThrow("no access");
-
-    expect(jobUpdateMany).not.toHaveBeenCalled();
+      applyTransition(model, { id: "j1", from: "QUOTE_SENT", to: "CLIENT_ACCEPTED" })
+    ).rejects.toSatisfy(isActionError);
+    expect(model.rows[0].status).toBe("CANCELLED_QUOTE");
   });
 
-  it("refuses CLIENT_ACCEPTED unconditionally, even for a user holding JOB_ACCEPT — this is C2", async () => {
-    const err = await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "QUOTE_SENT",
-      to: "CLIENT_ACCEPTED",
-      actor: fakeUser([PERMISSIONS.JOB_ACCEPT]),
-      permission: PERMISSIONS.JOB_ACCEPT,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("forbidden");
-    expect(jobUpdateMany).not.toHaveBeenCalled();
+  it("throws a conflict for a row that no longer exists", async () => {
+    const model = fakeModel([]);
+    await expect(
+      applyTransition(model, { id: "gone", from: "QUOTE_SENT", to: "CLIENT_ACCEPTED" })
+    ).rejects.toSatisfy(isActionError);
   });
 
-  it("refuses EXPIRED unconditionally — reached by the clock, not a person", async () => {
-    const err = await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "QUOTE_SENT",
-      to: "EXPIRED",
-      actor: fakeUser([PERMISSIONS.JOB_ISSUE_QUOTE]),
-      permission: PERMISSIONS.JOB_ISSUE_QUOTE,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("forbidden");
-  });
-
-  it("refuses APPROVED on a change order unconditionally, even for a user holding CO_EDIT — the bug found while building this", async () => {
-    const err = await applyTransition({
-      entity: "ChangeOrder",
-      id: "co1",
-      projectId: "p1",
-      from: "UNDER_REVIEW",
-      to: "APPROVED",
-      actor: fakeUser([PERMISSIONS.CO_EDIT]),
-      permission: PERMISSIONS.CO_EDIT,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("forbidden");
-    expect(changeOrderUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("refuses REJECTED and MORE_INFO on a change order the same way", async () => {
-    for (const to of ["REJECTED", "MORE_INFO"]) {
-      const err = await applyTransition({
-        entity: "ChangeOrder",
-        id: "co1",
-        projectId: "p1",
-        from: "UNDER_REVIEW",
-        to,
-        actor: fakeUser([PERMISSIONS.CO_EDIT]),
-        permission: PERMISSIONS.CO_EDIT,
-      }).catch((e) => e);
-
+  it("the conflict tells the user what to do", async () => {
+    const model = fakeModel([{ id: "j1", status: "CANCELLED_QUOTE" }]);
+    try {
+      await applyTransition(model, { id: "j1", from: "QUOTE_SENT", to: "CLIENT_ACCEPTED" });
+      expect.unreachable();
+    } catch (err) {
       expect(isActionError(err)).toBe(true);
-      expect(err.kind).toBe("forbidden");
+      expect((err as Error).message).toMatch(/reload/i);
     }
-    expect(changeOrderUpdateMany).not.toHaveBeenCalled();
   });
 
-  it("allows APPROVED via viaCeremony — the legitimate decideChangeOrderApproval path", async () => {
-    changeOrderUpdateMany.mockResolvedValue({ count: 1 });
+  it("only touches the row it was asked to, not others at the same from-status", async () => {
+    const model = fakeModel([
+      { id: "j1", status: "QUOTE_SENT" },
+      { id: "j2", status: "QUOTE_SENT" },
+    ]);
+    await applyTransition(model, { id: "j1", from: "QUOTE_SENT", to: "CLIENT_ACCEPTED" });
+    expect(model.rows[0].status).toBe("CLIENT_ACCEPTED");
+    expect(model.rows[1].status).toBe("QUOTE_SENT");
+  });
 
-    await applyTransition({
-      entity: "ChangeOrder",
+  it("respects a custom status field name", async () => {
+    const model = fakeModel([{ id: "co1", stage: "PENDING" }]);
+    await applyTransition(model, {
       id: "co1",
-      projectId: "p1",
-      from: "UNDER_REVIEW",
+      from: "PENDING",
       to: "APPROVED",
-      actor: fakeUser([PERMISSIONS.CO_APPROVE_FINANCE]),
-      permission: PERMISSIONS.CO_APPROVE_FINANCE,
-      viaCeremony: true,
+      statusField: "stage",
     });
-
-    expect(changeOrderUpdateMany).toHaveBeenCalledWith({
-      where: { id: "co1", status: "UNDER_REVIEW" },
-      data: { status: "APPROVED" },
-    });
-  });
-
-  it("still allows a legal, non-decision change-order transition on CO_EDIT", async () => {
-    changeOrderUpdateMany.mockResolvedValue({ count: 1 });
-
-    await applyTransition({
-      entity: "ChangeOrder",
-      id: "co1",
-      projectId: "p1",
-      from: "DRAFT",
-      to: "SUBMITTED",
-      actor: fakeUser([PERMISSIONS.CO_SUBMIT]),
-      permission: PERMISSIONS.CO_SUBMIT,
-    });
-
-    expect(changeOrderUpdateMany).toHaveBeenCalledWith({
-      where: { id: "co1", status: "DRAFT" },
-      data: { status: "SUBMITTED" },
-    });
-  });
-
-  it("dispatches CrewRequest to its own table, gated by the permission the target status requires — this is G2.4/C6", async () => {
-    crewRequestUpdateMany.mockResolvedValue({ count: 1 });
-
-    await applyTransition({
-      entity: "CrewRequest",
-      id: "cr1",
-      projectId: "p1",
-      from: "ASSIGNED",
-      to: "IN_PROGRESS",
-      actor: fakeUser([PERMISSIONS.CR_TRIAGE]),
-      permission: PERMISSIONS.CR_TRIAGE,
-    });
-
-    expect(crewRequestUpdateMany).toHaveBeenCalledWith({
-      where: { id: "cr1", status: "ASSIGNED" },
-      data: { status: "IN_PROGRESS" },
-    });
-  });
-
-  it("refuses a crew-request transition for a user without CR_TRIAGE — previously this fell through with no check at all", async () => {
-    const err = await applyTransition({
-      entity: "CrewRequest",
-      id: "cr1",
-      projectId: "p1",
-      from: "ASSIGNED",
-      to: "REJECTED",
-      actor: fakeUser([]),
-      permission: PERMISSIONS.CR_TRIAGE,
-    }).catch((e) => e);
-
-    expect(isActionError(err)).toBe(true);
-    expect(err.kind).toBe("forbidden");
-    expect(crewRequestUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("rejects an illegal crew-request transition, e.g. skipping straight to IN_PROGRESS from NEW", async () => {
-    const err = await applyTransition({
-      entity: "CrewRequest",
-      id: "cr1",
-      projectId: "p1",
-      from: "NEW",
-      to: "IN_PROGRESS",
-      actor: fakeUser([PERMISSIONS.CR_TRIAGE]),
-      permission: PERMISSIONS.CR_TRIAGE,
-    }).catch((e) => e);
-
-    expect(err).toBeInstanceOf(Error);
-    expect(crewRequestUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it("writes through a supplied interactive-transaction client instead of the plain one", async () => {
-    const txJobUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const tx = { job: { updateMany: txJobUpdateMany } } as any;
-
-    await applyTransition({
-      entity: "Job",
-      id: "j1",
-      projectId: "p1",
-      from: "NEW_REQUEST",
-      to: "QUOTE_SENT",
-      actor: fakeUser([PERMISSIONS.JOB_ISSUE_QUOTE]),
-      permission: PERMISSIONS.JOB_ISSUE_QUOTE,
-      db: tx,
-    });
-
-    expect(txJobUpdateMany).toHaveBeenCalled();
-    expect(jobUpdateMany).not.toHaveBeenCalled();
+    expect(model.rows[0].stage).toBe("APPROVED");
   });
 });

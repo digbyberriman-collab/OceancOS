@@ -1,52 +1,59 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { storageDriverName } from "@/lib/storage";
 
-// C14: an unset STORAGE_DRIVER used to resolve to "local" silently — inferred
-// from whether S3_BUCKET happened to be set — so a deployment that copied
-// .env.example and never touched this line got a running app that wrote
-// every upload to container-local disk, losing them on the next restart or
-// redeploy with no error anywhere. G2.6 removes the inference entirely.
-
-const original = { STORAGE_DRIVER: process.env.STORAGE_DRIVER, S3_BUCKET: process.env.S3_BUCKET };
-
-function setEnv(storageDriver: string | undefined, s3Bucket: string | undefined) {
-  if (storageDriver === undefined) delete process.env.STORAGE_DRIVER;
-  else process.env.STORAGE_DRIVER = storageDriver;
-  if (s3Bucket === undefined) delete process.env.S3_BUCKET;
-  else process.env.S3_BUCKET = s3Bucket;
-}
-
-beforeEach(() => {
-  setEnv(undefined, undefined);
-});
-
-afterAll(() => {
-  setEnv(original.STORAGE_DRIVER, original.S3_BUCKET);
+// vi.stubEnv, not direct assignment — @types/node (via Next's global.d.ts)
+// declares NODE_ENV readonly, and vi.unstubAllEnvs() undoes every stub this
+// file makes, whichever test made it.
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("storageDriverName", () => {
-  it("returns the explicit value when set to local", () => {
-    setEnv("local", undefined);
+  it("honours an explicit value", () => {
+    vi.stubEnv("STORAGE_DRIVER", "s3");
+    expect(storageDriverName()).toBe("s3");
+    vi.stubEnv("STORAGE_DRIVER", "local");
     expect(storageDriverName()).toBe("local");
   });
 
-  it("returns the explicit value when set to s3", () => {
-    setEnv("s3", undefined);
+  it("rejects a value that is neither s3 nor local", () => {
+    vi.stubEnv("STORAGE_DRIVER", "azure");
+    expect(() => storageDriverName()).toThrow(/must be "s3" or "local"/);
+  });
+
+  it("infers from S3_BUCKET outside production", () => {
+    vi.stubEnv("STORAGE_DRIVER", undefined);
+    vi.stubEnv("NODE_ENV", undefined);
+    vi.stubEnv("S3_BUCKET", "refit-drawings");
     expect(storageDriverName()).toBe("s3");
+
+    vi.stubEnv("S3_BUCKET", undefined);
+    expect(storageDriverName()).toBe("local");
   });
 
-  it("throws when unset, even with no S3_BUCKET configured", () => {
-    setEnv(undefined, undefined);
-    expect(() => storageDriverName()).toThrow(/STORAGE_DRIVER is not set/);
+  it("infers the same way in test and development", () => {
+    vi.stubEnv("STORAGE_DRIVER", undefined);
+    vi.stubEnv("S3_BUCKET", undefined);
+    for (const env of ["test", "development", undefined]) {
+      vi.stubEnv("NODE_ENV", env);
+      expect(storageDriverName()).toBe("local");
+    }
   });
 
-  it("throws when unset, even though S3_BUCKET IS configured — nothing is inferred any more", () => {
-    setEnv(undefined, "my-bucket");
-    expect(() => storageDriverName()).toThrow(/STORAGE_DRIVER is not set/);
+  it("refuses to infer in production — the C15 fix", () => {
+    // .env.example used to document local-disk as the silent production
+    // default. A deployment that forgot to set S3_BUCKET would run on
+    // local disk with no error — ephemeral on most platforms, so every
+    // upload would be lost on the next restart with nothing to say why.
+    vi.stubEnv("STORAGE_DRIVER", undefined);
+    vi.stubEnv("S3_BUCKET", undefined);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(() => storageDriverName()).toThrow(/must be set in production/);
   });
 
-  it("throws on an unrecognised value rather than silently falling back", () => {
-    setEnv("dropbox", undefined);
-    expect(() => storageDriverName()).toThrow(/STORAGE_DRIVER is not set/);
+  it("an explicit value in production is still honoured, not overridden", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("STORAGE_DRIVER", "s3");
+    expect(storageDriverName()).toBe("s3");
   });
 });

@@ -4,7 +4,7 @@ import {
   buildObjectKey,
   isAllowedUploadType,
   isSafeObjectKey,
-  objectKeyPrefix,
+  parseObjectKey,
   safeFilename,
 } from "@/lib/storage/keys";
 
@@ -78,36 +78,6 @@ describe("buildObjectKey", () => {
   it("gives two uploads of the same filename different keys", () => {
     expect(buildObjectKey(target)).not.toBe(buildObjectKey(target));
   });
-
-  it("every key it mints starts with objectKeyPrefix for the same target", () => {
-    for (let i = 0; i < 10; i++) {
-      expect(buildObjectKey(target).startsWith(objectKeyPrefix(target))).toBe(true);
-    }
-  });
-});
-
-describe("objectKeyPrefix", () => {
-  const target = { projectId: "p1", resource: "Job", resourceId: "job123" };
-
-  it("matches the fixed part of buildObjectKey's own output", () => {
-    expect(objectKeyPrefix(target)).toBe("projects/p1/Job/job123/");
-  });
-
-  it("does not match a different project's prefix", () => {
-    const otherProjectKey = buildObjectKey({ ...target, projectId: "p2", filename: "x.pdf" });
-    expect(otherProjectKey.startsWith(objectKeyPrefix(target))).toBe(false);
-  });
-
-  it("does not match a different record's prefix", () => {
-    const otherRecordKey = buildObjectKey({ ...target, resourceId: "job999", filename: "x.pdf" });
-    expect(otherRecordKey.startsWith(objectKeyPrefix(target))).toBe(false);
-  });
-
-  it("is not fooled by one resourceId being a prefix of another", () => {
-    // Without the trailing slash, "job1" would be a string-prefix of "job123".
-    const key = buildObjectKey({ ...target, resourceId: "job1", filename: "x.pdf" });
-    expect(key.startsWith(objectKeyPrefix(target))).toBe(false);
-  });
 });
 
 describe("isSafeObjectKey", () => {
@@ -154,5 +124,37 @@ describe("upload type allowlist", () => {
 
   it("lists no duplicates", () => {
     expect(new Set(ALLOWED_UPLOAD_TYPES).size).toBe(ALLOWED_UPLOAD_TYPES.length);
+  });
+});
+
+describe("parseObjectKey", () => {
+  it("recovers exactly what buildObjectKey put in", () => {
+    const key = buildObjectKey(
+      { projectId: "p1", resource: "Job", resourceId: "j99", filename: "report.pdf" },
+      "abcdef0123456789"
+    );
+    expect(parseObjectKey(key)).toEqual({ projectId: "p1", resource: "Job", resourceId: "j99" });
+  });
+
+  it("is the shape the download route trusts for authorisation — the C3 fix", () => {
+    // buildObjectKey is only ever called from /api/uploads/sign, after that
+    // route has already checked listProjectsForUser includes projectId — so
+    // a syntactically valid key's project segment is sound to authorise
+    // against directly, with no database round trip.
+    const key = "projects/p1/Job/j1/aaaaaaaaaaaaaaaa-x.pdf";
+    expect(parseObjectKey(key)).toEqual({ projectId: "p1", resource: "Job", resourceId: "j1" });
+  });
+
+  it("rejects a key with the wrong number of segments", () => {
+    expect(parseObjectKey("projects/p1/Job/aaaa-x.pdf")).toBeNull();
+    expect(parseObjectKey("projects/p1/Job/j1/extra/aaaa-x.pdf")).toBeNull();
+  });
+
+  it("rejects a key that does not start with the projects/ prefix", () => {
+    expect(parseObjectKey("exports/p1/Job/j1/aaaa-x.pdf")).toBeNull();
+  });
+
+  it("rejects an empty key", () => {
+    expect(parseObjectKey("")).toBeNull();
   });
 });

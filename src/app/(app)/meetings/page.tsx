@@ -1,9 +1,10 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { Badge } from "@/components/ui/Badge";
-import { fmtDateTime } from "@/lib/utils";
 import { CalendarDays, CheckCircle2, Clock3, MapPin } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +12,10 @@ export const dynamic = "force-dynamic";
 export default async function MeetingsPage() {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.MTG_VIEW)) {
-    return <EmptyState title="Forbidden" hint="Meeting records are restricted." />;
+    return <EmptyState headingLevel={1} title="Forbidden" hint="Meeting records are restricted." />;
   }
   const meetings = await prisma.meeting.findMany({
+    where: await projectScope(user.id),
     include: { actions: true, project: { include: { vessel: true } } },
     orderBy: { meetsAt: "desc" },
     take: 100,
@@ -34,11 +36,7 @@ export default async function MeetingsPage() {
       />
 
       {meetings.length === 0 ? (
-        <EmptyState
-          icon={<CalendarDays size={20} />}
-          title="No meetings yet"
-          hint="Meetings with agenda items and action tracking will appear here."
-        />
+        <ComingSoon icon={<CalendarDays size={20} />} title="No meetings yet" />
       ) : (
         <>
           {/* Summary strip */}
