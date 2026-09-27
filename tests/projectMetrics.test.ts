@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { daysBetween, projectTiming, workProgressPct } from "@/lib/metrics/project";
+import { daysBetween, projectTiming, workProgressPct, yardPeriodState } from "@/lib/metrics/project";
 
 const arrival = new Date("2026-03-01T00:00:00Z");
 const departure = new Date("2026-09-01T00:00:00Z"); // 184 days later
@@ -114,5 +114,38 @@ describe("workProgressPct", () => {
       { progressPct: 50, acceptedValue: -500 },
     ]);
     expect(pct).toBeCloseTo(50, 5);
+  });
+});
+
+describe("yardPeriodState", () => {
+  const arrivalDate = new Date("2026-07-06T00:00:00Z");
+  const departureDate = new Date("2027-02-26T00:00:00Z");
+
+  it("treats a completed project as a record, whatever its dates", () => {
+    expect(yardPeriodState({ status: "COMPLETED", arrivalDate, departureDate })).toEqual({ kind: "COMPLETED" });
+    expect(yardPeriodState({ status: "COMPLETED" })).toEqual({ kind: "COMPLETED" });
+  });
+
+  it("has nothing to measure without both dates", () => {
+    expect(yardPeriodState({ status: "ACTIVE", arrivalDate })).toEqual({ kind: "NO_DATES" });
+    expect(yardPeriodState({ status: "ACTIVE" })).toEqual({ kind: "NO_DATES" });
+  });
+
+  it("counts down to arrival", () => {
+    expect(
+      yardPeriodState({ status: "PLANNED", arrivalDate, departureDate, now: new Date("2026-06-26T00:00:00Z") })
+    ).toEqual({ kind: "UPCOMING", arrivesInDays: 10 });
+  });
+
+  it("is in progress between arrival and departure, inclusive", () => {
+    for (const now of [arrivalDate, new Date("2026-09-27T00:00:00Z"), departureDate]) {
+      expect(yardPeriodState({ status: "ACTIVE", arrivalDate, departureDate, now })).toEqual({ kind: "IN_PROGRESS" });
+    }
+  });
+
+  it("says how long ago departure passed on a project still open", () => {
+    expect(
+      yardPeriodState({ status: "ACTIVE", arrivalDate, departureDate, now: new Date("2027-03-08T00:00:00Z") })
+    ).toEqual({ kind: "OVERRUN", departedDaysAgo: 10 });
   });
 });

@@ -110,6 +110,9 @@ test.describe("yard history", () => {
     await page.waitForURL(/\/projects\/[^/]+$/);
     await page.getByRole("button", { name: "Open this project" }).click();
     await page.waitForURL("**/dashboard");
+    // No clock to run against: the dashboard says what the project is instead.
+    await expect(page.getByText("Y714-2019 is a completed yard period")).toBeVisible();
+    await expect(page.getByText(/behind the clock/)).toHaveCount(0);
 
     const switcher = page.getByRole("banner").getByLabel("Active project");
     await expect(switcher.locator('optgroup[label="History (read-only)"] option')).toContainText([
