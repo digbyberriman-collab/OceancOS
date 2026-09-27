@@ -18,10 +18,10 @@ export function DemoBanner({ vesselName }: { vesselName: string }) {
       <div className="mx-auto flex max-w-[1400px] items-start gap-2">
         <FlaskConical className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
         <p>
-          <span className="font-semibold">Demo workspace.</span> Everything shown while this project
-          is active is fictional walkthrough data, parked on {vesselName}. It is not part of{" "}
-          {vesselName}&rsquo;s history and never appears in a real vessel&rsquo;s lists or totals.
-          Choose a real project in the header to leave it.
+          <span className="font-semibold">Demo workspace.</span> The project you are working in is fictional
+          walkthrough data, parked on {vesselName}. While it is active, lists and totals cover only the demo
+          workspace; vessel particulars and yard histories are always the real ones. Choose a real project in the
+          header to leave it.
         </p>
       </div>
     </div>
