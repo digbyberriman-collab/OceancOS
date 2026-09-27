@@ -85,6 +85,23 @@ asks — maintenance, supplies, logistics) with its own status machine and no mu
 It can optionally link to a `ChangeOrder` when a request turns out to need budget sign-off, the same
 way a `Job` can.
 
+### Yard history — a vessel's past projects
+
+A vessel's history is a set of `COMPLETED` projects, one per yard period, each with a
+`YardPeriodRecord` holding what the source published, `ProjectScopeItem` lines by discipline, and
+`YardPeriodEvidence` (sources, conflicts, excluded claims). They come from a public-source register
+(`src/lib/yardPeriods/`, `npm run yardperiods:import`) or are added by hand from the vessel page. Three
+rules hold everywhere: vessels are matched by **yard number**, never name (names move between hulls);
+dates are **labels at the precision published** ("2012-Q2", "Date unverified") — the exact
+`arrivalDate`/`departureDate` fields are never filled from one; and the cost band on a record is a
+**planning estimate**, never money that is summed or shown as spend. A completed project takes no new
+work (`assertProjectWritable`, `src/lib/projectStatus.ts`).
+
+### The demo workspace
+
+The seeded walkthrough data is fictional and lives on Draak (Y709) as projects marked `isDemo`
+(`src/lib/demo/`). It must never mix with real records: see the `projectScope()` convention below.
+
 ### Roles and permissions
 
 Nineteen roles (`lib/enums.ts`'s `ROLE_KEYS`), covering both sides of the relationship: the owner's
@@ -116,6 +133,12 @@ so getting them wrong again is a regression, not a style nit.
   `lib/utils.ts`'s `toNumber()` is the one sanctioned boundary crossing, for display and for
   non-Prisma consumers (chart props, XLSX cells) that only need a number to render. Arithmetic that
   feeds back into a stored total or a signed figure uses `Prisma.Decimal` directly.
+- **`projectScope()` is list scope; `accessibleProjectIds()` / `requireProjectAccess()` are access
+  control.** Lists and totals filter by `projectScope()`, which covers only the reachable projects on
+  the same side of the demo line as the active one, so demo records never appear in a real vessel's
+  lists or totals. Whether a user may open or change one record is `requireProjectAccess()`, which
+  ignores the workspace. Knowledge pages about real vessels (`/vessels`, `/projects`) filter
+  `isDemo: false` themselves.
 - **Every list query is scoped and capped.** `projectScope()`/`accessibleProjectIds()` for tenancy;
   a `take` limit against unbounded growth, with `_count` or a `groupBy`/`aggregate` alongside it so
   a summary figure ("340 total") stays correct once a table exceeds its page cap — never

@@ -1,7 +1,8 @@
 # OceancOS — Site map
 
 Ground truth as of 2026-09-21, built in Phase 1 of the platform audit. Read-only inventory: no
-judgements here, only what exists. Findings live in `AUDIT_REPORT.md`.
+judgements here, only what exists. Findings live in `AUDIT_REPORT.md`. The vessel register and yard
+history routes and models were added to the tables below on 2026-09-27; the rest is as of the audit.
 
 ## Platform configuration
 
@@ -55,7 +56,11 @@ judgements here, only what exists. Findings live in `AUDIT_REPORT.md`.
 | `/approvals` | — | — | reuses CO actions | Built |
 | `/notifications` | — | — | inline | Built |
 | `/admin` | — | — | — | Read-only lists |
-| `/admin/projects` | — | — | ✅ `actions.ts` | Built |
+| `/admin/projects` | — | — | ✅ `actions.ts` | Built — "Project admin" in the sidebar: name, type, status, code, yard period |
+| `/vessel` | — | — | — | Built — the active project's vessel |
+| `/vessels` | ✅ `[id]` | — | ✅ `actions.ts` | Built — fleet register; `[id]/edit` edits particulars and data gaps |
+| `/projects` | ✅ `[id]` | from `/vessels/[id]` | ✅ `actions.ts` | Built — fleet-wide projects register, real vessels only |
+| `/projects/[id]/edit` | — | — | via `projects/actions.ts` | Built — a historical yard period's record and scope lines |
 | `/search` | — | — | — | Built |
 | `/schedule` | ❌ | ❌ | ❌ | **List only** |
 | `/financials` | ❌ | ❌ | ❌ | **List only** |
@@ -91,7 +96,8 @@ working modules.
 
 ### Server action modules
 
-`src/app/(app)/_actions.ts` · `admin/projects/actions.ts` · `change-orders/actions.ts` ·
+`src/app/(app)/_actions.ts` · `admin/projects/actions.ts` · `projects/actions.ts` · `vessels/actions.ts` ·
+`change-orders/actions.ts` ·
 `crew-requests/actions.ts` · `jobs/actions.ts` · `jobs/[id]/accept/actions.ts`, plus inline actions in
 `login/page.tsx`, `forgot/page.tsx`, `reset/[token]/page.tsx`, `notifications/page.tsx`, and the two
 detail pages.
@@ -106,6 +112,10 @@ detail pages.
 `PasswordReset`
 
 **Organisation** — `Vessel`, `Project`, `Department`, `VesselArea`
+
+**Vessel register (added 2026-09-25)** — `VesselSource`, `VesselObservation`, `VesselDataGap`
+
+**Yard history (added 2026-09-27)** — `YardPeriodRecord`, `ProjectScopeItem`, `YardPeriodEvidence`
 
 **Jobs and quotes (Phase 1)** — `JobSection`, `Job`, `JobLine`, `JobNote`, `JobVariation`,
 `JobHistory`, `JobFavourite`, `AcceptanceChallenge`
