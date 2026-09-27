@@ -254,6 +254,8 @@ sets, and a Users & Access screen. The decisions are:
 - admin is tiered with no escalation: an account admin edits the templates, a project admin edits
   their own projects and can only grant what they hold;
 - job prices get their own key;
+- certificate verification of vessel particulars gets its own key, held by the Captain and the
+  Technical Manager by default;
 - the most specific assignment wins;
 - there is no blanket "Approve" level.
 

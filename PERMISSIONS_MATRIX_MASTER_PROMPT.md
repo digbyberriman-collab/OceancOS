@@ -86,6 +86,7 @@ The screen is only the visible part. The real work underneath:
 | D-5 | **The most specific assignment wins.** On a given project, project-scoped assignments replace vessel-scoped ones, which replace unscoped (fleet-wide) ones. Per-person overrides then layer on top. |
 | D-6 | **There is no "Approve" access level.** Approval stages, signatures and yard-side/client-side decisions are explicit *authority* permissions that no level ever sets. A single "Approve" rung would hand one person several change-order stages, which breaks separation of duties. |
 | D-7 | **Sensitivity in OceancOS means** money, signatures and approvals, confidential documents, audit, and administration. The reference product's medical/employment columns have no equivalent here. |
+| D-8 | **Certificate verification is its own permission, `vessel.verify`, held by default by the Captain and the Technical Manager only.** Marking a vessel's particulars certificate-verified attests them against the vessel's certificates, which those two roles hold. Owner's Rep and Project Manager keep `vessel.edit` but no longer set the verification status by default; admins can grant it per person. |
 
 ---
 
@@ -684,8 +685,11 @@ Add `"ACCOUNT_ADMIN"` to `ROLE_KEYS`, and add `ROLE_CATEGORIES` and `DEPARTMENT_
 **V1 = V0 + the table below**, where V0 is today's `ROLE_PERMISSIONS` (`rbac.ts:70-188`, after
 G6.9 granted `admin.users` to OWNER, OWNERS_REP and PROJECT_MANAGER). Freeze V0 in
 `tests/fixtures/matrixV0.ts` and assert the exact diff. **No existing grant is removed.** The
-**visible** behaviour change comes from D-4: job prices, CO cost and crew-request cost were
-previously ungated, and are now gated by the new keys.
+**visible** behaviour changes come from new keys gating what used to ride on an older one:
+- D-4: job prices, CO cost and crew-request cost were previously ungated, and are now gated.
+- D-8: setting a vessel's verification status needed only `vessel.edit`, and now needs
+  `vessel.verify`.
+- The vessel pages were open to every project member, and now need `vessel.view` (§6.2 notes).
 
 The 13 re-added keys get back the holders they had before G6.7 deleted them. Nothing enforces
 them until their modules gain edit flows, so the grants are latent; they are listed so the
@@ -697,7 +701,7 @@ matrix is right the day a guard lands.
 | `project.sections.manage` | PROJECT_MANAGER, YARD_PM | |
 | `project.create`, `project.archive` | ACCOUNT_ADMIN | |
 | `vessel.view` | every set except CONTRACTOR, SUPPLIER, GUEST and ACCOUNT_ADMIN | every holder of a project-scope `vessel.*` key (R2) |
-| `vessel.verify` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER (the V0 `vessel.edit` holders) | |
+| `vessel.verify` | CAPTAIN, TECH_MANAGER (D-8) | |
 | `vessel.gaps.manage` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER | |
 | `vessel.register.view` | every set holding `vessel.view`, plus ACCOUNT_ADMIN | every `vessel.register.manage` holder (R3) |
 | `vessel.register.manage` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER, ACCOUNT_ADMIN | |
@@ -773,11 +777,12 @@ Notes:
   progress log when Phase 6 lands.
 - **OWNER keeps its read-only posture** in operational modules: no comment keys and no workflow
   keys. OWNER's administrative power comes from ACCOUNT_ADMIN, which the seed gives `owner@`.
-- **Vessel defaults keep today's editors.** Everyone who can set the verification status or move a
-  data gap today (the V0 `vessel.edit` holders) keeps both through `vessel.verify` and
-  `vessel.gaps.manage`; admins can now separate them per person. Fleet-level gaps move to the
-  account-scope `vessel.register.manage`, so the same people keep them on an unscoped assignment
-  and lose them on a project-scoped one (D16). The visible change: CONTRACTOR, SUPPLIER and GUEST
+- **Vessel defaults.** Everyone who can move a data gap today (the V0 `vessel.edit` holders:
+  OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER) keeps it through `vessel.gaps.manage`.
+  Setting the verification status narrows to CAPTAIN and TECH_MANAGER (D-8): OWNERS_REP and
+  PROJECT_MANAGER keep `vessel.edit` and every particular, but see the status read-only. Fleet-level
+  gaps move to the account-scope `vessel.register.manage`, so the four editors keep them on an
+  unscoped assignment and lose them on a project-scoped one (D16). CONTRACTOR, SUPPLIER and GUEST
   stop seeing vessel particulars by default. SUPPLIER could not take `vessel.view` anyway without
   breaking its three-grant limit (§6.3).
 
@@ -1545,9 +1550,9 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
 7. **D1 regression.** The CAPTAIN-on-p1 / CREW-on-p2 user sees approval controls on p1 and not on
    p2.
 8. **Money.** An HOD sees "—" for job totals; the Yard PM's export contains prices.
-9. **Vessel.** A PM holding `vessel.edit` without `vessel.verify` cannot mark a vessel
-   certificate-verified; `scoped@` cannot move a fleet-level data gap; a supplier gets 404 on
-   `/vessel`.
+9. **Vessel.** The PM (`vessel.edit` but, by D-8, no `vessel.verify`) cannot mark a vessel
+   certificate-verified, and the Captain can; `scoped@` cannot move a fleet-level data gap; a
+   supplier gets 404 on `/vessel`.
 
 Each test restores what it changed in `afterEach`, using a Prisma helper in `e2e/helpers/db.ts`.
 This avoids the re-run failures logged in `audit/findings-phase5.md`.
@@ -1653,8 +1658,9 @@ role → permission matrix.
   vessel whichever of its projects is active. That is intended: particulars belong to the vessel,
   not to one yard period.
 - **Behaviour change from the vessel defaults:** contractors, suppliers and guests lose the vessel
-  pages, and fleet-level data gaps need an unscoped assignment. Admins can grant `vessel.view`
-  back per person.
+  pages; the Owner's Rep and the PM stop setting the verification status (D-8); and fleet-level
+  data gaps need an unscoped assignment. Admins can grant `vessel.view` and `vessel.verify` back
+  per person.
 - **Drift across projects.** Per-project overrides will diverge on the same vessel. A
   "differs from other projects on this vessel" row indicator is a follow-up after 11.11.
 - **Template edits are fleet-wide,** hence the mandatory impact preview (§12.9).
