@@ -361,6 +361,35 @@ unscoped assignment), and the vessel and project lists are scoped to the viewer'
 
 ---
 
+### [RBAC] — The vessel register runs on one global key, and fleet-level gaps follow from any vessel
+Severity: Medium
+Location: `src/app/(app)/vessels/actions.ts:30`→`:33`, `:116`→`:125`, `:45-46`, `:129-131`;
+`src/app/(app)/vessels/page.tsx:46,50`; `src/lib/vessels/access.ts`
+Found by: adding the vessel module to the permission matrix, after PR #5
+
+Description:
+
+`vessel.edit` guards three different things: editing a vessel's particulars, setting its
+verification status (including `CERTIFICATE_VERIFIED`, an attestation against its certificates),
+and moving data gaps. Both actions assert it before loading the record, so it cannot be evaluated
+per vessel. A fleet-level data gap (`vesselId` null) is reachable by anyone who reaches any register
+vessel (`:129-131`), so a PM scoped to one refit can close a gap that concerns the whole register.
+`/vessels` also shows every viewer the fleet-level gaps and the yard numbers missing from the whole
+register. Seeing particulars takes no key: every project member, contractors, suppliers and guests
+included, sees them.
+
+Impact:
+
+A project-scoped editor changes fleet-level records. Certificate verification cannot be delegated
+apart from editing. External parties see particulars nobody decided to show them.
+
+Suggested fix: Gate 10, item 10.9 — the vessel module (`PERMISSIONS_MATRIX_MASTER_PROMPT.md` §5.5
+module 2): `vessel.view`, `vessel.verify` and `vessel.gaps.manage` checked per vessel after load
+(`canOnVessel`), and the account-scope `vessel.register.view` / `vessel.register.manage` for
+what belongs to no vessel.
+
+---
+
 The entry below was found by the UI/UX elevation audit (`audit/UI_UX_ELEVATION.md`). It is not
 part of the permission gates.
 
