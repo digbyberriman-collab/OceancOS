@@ -344,33 +344,40 @@ export async function issueQuote(formData: FormData) {
       }
     : null;
 
-  await prisma.$transaction([
-    prisma.jobLine.deleteMany({ where: { jobId } }),
-    prisma.jobNote.deleteMany({ where: { jobId } }),
-    prisma.job.update({
-      where: { id: jobId },
+  // The status write is conditional on the status loadJob read (see
+  // applyTransition) and runs first, so a cancel or acceptance that commits
+  // while this quote is being written makes it throw conflict() and roll the
+  // whole revision back, instead of forcing the job back to QUOTE_SENT at the
+  // new figures. Lines and notes are then replaced inside the same
+  // transaction: updateMany cannot carry nested creates.
+  await prisma.$transaction(async (tx) => {
+    await applyTransition(tx.job, {
+      id: jobId,
+      from: job.status,
+      to: "QUOTE_SENT",
       data: {
         code,
         groupCode: groupCodeOf(code),
         contractType,
         pricingBasis,
         exceptionFlag: formData.get("exceptionFlag") === "on",
-        status: "QUOTE_SENT",
         total,
         validityDays,
         quoteDeliveredAt: now,
         expiresAt,
         updatedById: user.id,
-        lines: { create: lines },
-        notes: {
-          create: [
-            ...exclusions.map((text, sort) => ({ kind: "EXCLUSION", sort, text })),
-            ...notes.map((text, sort) => ({ kind: "NOTE", sort, text })),
-          ],
-        },
       },
-    }),
-    prisma.jobHistory.create({
+    });
+    await tx.jobLine.deleteMany({ where: { jobId } });
+    await tx.jobNote.deleteMany({ where: { jobId } });
+    await tx.jobLine.createMany({ data: lines.map((line) => ({ ...line, jobId })) });
+    await tx.jobNote.createMany({
+      data: [
+        ...exclusions.map((text, sort) => ({ jobId, kind: "EXCLUSION", sort, text })),
+        ...notes.map((text, sort) => ({ jobId, kind: "NOTE", sort, text })),
+      ],
+    });
+    await tx.jobHistory.create({
       data: {
         jobId,
         actorId: user.id,
@@ -379,8 +386,8 @@ export async function issueQuote(formData: FormData) {
         toStatus: "QUOTE_SENT",
         details: { total: total.toNumber(), validityDays, ...(superseded ? { superseded } : {}) },
       },
-    }),
-    prisma.comment.create({
+    });
+    await tx.comment.create({
       data: {
         authorId: user.id,
         resource: "Job",
@@ -391,8 +398,8 @@ export async function issueQuote(formData: FormData) {
           validityDays ? `, valid ${validityDays} days` : ""
         }.`,
       },
-    }),
-  ]);
+    });
+  });
 
   await recordAudit({
     actorId: user.id,
