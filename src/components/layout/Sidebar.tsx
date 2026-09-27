@@ -119,6 +119,11 @@ export function Sidebar({
   // button and backdrop themselves go `md:hidden` (auth-security's "Drawer
   // modal ignores desktop breakpoint").
   const isModal = open && isBelowMd;
+  // Read fresh inside the modal effect's cleanup, never the stale `open`
+  // the closure captured when the effect ran — updated synchronously during
+  // render, so it already reflects the render that triggered the cleanup.
+  const openRef = useRef(open);
+  openRef.current = open;
 
   // The drawer used to be portaled onto the page with no focus management at
   // all: opening it left focus on the now-hidden hamburger button, so Tab
@@ -154,7 +159,15 @@ export function Sidebar({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      trigger?.focus();
+      // Only a genuine close returns focus to the trigger. isModal can also
+      // turn false because the viewport crossed `md` while `open` stayed
+      // true — the sidebar becoming persistent, not closing — and the
+      // trigger itself is `md:hidden` at that point: stealing focus there
+      // would dump it on an unrendered button instead of leaving it on
+      // whatever the user is actually looking at.
+      if (!openRef.current) {
+        trigger?.focus();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isModal]);
