@@ -58,7 +58,8 @@ The screen is only the visible part. The real work underneath:
    `assertPermission(user, key)` keep their names and signatures, and so do the scoping helpers in
    `src/lib/project.ts`. Unit tests exercise the pure modules; server-only modules memoise through
    `requestCache`, which falls back to the plain function under Vitest.
-5. **Design tokens.** Dark-first, using the tokens in `tailwind.config.ts`:
+5. **Design tokens.** Dark-first, using the tokens in `tailwind.config.ts` (theme variables since
+   PR #11 added Dark, Light and System, so a colour literal breaks the light theme):
    - surfaces: `ink-950…500`
    - borders: `line`, `line-soft`, `line-strong`
    - brand: `accent`, `accent-bright`, `marine`
@@ -98,7 +99,7 @@ line numbers drift. If one is no longer true, note it in your first commit messa
 ### 3.1 What exists
 
 - **Stack:** Next.js 14.2 App Router, TypeScript, Prisma 5 on PostgreSQL, Tailwind, zod, Vitest
-  (`tests/`, 24 files), Playwright (`e2e/`, 14 specs, `workers: 1`). Server components plus server
+  (`tests/`, 25 files), Playwright (`e2e/`, 14 specs, `workers: 1`). Server components plus server
   actions. Single-tenant, with no Organization model. There is no Supabase and no RLS:
   authorization is app-level only.
 - **Permissions:** `src/lib/rbac.ts`.
@@ -192,7 +193,7 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 | D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. Reachability is scoped; permissions are not. | `src/lib/auth.ts:75-77` |
 | D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:53-54` |
 | D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:210`; `jobs/new/page.tsx:39`; `jobs/actions.ts:126-133` |
-| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:236`→`:239`, `setJobProgress` `:585`→`:588`, `addJobComment` `:649`→`:662`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:52`→`:55`, `confirmAcceptance` `:132`→`:138`, `rejectQuote` `:269`→`:273`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:144`→`:152`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
+| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:236`→`:239`, `setJobProgress` `:585`→`:588`, `addJobComment` `:649`→`:662`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:59`→`:62`, `confirmAcceptance` `:160`→`:166`, `rejectQuote` `:307`→`:311`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:144`→`:152`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
 | D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:320` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
 | D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:111`), the CO print view (`print/change-orders/[id]/page.tsx:39`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:127`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
 | D7 | **Money gating is too strict in exports.** They hide prices without `financial.view`, which YARD_PM lacks, so the yard's own quote export has no prices. The job PDF (via `print/jobs/[id]`) shows money the jobs spreadsheet hides. | `src/app/api/export/jobs/route.ts:46`, `api/export/change-orders/route.ts` |
@@ -1415,7 +1416,8 @@ Paths are under `src/app/(app)/` unless shown otherwise.
      account admins (`admin.roles`, `admin.access.appoint`), matching §11.1. `/admin` shows for
      `audit.view`, `audit.view.all` or `admin.users`, and Approvals for `approvals.view` or any
      stage key. Vessel and Fleet register show for `vessel.view` (§13.12).
-   - `TopBar.tsx:66` shows the active project's presets.
+   - The profile menu (`TopBar.tsx:65`, shown at `UserMenu.tsx:73`) shows the active project's
+     presets.
 2. **List pages.** Check the module's `navKeys` (any of; `[viewKey]` unless set) on the active project. Lists stay scoped and capped
    per `CLAUDE.md` (`projectScope()` plus `take`).
 3. **Detail pages.** Load the record, then `forProject(user, record.projectId)`, then
@@ -1521,7 +1523,8 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
   `assertPermission`, `assertPermissionOn` or `canOn`.
 - **(d)** Every `page.tsx` under `src/app/(app)/` contains a guard call. Allowlist: `dashboard`,
   `notifications`, `search`. Every exported async function in a `"use server"` file contains a
-  guard. Allowlist: `logout`, `setActiveProjectAction`.
+  guard. Allowlist: `logoutAction`, `setActiveProjectAction`, `setThemeAction` (a personal
+  preference).
 - **(e)** No holder lookup outside `src/lib/permissions/`: neither the Prisma form
   `permissions: { some: { permission:` nor the in-memory form `role.permissions.some(` (the
   shape of the authoriser check at `jobs/actions.ts:126-133`). This locks in D3.

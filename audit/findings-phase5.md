@@ -233,8 +233,8 @@ the notification lookups.
 ### [RBAC] — Nine actions check the permission before loading the record
 Severity: Low
 Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :236, `setJobProgress` :585,
-`addJobComment` :649); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :52,
-`confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :89;
+`addJobComment` :649); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :59,
+`confirmAcceptance` :160, `rejectQuote` :307); `change-orders/actions.ts` `updateChangeOrder` :89;
 `crew-requests/actions.ts` `assignCrewRequest` :144; `admin/projects/actions.ts`
 `updateProjectAction` :42
 Found by: permission-matrix planning, after Gate 7
