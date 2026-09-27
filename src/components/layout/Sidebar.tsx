@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   LayoutDashboard,
   FileDiff,
@@ -67,6 +67,30 @@ const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[]
 /** Elements a Tab loop should stop at, in DOM order, inside the drawer. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Tailwind's `md` breakpoint (tailwind.config.ts) — below this the drawer
+ * is an off-canvas overlay; at and above it, the same element is the
+ * persistent, non-modal sidebar via the `md:` classes below. */
+const BELOW_MD_QUERY = "(max-width: 767px)";
+
+/** Tracks whether the viewport is currently below `md`, live across resizes
+ * and orientation changes — not just the width at mount. A drawer opened on
+ * a phone and left open through a rotation, or a resize past the
+ * breakpoint, must stop acting like a modal the instant it becomes the
+ * persistent sidebar, not keep trapping focus and Escape behind it. */
+function useIsBelowMdBreakpoint(): boolean {
+  const [isBelowMd, setIsBelowMd] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(BELOW_MD_QUERY).matches
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(BELOW_MD_QUERY);
+    const onChange = () => setIsBelowMd(mql.matches);
+    onChange();
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return isBelowMd;
+}
+
 export function Sidebar({
   unread = 0,
   open,
@@ -86,6 +110,15 @@ export function Sidebar({
   const pathname = usePathname();
   const drawerRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const isBelowMd = useIsBelowMdBreakpoint();
+  // Modal behaviour applies only while the drawer is genuinely acting as an
+  // off-canvas overlay — open, and below the breakpoint at which it becomes
+  // the persistent sidebar instead. `open` alone isn't enough: a phone
+  // rotated to landscape, or a window resized past `md` while the drawer is
+  // still "open", must fall out of modal behaviour the moment the close
+  // button and backdrop themselves go `md:hidden` (auth-security's "Drawer
+  // modal ignores desktop breakpoint").
+  const isModal = open && isBelowMd;
 
   // The drawer used to be portaled onto the page with no focus management at
   // all: opening it left focus on the now-hidden hamburger button, so Tab
@@ -95,7 +128,7 @@ export function Sidebar({
   // moves in on open, Tab is trapped inside it, Escape closes it, and focus
   // returns to the button that opened it.
   useEffect(() => {
-    if (!open) return;
+    if (!isModal) return;
     closeButtonRef.current?.focus();
     const trigger = triggerRef?.current;
 
@@ -124,7 +157,7 @@ export function Sidebar({
       trigger?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [isModal]);
 
   return (
     <>
@@ -138,15 +171,15 @@ export function Sidebar({
       )}
       {/* A plain div, not <aside> — the primary nav below should be the
           `navigation` landmark, not nested inside a `complementary` one
-          (ACTION_PLAN.md G5.5). role/aria-modal apply only while the drawer
-          is acting as an off-canvas overlay (`open`); at `md` and up it is a
-          persistent, non-modal sidebar regardless of `open`. */}
+          (ACTION_PLAN.md G5.5). role/aria-modal key off `isModal`, not
+          `open` alone: at `md` and up this is a persistent, non-modal
+          sidebar regardless of `open`. */}
       <div
         ref={drawerRef}
         data-testid="mobile-nav-drawer"
-        role={open ? "dialog" : undefined}
-        aria-modal={open ? true : undefined}
-        aria-label={open ? "Main navigation" : undefined}
+        role={isModal ? "dialog" : undefined}
+        aria-modal={isModal ? true : undefined}
+        aria-label={isModal ? "Main navigation" : undefined}
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-60 shrink-0 bg-ink-950 border-r border-line overflow-y-auto",
           "transition-transform duration-200 ease-out",
