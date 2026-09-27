@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
-import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
+import { exportFilename, toCsv, withDemoStamp, type Sheet } from "@/lib/export/table";
 import { toNumber } from "@/lib/utils";
 import { compareJobCodes } from "@/lib/jobs/codes";
 import { CONTRACT_TYPE_LABELS, JOB_STATUS_LABELS, PRICING_BASIS_LABELS } from "@/lib/enums";
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
   type Row = (typeof rows)[number];
 
-  const sheet: Sheet<Row> = {
+  const sheet: Sheet<Row> = withDemoStamp<Row>({
     name: project.code ?? "Worklist",
     rows,
     totals: showMoney ? ["Total"] : [],
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
         width: 18,
       },
     ],
-  };
+  }, project.isDemo);
 
   const base = `worklist-${project.code ?? project.name}`;
 

@@ -61,6 +61,26 @@ test.describe("demo workspace", () => {
     await expect(page.getByText("REQ-0001")).toHaveCount(0);
   });
 
+  test("stamps its exports, and a real project's export carries no stamp", async ({ page }) => {
+    await signIn(page, PM);
+    // Fetched in the page: the session cookie is Secure, which the browser
+    // sends to 127.0.0.1 but Playwright's own request client does not.
+    const csv = () =>
+      page.evaluate(async () => (await fetch("/api/export/change-orders?format=csv")).text());
+    const demo = await csv();
+    const [header, ...rows] = demo.split("\r\n");
+    expect(header.startsWith("Data,")).toBe(true);
+    // Every record row is stamped; the totals row, last, is labelled instead.
+    const records = rows.filter((row) => !row.startsWith("Total,"));
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.every((row) => row.startsWith("DEMO — fictional,"))).toBe(true);
+
+    await switchTo(page, "Y701");
+    const real = await csv();
+    expect(real).not.toContain("DEMO");
+    expect(real.startsWith("Number,")).toBe(true);
+  });
+
   test("marks a demo record opened from a real project", async ({ page }) => {
     await signIn(page, PM);
     await page.goto("/change-orders");
