@@ -97,6 +97,7 @@ export function Sidebar({
   useEffect(() => {
     if (!open) return;
     closeButtonRef.current?.focus();
+    const trigger = triggerRef?.current;
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -120,7 +121,7 @@ export function Sidebar({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      triggerRef?.current?.focus();
+      trigger?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
