@@ -16,6 +16,7 @@ import {
   challengeProblem,
   exclusionNotes,
   exclusionsFingerprint,
+  quoteFingerprint,
 } from "@/lib/jobs/acceptance";
 import { confirmAcceptance, rejectQuote, requestAcceptanceCode } from "./actions";
 
@@ -82,11 +83,24 @@ export default async function AcceptQuote({
   const challenge = searchParams.challenge
     ? await prisma.acceptanceChallenge.findUnique({ where: { id: searchParams.challenge } })
     : null;
+  // The stored code is bound to the exact quote — exclusions included — that
+  // was on screen when it was sent (challenge.quoteHash). If any of that has
+  // changed since, the code would be refused at confirm anyway, and the resend
+  // form below would otherwise re-post the *current* exclusions hash from a
+  // hidden field, acknowledging a changed list without a fresh tick (Bugbot:
+  // "Resend skips new exclusion acknowledgement"). Treat such a challenge as
+  // not usable so the page falls back to the acknowledge-and-request step.
+  const currentQuoteHash = quoteFingerprint({
+    ...job,
+    exclusions: exclusions.map((n) => n.text),
+  });
   const usableChallenge =
-    challenge && challenge.jobId === job.id && challenge.userId === user.id
-      ? challengeProblem(challenge) === null
-        ? challenge
-        : null
+    challenge &&
+    challenge.jobId === job.id &&
+    challenge.userId === user.id &&
+    challengeProblem(challenge) === null &&
+    challenge.quoteHash === currentQuoteHash
+      ? challenge
       : null;
 
   const coBlocking =
