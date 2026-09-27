@@ -233,8 +233,8 @@ the notification lookups.
 ### [RBAC] — Nine actions check the permission before loading the record
 Severity: Low
 Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :236, `setJobProgress` :585,
-`addJobComment` :649); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :52,
-`confirmAcceptance` :132, `rejectQuote` :269); `change-orders/actions.ts` `updateChangeOrder` :89;
+`addJobComment` :649); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :59,
+`confirmAcceptance` :160, `rejectQuote` :307); `change-orders/actions.ts` `updateChangeOrder` :89;
 `crew-requests/actions.ts` `assignCrewRequest` :144; `admin/projects/actions.ts`
 `updateProjectAction` :42
 Found by: permission-matrix planning, after Gate 7
@@ -358,6 +358,35 @@ project-scoped staff.
 
 Suggested fix: Gate 10, item 10.7 — `admin.users` becomes account-scope (effective only from an
 unscoped assignment), and the vessel and project lists are scoped to the viewer's reach.
+
+---
+
+### [RBAC] — The vessel register runs on one global key, and fleet-level gaps follow from any vessel
+Severity: Medium
+Location: `src/app/(app)/vessels/actions.ts:30`→`:33`, `:116`→`:125`, `:45-46`, `:129-131`;
+`src/app/(app)/vessels/page.tsx:46,50`; `src/lib/vessels/access.ts`
+Found by: adding the vessel module to the permission matrix, after PR #5
+
+Description:
+
+`vessel.edit` guards three different things: editing a vessel's particulars, setting its
+verification status (including `CERTIFICATE_VERIFIED`, an attestation against its certificates),
+and moving data gaps. Both actions assert it before loading the record, so it cannot be evaluated
+per vessel. A fleet-level data gap (`vesselId` null) is reachable by anyone who reaches any register
+vessel (`:129-131`), so a PM scoped to one refit can close a gap that concerns the whole register.
+`/vessels` also shows every viewer the fleet-level gaps and the yard numbers missing from the whole
+register. Seeing particulars takes no key: every project member, contractors, suppliers and guests
+included, sees them.
+
+Impact:
+
+A project-scoped editor changes fleet-level records. Certificate verification cannot be delegated
+apart from editing. External parties see particulars nobody decided to show them.
+
+Suggested fix: Gate 10, item 10.9 — the vessel module (`PERMISSIONS_MATRIX_MASTER_PROMPT.md` §5.5
+module 2): `vessel.view`, `vessel.verify` and `vessel.gaps.manage` checked per vessel after load
+(`canOnVessel`), and the account-scope `vessel.register.view` / `vessel.register.manage` for
+what belongs to no vessel.
 
 ---
 

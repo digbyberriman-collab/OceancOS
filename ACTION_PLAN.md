@@ -248,12 +248,14 @@ out remains out of scope — absent features from `BRIDGE_ALIGNMENT_PLAN.md` are
 are still unioned across every role assignment regardless of its project scope (`auth.ts:75-77`),
 so a per-project role leaks onto every reachable project, and the static role matrix cannot be
 adjusted without a code change. Rather than patch the union, access moves to a typed permission
-catalog (112 keys across 24 modules), per-project per-person overrides on top of editable access
+catalog (118 keys across 25 modules), per-project per-person overrides on top of editable access
 sets, and a Users & Access screen. The decisions are:
 - overrides are per project;
 - admin is tiered with no escalation: an account admin edits the templates, a project admin edits
   their own projects and can only grant what they hold;
 - job prices get their own key;
+- certificate verification of vessel particulars gets its own key, held by the Captain and the
+  Technical Manager by default;
 - the most specific assignment wins;
 - there is no blanket "Approve" level.
 
@@ -279,7 +281,7 @@ Independent of Gate 8.
 
 | | Item |
 |---|---|
-| **9.1** | Typed permission catalog (`src/lib/permissions/keys.ts`, `catalog.ts`); `rbac.ts` becomes a façade. 42 existing + 70 new keys, with zero call-site edits. |
+| **9.1** | Typed permission catalog (`src/lib/permissions/keys.ts`, `catalog.ts`); `rbac.ts` becomes a façade. 43 existing + 75 new keys, with zero call-site edits. |
 | **9.2** | System access-set defaults (20 sets including ACCOUNT_ADMIN), separation-of-duties rules and category ceilings. |
 | **9.3** | Migration `access_matrix`: access-set metadata, per-project and account overrides, `AuditLog.projectId`, department order. |
 | **9.4** | Seed via a pure `planSync`, so admin edits survive re-seeding; the D1 regression fixture. |
@@ -301,7 +303,8 @@ Independent of Gate 8.
 | **10.6** | Money redaction by price/cost keys on every page that shows it. |
 | **10.7** | Project-scoped audit log and Recent activity; `/admin` directory account-scoped; `/admin/projects` narrowed to projects the user can edit. |
 | **10.8** | Approvals page gate and typed stage map; crew-request progress key. |
-| **10.9** | Static coverage test: every enforced key guarded, every page and action guarded. |
+| **10.9** | Vessel module: `vessel.view` on the vessel pages, per-vessel checks after load, certificate verification and data gaps as their own keys, fleet-level gaps on account-scope register keys. |
+| **10.10** | Static coverage test: every enforced key guarded, every page and action guarded. |
 
 ---
 
