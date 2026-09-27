@@ -137,6 +137,7 @@ test.describe("password reset", () => {
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL("**/dashboard");
 
+    await page.getByLabel(/account menu/i).click();
     await page.getByRole("button", { name: /sign out/i }).click();
     await page.waitForURL("**/login");
 
