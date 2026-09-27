@@ -1,36 +1,61 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { accessibleProjectIds } from "@/lib/project";
+import { prisma } from "@/lib/db";
+import { listProjectsForUser } from "@/lib/project";
 import { hasPermission, PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import {
   getObjectStream,
   isSafeObjectKey,
   maxUploadBytes,
-  parseObjectKey,
   putObjectStream,
   storageDriverName,
   UploadTooLargeError,
   verifyLocalUploadToken,
 } from "@/lib/storage";
 
-/**
- * The view permission a key's `resource` segment requires to be read back.
- *
- * Only "Job" is ever actually minted today (the one live caller is
- * jobs/new/page.tsx's FileDrop) — everything else is a scaffold with no
- * upload path wired up yet. An unrecognised resource is refused rather than
- * allowed, so a future upload path is secure by default until someone adds
- * it here deliberately.
- */
-const RESOURCE_VIEW_PERMISSION: Record<string, PermissionKey> = {
-  Job: PERMISSIONS.JOB_VIEW,
-  ChangeOrder: PERMISSIONS.CO_VIEW,
-  CrewRequest: PERMISSIONS.CR_VIEW,
-  Document: PERMISSIONS.DOC_VIEW,
-  Drawing: PERMISSIONS.DRW_VIEW,
-};
-
 export const dynamic = "force-dynamic";
+
+/**
+ * Resolve a storage key to the project it belongs to and the permission
+ * viewing it requires, via the Attachment row that actually references it —
+ * not the key's own `projects/<projectId>/<resource>/<resourceId>/...`
+ * segments. Trusting those segments alone would mean any key that merely
+ * *looks* well-formed for a project this caller can reach — including one
+ * signed and stored but never attached to anything, or one guessed against
+ * another user's record in a shared project — reads back successfully.
+ * ACTION_PLAN.md G2.5 / AUDIT_REPORT.md C3 is specifically that signing and
+ * storing a file must not by itself entitle anyone to read it back; only a
+ * real Attachment row pointing at the key does.
+ */
+async function resolveAttachmentAccess(
+  key: string
+): Promise<{ projectId: string; permission: PermissionKey } | null> {
+  const attachment = await prisma.attachment.findFirst({
+    where: { storageKey: key },
+    select: { jobId: true, changeOrderId: true, crewRequestId: true },
+  });
+  if (!attachment) return null;
+
+  if (attachment.jobId) {
+    const job = await prisma.job.findUnique({ where: { id: attachment.jobId }, select: { projectId: true } });
+    return job ? { projectId: job.projectId, permission: PERMISSIONS.JOB_VIEW } : null;
+  }
+  if (attachment.changeOrderId) {
+    const co = await prisma.changeOrder.findUnique({
+      where: { id: attachment.changeOrderId },
+      select: { projectId: true },
+    });
+    return co ? { projectId: co.projectId, permission: PERMISSIONS.CO_VIEW } : null;
+  }
+  if (attachment.crewRequestId) {
+    const cr = await prisma.crewRequest.findUnique({
+      where: { id: attachment.crewRequestId },
+      select: { projectId: true },
+    });
+    return cr ? { projectId: cr.projectId, permission: PERMISSIONS.CR_VIEW } : null;
+  }
+  return null;
+}
 
 /**
  * Local-disk storage endpoint, used when STORAGE_DRIVER is "local".
@@ -93,11 +118,13 @@ export async function PUT(request: Request) {
  * Critical C3: any signed-in user, CONTRACTOR, SUPPLIER and GUEST
  * included, could download any stored file by object key, since keys are
  * structured and `projectId`/`resourceId` appear in ordinary URLs. Now
- * resolves the key back to the project and resource it was minted for
- * (parseObjectKey — sound to trust because buildObjectKey is only ever
- * called after /api/uploads/sign has already checked project access) and
- * requires both: the caller must be able to reach that project, and must
- * hold the view permission the resource type requires.
+ * resolves the key back to the record that actually references it
+ * (resolveAttachmentAccess) and requires both: the caller must be able to
+ * reach that record's project, and must hold the view permission the
+ * resource type requires. A key with no matching Attachment, or one whose
+ * project or permission the caller doesn't hold, 404s rather than 403s — it
+ * should read exactly like a key that was never issued at all, not confirm
+ * that *something* exists there.
  */
 export async function GET(request: Request) {
   const guard = localOnly();
@@ -111,19 +138,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid key" }, { status: 400 });
   }
 
-  const target = parseObjectKey(key);
-  if (!target) {
-    return NextResponse.json({ error: "Invalid key" }, { status: 400 });
-  }
+  const access = await resolveAttachmentAccess(key);
+  if (!access) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const permKey = RESOURCE_VIEW_PERMISSION[target.resource];
-  if (!permKey || !hasPermission(user, permKey)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const projectIds = await accessibleProjectIds(user.id);
-  if (!projectIds.includes(target.projectId)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === access.projectId) || !hasPermission(user, access.permission)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const object = await getObjectStream(key);
