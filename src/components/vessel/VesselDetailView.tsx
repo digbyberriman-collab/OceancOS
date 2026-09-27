@@ -8,6 +8,7 @@ import { VesselParticulars } from "./VesselParticulars";
 import { ComparisonFlagBadge, VesselComparison } from "./VesselComparison";
 import { VesselDataGaps } from "./VesselDataGaps";
 import { VesselEvidence } from "./VesselEvidence";
+import { VesselYardHistory } from "./VesselYardHistory";
 import { VESSEL_VERIFICATION_LABELS } from "@/lib/enums";
 import { vesselCompleteness } from "@/lib/vessels/fields";
 import { compareWithDatabase } from "@/lib/vessels/comparison";
@@ -120,9 +121,9 @@ export function VesselDetailView({
           <span className="inline-flex items-center gap-1.5 text-xs text-muted">
             <DemoBadge />
             {demoProjects.map((p) => (
-              <span key={p.id} className="font-medium text-warn">
+              <Link key={p.id} href={`/projects/${p.id}`} className="font-medium text-warn hover:underline">
                 {p.code ?? p.name}
-              </span>
+              </Link>
             ))}
             <span className="text-faint">fictional, not part of this vessel&rsquo;s history</span>
           </span>
@@ -132,6 +133,15 @@ export function VesselDetailView({
       <div className="mb-6">
         <VesselHeadline vessel={vessel} />
       </div>
+
+      <VesselYardHistory
+        vesselName={vessel.name}
+        projects={vessel.projects}
+        excluded={vessel.yardEvidence}
+        noPeriodLocated={vessel.dataGaps.some(
+          (g) => g.scope === "Yard history" && g.issue.startsWith("No confirmed post-delivery")
+        )}
+      />
 
       <VesselParticulars vessel={vessel} observations={vessel.observations} />
 

@@ -28,12 +28,55 @@ export async function loadVesselDetail(userId: string, vesselId: string) {
       // every project on it to someone scoped to one.
       projects: {
         where: { archivedAt: null, id: { in: reachable.map((p) => p.id) } },
-        select: { id: true, code: true, name: true, type: true, status: true, isDemo: true },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          type: true,
+          status: true,
+          isDemo: true,
+          yardName: true,
+          arrivalDate: true,
+          departureDate: true,
+          // The published record, for the vessel's yard history.
+          yardPeriod: {
+            select: {
+              nameAtPeriod: true,
+              periodType: true,
+              startLabel: true,
+              endLabel: true,
+              precisionLabel: true,
+              sortStart: true,
+              sortEnd: true,
+              cityText: true,
+              countryText: true,
+              confidence: true,
+            },
+          },
+          scopeItems: { where: { archivedAt: null }, select: { discipline: true } },
+        },
         orderBy: [{ code: "asc" }, { name: "asc" }],
         take: 200,
       },
+      // Claims about the vessel's yard history that the register considered
+      // and left out, so nobody adds them back unknowingly.
+      yardEvidence: {
+        where: { projectId: null },
+        select: {
+          id: true,
+          kind: true,
+          issue: true,
+          qualification: true,
+          sourceUrl: true,
+          confidence: true,
+        },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+      },
       observations: {
-        include: { source: { select: { code: true, publisher: true, sourceType: true, url: true } } },
+        include: {
+          source: { select: { code: true, publisher: true, sourceType: true, url: true } },
+        },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       },
       dataGaps: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
