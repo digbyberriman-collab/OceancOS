@@ -10,6 +10,7 @@ import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createChangeOrder } from "../actions";
 import { ArrowLeft } from "lucide-react";
 import { areaWhereForProject } from "@/lib/vesselAreas";
+import { completedProjectMessage, isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,14 @@ export default async function NewChangeOrderPage() {
   const project = await getActiveProject(user.id);
   if (!project)
     return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
+  if (!isProjectWritable(project))
+    return (
+      <EmptyState
+        headingLevel={1}
+        title="This project is completed"
+        hint={completedProjectMessage(project)}
+      />
+    );
 
   const areas = await prisma.vesselArea.findMany({ where: areaWhereForProject(project) });
 

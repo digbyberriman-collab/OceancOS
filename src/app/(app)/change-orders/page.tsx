@@ -9,7 +9,8 @@ import { fmtMoney, fmtDate } from "@/lib/utils";
 import { CHANGE_ORDER_STATUSES, PRIORITIES } from "@/lib/enums";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { ClipboardList } from "lucide-react";
-import { projectScope } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
+import { isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,11 @@ export default async function ChangeOrdersPage({
       />
     );
   }
+
+  // New work goes on the active project; a completed one takes none.
+  const activeProject = await getActiveProject(user.id);
+  const canCreate =
+    hasPermission(user, PERMISSIONS.CO_CREATE) && (!activeProject || isProjectWritable(activeProject));
 
   const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
@@ -67,7 +73,7 @@ export default async function ChangeOrdersPage({
               <FileSpreadsheet size={14} />
               Spreadsheet
             </a>
-            {hasPermission(user, PERMISSIONS.CO_CREATE) && (
+            {canCreate && (
               <Link href="/change-orders/new" className="btn-primary btn-lg">
                 New Change Order
               </Link>
@@ -121,7 +127,7 @@ export default async function ChangeOrdersPage({
           }
           icon={<ClipboardList size={20} />}
           action={
-            hasPermission(user, PERMISSIONS.CO_CREATE) ? (
+            canCreate ? (
               <Link href="/change-orders/new" className="btn-primary">
                 New Change Order
               </Link>

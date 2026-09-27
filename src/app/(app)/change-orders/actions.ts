@@ -25,6 +25,7 @@ import {
   type ApprovalRow,
 } from "@/lib/workflow/changeOrder";
 import { assertAreaForProject } from "@/lib/vesselAreas";
+import { assertProjectWritable } from "@/lib/projectStatus";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -41,6 +42,7 @@ export async function createChangeOrder(formData: FormData) {
   // submitted form — see the note on ChangeOrderCreateSchema.
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before raising a change order.");
+  assertProjectWritable(project);
 
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {

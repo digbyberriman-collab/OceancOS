@@ -10,6 +10,7 @@ import { CREW_REQUEST_CATEGORIES, DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createCrewRequest } from "../actions";
 import { ArrowLeft } from "lucide-react";
 import { areaWhereForProject } from "@/lib/vesselAreas";
+import { completedProjectMessage, isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,14 @@ export default async function NewCrewRequest() {
   // see the note on CrewRequestCreateSchema in lib/validators.ts.
   const project = await getActiveProject(user.id);
   if (!project) return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
+  if (!isProjectWritable(project))
+    return (
+      <EmptyState
+        headingLevel={1}
+        title="This project is completed"
+        hint={completedProjectMessage(project)}
+      />
+    );
 
   const users = await prisma.user.findMany({
     where: { active: true },

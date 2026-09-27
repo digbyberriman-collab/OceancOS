@@ -18,6 +18,7 @@ import {
   type ContractType,
   type PricingBasis,
 } from "@/lib/enums";
+import { isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -110,7 +111,7 @@ export default async function JobsPage({
               <FileSpreadsheet size={14} />
               Spreadsheet
             </a>
-            {hasPermission(user, PERMISSIONS.JOB_REQUEST) && (
+            {hasPermission(user, PERMISSIONS.JOB_REQUEST) && isProjectWritable(project) && (
               <Link href="/jobs/new" className="btn-primary btn-lg">
                 New quote request
               </Link>

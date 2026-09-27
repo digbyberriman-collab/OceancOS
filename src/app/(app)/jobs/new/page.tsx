@@ -12,6 +12,7 @@ import { FileDrop } from "@/components/ui/FileDrop";
 import { createJobRequest, type JobRequestFlash } from "../actions";
 import { readFormFlash } from "@/lib/formFlash";
 import { FlashCleanup } from "@/components/ui/FlashCleanup";
+import { completedProjectMessage, isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,14 @@ export default async function NewJobRequest() {
   const project = await getActiveProject(user.id);
   if (!project)
     return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
+  if (!isProjectWritable(project))
+    return (
+      <EmptyState
+        headingLevel={1}
+        title="This project is completed"
+        hint={completedProjectMessage(project)}
+      />
+    );
 
   const flash = readFormFlash<JobRequestFlash>("jobRequest");
 

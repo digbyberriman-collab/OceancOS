@@ -17,6 +17,7 @@ import {
 } from "@/lib/workflow/crewRequest";
 import type { CrewRequestStatus } from "@/lib/enums";
 import { assertAreaForProject } from "@/lib/vesselAreas";
+import { assertProjectWritable } from "@/lib/projectStatus";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -26,6 +27,7 @@ export async function createCrewRequest(formData: FormData) {
   // submitted form — see the note on CrewRequestCreateSchema.
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before raising a crew request.");
+  assertProjectWritable(project);
 
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
