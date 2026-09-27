@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
+import { projectEyebrow } from "@/lib/projectLabel";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
@@ -100,7 +101,7 @@ export default async function JobsPage({
   return (
     <div className="animate-fade-up">
       <PageHeader
-        eyebrow={project.code ? `${project.code} · ${project.yardName ?? ""}`.trim() : "Yard"}
+        eyebrow={projectEyebrow(project)}
         title="Quotes &amp; requests"
         subtitle={view.blurb}
         actions={
