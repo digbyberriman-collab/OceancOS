@@ -29,6 +29,23 @@ export function safeSheetName(name: string): string {
   return (cleaned || "Sheet").slice(0, 31);
 }
 
+export const DEMO_STAMP = "DEMO — fictional";
+
+/**
+ * Mark an export of demo data so it cannot pass for a real vessel's records
+ * once it leaves the application: every row leads with a "Data" column
+ * reading DEMO — fictional, and the sheet name starts with DEMO. A real
+ * project's sheet is returned unchanged.
+ */
+export function withDemoStamp<Row>(sheet: Sheet<Row>, isDemo: boolean): Sheet<Row> {
+  if (!isDemo) return sheet;
+  return {
+    ...sheet,
+    name: `DEMO ${sheet.name}`,
+    columns: [{ header: "Data", type: "text", value: () => DEMO_STAMP, width: 18 }, ...sheet.columns],
+  };
+}
+
 /**
  * Resolve a sheet to a plain grid: a header row, body rows, and an optional
  * totals row. Cell values stay typed so the writer can apply number formats

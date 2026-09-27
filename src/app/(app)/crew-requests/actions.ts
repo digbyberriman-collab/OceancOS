@@ -16,6 +16,8 @@ import {
   assertTransitionCrewRequest,
 } from "@/lib/workflow/crewRequest";
 import type { CrewRequestStatus } from "@/lib/enums";
+import { assertAreaForProject } from "@/lib/vesselAreas";
+import { assertProjectWritable } from "@/lib/projectStatus";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -25,6 +27,7 @@ export async function createCrewRequest(formData: FormData) {
   // submitted form — see the note on CrewRequestCreateSchema.
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before raising a crew request.");
+  assertProjectWritable(project);
 
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
@@ -40,13 +43,9 @@ export async function createCrewRequest(formData: FormData) {
     });
     if (!linked) throw invalid("That change order is not on this project.");
   }
-  if (data.vesselAreaId) {
-    const area = await prisma.vesselArea.findFirst({
-      where: { id: data.vesselAreaId, vesselId: project.vesselId },
-      select: { id: true },
-    });
-    if (!area) throw invalid("That area is not on this project's vessel.");
-  }
+  // The area must also be on the project's side of the demo line: Draak
+  // carries both its own areas and the demo workspace's.
+  await assertAreaForProject(data.vesselAreaId, project);
 
   const number = await nextSequence("REQ");
   const cr = await prisma.crewRequest.create({

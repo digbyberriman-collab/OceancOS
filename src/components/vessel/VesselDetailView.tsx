@@ -2,11 +2,13 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2, Pencil, Ship } from "lucide-react";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { VesselHeadline } from "./VesselHeadline";
 import { VesselParticulars } from "./VesselParticulars";
 import { ComparisonFlagBadge, VesselComparison } from "./VesselComparison";
 import { VesselDataGaps } from "./VesselDataGaps";
 import { VesselEvidence } from "./VesselEvidence";
+import { VesselYardHistory } from "./VesselYardHistory";
 import { VESSEL_VERIFICATION_LABELS } from "@/lib/enums";
 import { vesselCompleteness } from "@/lib/vessels/fields";
 import { compareWithDatabase } from "@/lib/vessels/comparison";
@@ -35,9 +37,12 @@ export function VesselDetailView({
   returnTo,
   searchParams,
   eyebrow = "Vessel",
+  canAddPeriod = false,
 }: {
   vessel: VesselDetail;
   canEdit: boolean;
+  /** May add a yard period: edits projects, with a role over the whole vessel. */
+  canAddPeriod?: boolean;
   returnTo: string;
   searchParams?: { saved?: string; err?: string };
   eyebrow?: string;
@@ -45,6 +50,10 @@ export function VesselDetailView({
   const completeness = vesselCompleteness(vessel);
   const comparison = compareWithDatabase(vessel, vessel.observations);
   const openGaps = vessel.dataGaps.filter((g) => g.status !== "CLOSED").length;
+  // Projects to work in; completed yard periods are the vessel's history, and
+  // the demo workspace parked here is named as such, apart from both.
+  const liveProjects = vessel.projects.filter((p) => !p.isDemo && p.status !== "COMPLETED");
+  const demoProjects = vessel.projects.filter((p) => p.isDemo);
   const subtitle =
     [vessel.yardNumber, vessel.vesselType, vessel.builder, vessel.deliveredYear && `delivered ${vessel.deliveredYear}`]
       .filter(Boolean)
@@ -101,14 +110,25 @@ export function VesselDetailView({
         <a href="#gaps" className="text-xs text-muted hover:text-white tnum">
           {openGaps} open data {openGaps === 1 ? "gap" : "gaps"}
         </a>
-        {vessel.projects.length > 0 && (
+        {liveProjects.length > 0 && (
           <span className="text-xs text-muted">
-            {vessel.projects.length === 1 ? "Project " : "Projects "}
-            {vessel.projects.map((p) => (
+            {liveProjects.length === 1 ? "Project " : "Projects "}
+            {liveProjects.map((p) => (
               <span key={p.id} className="ml-1 font-medium text-white">
                 {p.code ?? p.name}
               </span>
             ))}
+          </span>
+        )}
+        {demoProjects.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+            <DemoBadge />
+            {demoProjects.map((p) => (
+              <Link key={p.id} href={`/projects/${p.id}`} className="font-medium text-warn hover:underline">
+                {p.code ?? p.name}
+              </Link>
+            ))}
+            <span className="text-faint">fictional, not part of this vessel&rsquo;s history</span>
           </span>
         )}
       </div>
@@ -116,6 +136,18 @@ export function VesselDetailView({
       <div className="mb-6">
         <VesselHeadline vessel={vessel} />
       </div>
+
+      <VesselYardHistory
+        vesselId={vessel.id}
+        vesselName={vessel.name}
+        canAdd={canAddPeriod}
+        returnTo={returnTo}
+        projects={vessel.projects}
+        excluded={vessel.yardEvidence}
+        noPeriodLocated={vessel.dataGaps.some(
+          (g) => g.scope === "Yard history" && g.issue.startsWith("No confirmed post-delivery")
+        )}
+      />
 
       <VesselParticulars vessel={vessel} observations={vessel.observations} />
 

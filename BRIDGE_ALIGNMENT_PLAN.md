@@ -1164,3 +1164,40 @@ issues its own quote pack.
 
 **Verified**: `tsc --noEmit` clean, 238 unit tests pass, build succeeds across all new routes, 17 QA
 checks pass, 42 end-to-end tests pass.
+
+### 2026-09-27 — Vessel yard history, and the demo workspace moved onto Draak
+
+A vessel can now carry its whole history, not only the refit in hand. This goes beyond The Bridge,
+which knows one yard's projects; OceancOS is vessel-side across yards (§3.1), so a vessel's past
+periods at every yard belong together.
+
+**The data.** Each historical yard period is a `COMPLETED` project with a `YardPeriodRecord` (what the
+source published, dates as labels at the precision published), `ProjectScopeItem` lines by discipline
+and `YardPeriodEvidence` (sources, conflicts, excluded claims). Project status gained `PLANNED` and
+`COMPLETED`; a completed project takes no new work.
+
+**The register.** The Oceanco Y7xx Refit & Historical Yard-Period Register (cutoff 26 September 2026)
+loads 44 periods across 17 vessels from 45 rows — Proyacht's hours on Draak fold into its 2023–26
+rebuild. Vessels are matched by yard number because names move between hulls. The workbook's own
+Detailed Scope sheet misfiles and drops clauses, so scope is classified by hand in
+`src/lib/yardPeriods/scope.ts`, held by a test that accounts for every clause. Its Vessel Summary sheet
+gives Vibrant Curiosity's latest period as 2019; the periods themselves run to 2023, and that is what is
+shown. Cost bands are planning estimates, kept off every budget and total and shown only with
+financial access. `npm run yardperiods:import` loads a newer edition without overwriting corrections.
+
+**The views.** A Yard history section on every vessel page; a fleet-wide `/projects` register filtered
+by vessel, status, yard, year and confidence; an overview for every project at `/projects/[id]`; yard
+period columns on the fleet register; editing of a period's record and scope; adding a period from the
+vessel's own records. The switcher offers live projects only, grouped by vessel, and the dashboard
+measures against the clock only while a vessel is in the yard.
+
+**The demo workspace.** The seeded walkthrough moved off the invented vessels M/Y Solstice and M/Y
+Northern Light onto Draak as `DEMO-01` and `DEMO-02`, marked `isDemo` and re-dated after Draak's real
+rebuild. `projectScope()` now covers one side of the demo line at a time, so demo records never reach a
+real vessel's lists or totals; it is announced, badged, watermarked and stamped wherever it appears.
+`npm run demo:consolidate` moves a database seeded earlier.
+
+**Verified**: typecheck and lint clean, 541 unit tests, build, 40 QA checks, 100 end-to-end tests; and
+an upgrade from a database seeded on the previous base, through `migrate deploy`, `demo:consolidate` and
+`yardperiods:import`, passes QA with both imports idempotent.
+

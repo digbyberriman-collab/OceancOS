@@ -179,6 +179,19 @@ export const DEPARTMENTS = [
 
 export const PROJECT_TYPES = ["REFIT", "NEW_BUILD", "CONVERSION"] as const;
 
+/**
+ * A project's place in its life. ACTIVE and PLANNED take new work; a COMPLETED
+ * project is the record of a yard period that has finished. The order is the
+ * order projects are listed in.
+ */
+export const PROJECT_STATUSES = ["ACTIVE", "PLANNED", "COMPLETED"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  ACTIVE: "Active",
+  PLANNED: "Planned",
+  COMPLETED: "Completed",
+};
+
 /** How far a vessel's particulars have been checked against its certificates. */
 export const VESSEL_VERIFICATION = ["UNVERIFIED", "PUBLIC_SOURCE", "CERTIFICATE_VERIFIED"] as const;
 export const VESSEL_VERIFICATION_LABELS: Record<(typeof VESSEL_VERIFICATION)[number], string> = {
@@ -187,11 +200,53 @@ export const VESSEL_VERIFICATION_LABELS: Record<(typeof VESSEL_VERIFICATION)[num
   CERTIFICATE_VERIFIED: "Certificate-verified",
 };
 
+/**
+ * The disciplines a yard period's scope of work is grouped by — the column
+ * families of the yard-period register, plus GENERAL for work that spans
+ * them (a contractor's hours on a whole rebuild).
+ */
+export const SCOPE_DISCIPLINES = [
+  "STRUCTURE_HULL_PAINT",
+  "MECHANICAL_PROPULSION",
+  "ELECTRICAL_AVIT_NAV",
+  "INTERIOR_GUEST",
+  "DECK_TENDER_MISSION",
+  "SURVEY_CLASS_COMPLIANCE",
+  "GENERAL",
+] as const;
+export type ScopeDiscipline = (typeof SCOPE_DISCIPLINES)[number];
+export const SCOPE_DISCIPLINE_LABELS: Record<ScopeDiscipline, string> = {
+  STRUCTURE_HULL_PAINT: "Structure, hull & paint",
+  MECHANICAL_PROPULSION: "Mechanical & propulsion",
+  ELECTRICAL_AVIT_NAV: "Electrical, AV/IT & navigation",
+  INTERIOR_GUEST: "Interior & guest areas",
+  DECK_TENDER_MISSION: "Deck, tenders & mission equipment",
+  SURVEY_CLASS_COMPLIANCE: "Survey, class & compliance",
+  GENERAL: "General",
+};
+
+/**
+ * How far a published yard period can be relied on. High: the yard, a
+ * contractor or an official source, or corroborated. Medium: a reputable
+ * broker, database or trade source. Low: incomplete secondary evidence.
+ */
+export const CONFIDENCE_LEVELS = ["HIGH", "MEDIUM", "LOW"] as const;
+export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
+export const CONFIDENCE_LABELS: Record<ConfidenceLevel, string> = {
+  HIGH: "High confidence",
+  MEDIUM: "Medium confidence",
+  LOW: "Low confidence",
+};
+
+/** What a piece of yard-history evidence is. */
+export const YARD_EVIDENCE_KINDS = ["SOURCE", "CONFLICT", "EXCLUDED"] as const;
+export type YardEvidenceKind = (typeof YARD_EVIDENCE_KINDS)[number];
+
 export const DATA_GAP_STATUSES = ["OPEN", "IN_PROGRESS", "CLOSED"] as const;
 export const DATA_GAP_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 
 /** Labels for status keys that read badly raw. StatusBadge consults this. */
-export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS };
+export const STATUS_LABELS: Record<string, string> = { ...JOB_STATUS_LABELS, ...PROJECT_STATUS_LABELS };
 
 export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
   // shared
@@ -205,6 +260,9 @@ export const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   COMPLETED: "ok",
   CLOSED: "muted",
   CANCELLED: "muted",
+  // projects (COMPLETED is shared above)
+  ACTIVE: "info",
+  PLANNED: "muted",
   // crew req
   NEW: "info",
   TRIAGED: "info",

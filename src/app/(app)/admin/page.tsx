@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { fmtDateTime } from "@/lib/utils";
 import { Users, Ship, FolderKanban, LayoutGrid, ScrollText, Settings } from "lucide-react";
 
@@ -22,7 +23,7 @@ export default async function AdminPage() {
   if (!canSeeUsers && !canSeeAudit) {
     return <EmptyState headingLevel={1} title="Forbidden" hint="Admin tools are restricted." />;
   }
-  const [users, vessels, projects, depts, audit] = await Promise.all([
+  const [users, vessels, projects, projectCount, depts, audit] = await Promise.all([
     canSeeUsers
       ? prisma.user.findMany({
           select: {
@@ -50,6 +51,9 @@ export default async function AdminPage() {
           take: 200,
         })
       : [],
+    // Counted, not read off the capped list: every vessel's yard history is
+    // a project, so the list can pass its cap.
+    canSeeUsers ? prisma.project.count({ where: { archivedAt: null } }) : 0,
     canSeeUsers ? prisma.department.findMany({ orderBy: { name: "asc" }, take: 200 }) : [],
     canSeeAudit ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 }) : [],
   ]);
@@ -79,7 +83,7 @@ export default async function AdminPage() {
             </div>
             <div className="stat-card">
               <div className="stat-label">Projects</div>
-              <div className="stat-value text-accent-bright">{projects.length}</div>
+              <div className="stat-value text-accent-bright">{projectCount}</div>
               <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl bg-accent/60" />
             </div>
             <div className="stat-card">
@@ -140,7 +144,7 @@ export default async function AdminPage() {
             <div className="flex items-center gap-2 px-4 py-3 border-b border-line bg-ink-850/40">
               <FolderKanban size={14} className="text-marine shrink-0" />
               <span className="text-sm font-semibold text-white">Projects</span>
-              <span className="text-[11px] text-faint tnum ml-1">{projects.length}</span>
+              <span className="text-[11px] text-faint tnum ml-1">{projectCount}</span>
             </div>
             {projects.length === 0 ? (
               <div className="px-4 py-6 text-sm text-faint text-center">No active projects</div>
@@ -153,6 +157,7 @@ export default async function AdminPage() {
                       <span className="text-muted text-xs mx-1.5">—</span>
                       <span className="text-muted text-sm">{p.name}</span>
                     </div>
+                    {p.isDemo && <DemoBadge className="shrink-0" />}
                     <span className="shrink-0 text-[10px] font-mono text-faint uppercase tracking-wide">
                       {p.type}
                     </span>

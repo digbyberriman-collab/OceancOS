@@ -25,6 +25,7 @@ import { applyTransition } from "@/lib/workflow/transition";
 import { setFormFlash } from "@/lib/formFlash";
 import type { UploadedFile } from "@/components/ui/FileDrop";
 import { toNumber } from "@/lib/utils";
+import { assertProjectWritable } from "@/lib/projectStatus";
 
 /** Load a job and confirm the caller may reach its project. */
 async function loadJob(userId: string, jobId: string) {
@@ -92,6 +93,7 @@ export async function createJobRequest(formData: FormData) {
 
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before creating a job.");
+  assertProjectWritable(project);
 
   const rawValues: JobRequestFlash["values"] = {
     clientRef: String(formData.get("clientRef") ?? ""),

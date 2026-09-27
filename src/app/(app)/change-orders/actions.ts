@@ -24,6 +24,8 @@ import {
   permissionForTransition,
   type ApprovalRow,
 } from "@/lib/workflow/changeOrder";
+import { assertAreaForProject } from "@/lib/vesselAreas";
+import { assertProjectWritable } from "@/lib/projectStatus";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -40,12 +42,14 @@ export async function createChangeOrder(formData: FormData) {
   // submitted form — see the note on ChangeOrderCreateSchema.
   const project = await getActiveProject(user.id);
   if (!project) throw invalid("Choose a project before raising a change order.");
+  assertProjectWritable(project);
 
   const parsed = ChangeOrderCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
+  await assertAreaForProject(data.vesselAreaId, project);
   const number = await nextSequence("CO");
   const stages = defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview });
 
@@ -91,7 +95,10 @@ export async function updateChangeOrder(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const co = await prisma.changeOrder.findUnique({
     where: { id },
-    include: { approvals: { select: { id: true, stage: true, decision: true, order: true } } },
+    include: {
+      approvals: { select: { id: true, stage: true, decision: true, order: true } },
+      project: { select: { vesselId: true, isDemo: true } },
+    },
   });
   if (!co) throw notFound("That change order");
 
@@ -108,8 +115,9 @@ export async function updateChangeOrder(formData: FormData) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
+  await assertAreaForProject(data.vesselAreaId, co.project);
 
-  const { approvals, ...stored } = co;
+  const { approvals, project: _project, ...stored } = co;
   const normalise = (v: unknown): unknown => (v instanceof Prisma.Decimal ? v.toNumber() : v ?? null);
   const changed = (Object.keys(data) as (keyof typeof data)[]).filter(
     (key) => normalise(data[key]) !== normalise((stored as unknown as Record<string, unknown>)[key])
@@ -179,7 +187,7 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   const user = await requireUser();
   const co = await prisma.changeOrder.findUnique({
     where: { id },
-    include: { project: { select: { id: true, vesselId: true } } },
+    include: { project: { select: { id: true, vesselId: true, isDemo: true } } },
   });
   if (!co) throw notFound("That change order");
 
@@ -309,7 +317,7 @@ export async function decideChangeOrderApproval(formData: FormData) {
 
   const approval = await prisma.changeOrderApproval.findUnique({
     where: { id: approvalId },
-    include: { changeOrder: { include: { project: { select: { id: true, vesselId: true } } } } },
+    include: { changeOrder: { include: { project: { select: { id: true, vesselId: true, isDemo: true } } } } },
   });
   if (!approval) throw notFound("That approval");
   const co = approval.changeOrder;

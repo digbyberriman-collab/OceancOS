@@ -37,6 +37,7 @@ import {
   toggleJobFavourite,
   transitionJob,
 } from "../actions";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -146,6 +147,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
           }`}
           actions={
             <>
+              {job.project.isDemo && <DemoBadge />}
               <StatusBadge value={job.status} />
               <form action={toggleJobFavourite}>
                 <input type="hidden" name="jobId" value={job.id} />

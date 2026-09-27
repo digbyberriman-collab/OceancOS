@@ -15,6 +15,7 @@ import { ArrowLeft, MessageSquare, AlertTriangle } from "lucide-react";
 import { accessibleProjectIds } from "@/lib/project";
 import { crewRequestActions } from "@/lib/workflow/crewRequest";
 import type { CrewRequestStatus } from "@/lib/enums";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           subtitle={`${cr.project.vessel.name} · ${cr.project.name}`}
           actions={
             <>
+              {cr.project.isDemo && <DemoBadge />}
               <PriorityBadge value={cr.priority} />
               <StatusBadge value={cr.status} />
             </>

@@ -120,7 +120,8 @@ export async function updateDataGapAction(formData: FormData) {
   const resolutionNote = String(formData.get("resolutionNote") ?? "").trim() || null;
   const requested = String(formData.get("returnTo") ?? "");
   // Only ever return to a vessel page, never to an address supplied from outside.
-  const returnTo = /^\/vessels?(\/[\w-]+)?$/.test(requested) ? requested : "/vessels";
+  // A gap is edited from its vessel or from the yard period it is about.
+  const returnTo = /^\/(vessels?|projects)(\/[\w-]+)?$/.test(requested) ? requested : "/vessels";
 
   const gap = await prisma.vesselDataGap.findUnique({ where: { id } });
   if (!gap) throw notFoundError("That data gap");

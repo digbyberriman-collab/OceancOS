@@ -50,7 +50,7 @@ clean clone as documented. Fold into G6.3.
 
 ### [TESTS] — `npm run qa`'s crew-request check assumed the first row is representative
 Severity: Low
-Location: `scripts/qa.ts:42-45`
+Location: `scripts/qa.ts:43-46`
 Found by: orchestrator, during G2.4
 
 Description:
@@ -187,7 +187,7 @@ with the CAPTAIN-on-p1 / CREW-on-p2 seed user as the regression case.
 
 ### [RBAC] — The seed wipes and rebuilds every role's permissions
 Severity: Medium
-Location: `prisma/seed.ts:53-54`
+Location: `prisma/seed.ts:57-58`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -208,8 +208,8 @@ system sets and applies additive migrations to customised ones.
 
 ### [TENANCY] — The quote authoriser is chosen and validated platform-wide
 Severity: Medium
-Location: `src/app/(app)/jobs/new/page.tsx:39`, `src/app/(app)/jobs/actions.ts:126-133`,
-`src/lib/project.ts:210`
+Location: `src/app/(app)/jobs/new/page.tsx:48`, `src/app/(app)/jobs/actions.ts:128-135`,
+`src/lib/project.ts:287`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -232,11 +232,11 @@ the notification lookups.
 
 ### [RBAC] — Nine actions check the permission before loading the record
 Severity: Low
-Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :236, `setJobProgress` :585,
-`addJobComment` :649); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :59,
-`confirmAcceptance` :160, `rejectQuote` :307); `change-orders/actions.ts` `updateChangeOrder` :89;
-`crew-requests/actions.ts` `assignCrewRequest` :144; `admin/projects/actions.ts`
-`updateProjectAction` :42
+Location: `src/app/(app)/jobs/actions.ts` (`issueQuote` :238, `setJobProgress` :587,
+`addJobComment` :651); `jobs/[id]/accept/actions.ts` (`requestAcceptanceCode` :59,
+`confirmAcceptance` :160, `rejectQuote` :307); `change-orders/actions.ts` `updateChangeOrder` :93;
+`crew-requests/actions.ts` `assignCrewRequest` :143; `admin/projects/actions.ts`
+`updateProjectAction` :44
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -255,7 +255,7 @@ Suggested fix: Gate 10, item 10.1 — load, then `assertPermissionOn(user, key, 
 
 ### [RBAC] — The Approvals page has no page gate and re-declares the stage map with `as any`
 Severity: Low
-Location: `src/app/(app)/approvals/page.tsx:16,30`; `src/app/(app)/change-orders/actions.ts:320`
+Location: `src/app/(app)/approvals/page.tsx:16,30`; `src/app/(app)/change-orders/actions.ts:328`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -278,7 +278,7 @@ Suggested fix: Gate 10, item 10.8.
 Severity: Medium
 Location: `fmtMoney` call sites in `jobs/page.tsx`, `jobs/[id]/page.tsx`,
 `change-orders/page.tsx`, `change-orders/[id]/page.tsx`, `approvals/page.tsx`,
-`crew-requests/[id]/page.tsx:127`, `print/jobs/[id]/page.tsx`; `api/export/jobs/route.ts:46`,
+`crew-requests/[id]/page.tsx:129`, `print/jobs/[id]/page.tsx`; `api/export/jobs/route.ts:46`,
 `api/export/change-orders/route.ts`
 Found by: permission-matrix planning, after Gate 7
 
@@ -302,7 +302,7 @@ Suggested fix: Gate 10, items 10.5 and 10.6 — dedicated `job.price.view` / `ch
 
 ### [EXPOSURE] — The dashboard's Recent activity shows the platform-wide audit log to every user
 Severity: Medium
-Location: `src/app/(app)/dashboard/page.tsx:78` (query), `:393` (panel)
+Location: `src/app/(app)/dashboard/page.tsx:78` (query), `:422` (panel)
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -341,7 +341,7 @@ Suggested fix: Gate 9, item 9.6 — show the winning access sets on the active p
 
 ### [EXPOSURE] — Since G6.9, every project manager sees the platform-wide user, vessel and project directory
 Severity: Medium
-Location: `src/app/(app)/admin/page.tsx:20,27-51`
+Location: `src/app/(app)/admin/page.tsx:21,28-52`
 Found by: permission-matrix planning, after Gate 7
 
 Description:
@@ -363,8 +363,8 @@ unscoped assignment), and the vessel and project lists are scoped to the viewer'
 
 ### [RBAC] — The vessel register runs on one global key, and fleet-level gaps follow from any vessel
 Severity: Medium
-Location: `src/app/(app)/vessels/actions.ts:30`→`:33`, `:116`→`:125`, `:45-46`, `:129-131`;
-`src/app/(app)/vessels/page.tsx:46,50`; `src/lib/vessels/access.ts`
+Location: `src/app/(app)/vessels/actions.ts:30`→`:33`, `:116`→`:126`, `:45-46`, `:130-132`;
+`src/app/(app)/vessels/page.tsx:59,63`; `src/lib/vessels/access.ts`
 Found by: adding the vessel module to the permission matrix, after PR #5
 
 Description:
@@ -373,7 +373,7 @@ Description:
 verification status (including `CERTIFICATE_VERIFIED`, an attestation against its certificates),
 and moving data gaps. Both actions assert it before loading the record, so it cannot be evaluated
 per vessel. A fleet-level data gap (`vesselId` null) is reachable by anyone who reaches any register
-vessel (`:129-131`), so a PM scoped to one refit can close a gap that concerns the whole register.
+vessel (`:130-132`), so a PM scoped to one refit can close a gap that concerns the whole register.
 `/vessels` also shows every viewer the fleet-level gaps and the yard numbers missing from the whole
 register. Seeing particulars takes no key: every project member, contractors, suppliers and guests
 included, sees them.
@@ -397,7 +397,7 @@ part of the permission gates.
 
 ### [SORTING] — Crew requests sort CRITICAL last
 Severity: Medium
-Location: `src/app/(app)/crew-requests/page.tsx:50`
+Location: `src/app/(app)/crew-requests/page.tsx:56`
 Found by: UI/UX elevation audit (`audit/UI_UX_ELEVATION.md`, E38)
 
 Description:

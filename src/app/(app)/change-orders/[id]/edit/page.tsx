@@ -11,6 +11,7 @@ import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { toNumber } from "@/lib/utils";
 import { updateChangeOrder } from "../../actions";
 import { ArrowLeft } from "lucide-react";
+import { areaWhereForProject } from "@/lib/vesselAreas";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export default async function EditChangeOrderPage({ params }: { params: { id: st
 
   const co = await prisma.changeOrder.findUnique({
     where: { id: params.id },
-    include: { project: { select: { vesselId: true, currency: true } } },
+    include: { project: { select: { vesselId: true, currency: true, isDemo: true } } },
   });
   if (!co) return notFound();
 
@@ -44,7 +45,7 @@ export default async function EditChangeOrderPage({ params }: { params: { id: st
     );
   }
 
-  const areas = await prisma.vesselArea.findMany({ where: { vesselId: co.project.vesselId } });
+  const areas = await prisma.vesselArea.findMany({ where: areaWhereForProject(co.project) });
 
   return (
     <div className="animate-fade-up">

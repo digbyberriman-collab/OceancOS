@@ -22,7 +22,7 @@ import { ProgressRings } from "@/components/charts/ProgressRings";
 import { StepArea } from "@/components/charts/StepArea";
 import { SERIES, DE_EMPHASIS } from "@/components/charts/palette";
 import { cumulativeByDate } from "@/lib/charts/geometry";
-import { projectTiming } from "@/lib/metrics/project";
+import { projectTiming, yardPeriodState } from "@/lib/metrics/project";
 import { getActiveProject, projectScope } from "@/lib/project";
 import { VesselStrip } from "@/components/vessel/VesselStrip";
 
@@ -152,6 +152,13 @@ export default async function DashboardPage() {
     arrivalDate: activeProject?.arrivalDate,
     departureDate: activeProject?.departureDate,
   });
+  const periodState = activeProject
+    ? yardPeriodState({
+        status: activeProject.status,
+        arrivalDate: activeProject.arrivalDate,
+        departureDate: activeProject.departureDate,
+      })
+    : ({ kind: "NO_DATES" } as const);
 
   // Cumulative value over time, split by whether the money is still a proposal
   // or has been approved. This is the shape the yard quote history takes in
@@ -189,7 +196,7 @@ export default async function DashboardPage() {
         subtitle="Live operational view across all active vessels and projects."
       />
 
-      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} />}
+      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} isDemo={activeProject.isDemo} />}
 
       {/* Stat row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">
@@ -270,8 +277,30 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Progress against the yard period">
-          {activeProject?.arrivalDate && activeProject?.departureDate ? (
+          {periodState.kind === "IN_PROGRESS" ? (
             <ProgressRings workPct={workPct} timePct={timing.timePct} />
+          ) : periodState.kind === "COMPLETED" ? (
+            <p className="text-sm text-muted">
+              {activeProject?.code ?? "This project"} is a completed yard period — a record, not live work, so
+              there is no clock to measure against.{" "}
+              <Link href={`/projects/${activeProject?.id}`} className="text-accent-bright hover:text-marine">
+                Its dates, scope and evidence
+              </Link>{" "}
+              are on its overview.
+            </p>
+          ) : periodState.kind === "UPCOMING" ? (
+            <p className="text-sm text-muted">
+              The vessel arrives in {periodState.arrivesInDays}{" "}
+              {periodState.arrivesInDays === 1 ? "day" : "days"}, on {fmtDate(activeProject?.arrivalDate)}. Progress
+              against the clock starts then.
+            </p>
+          ) : periodState.kind === "OVERRUN" ? (
+            <p className="text-sm text-warn">
+              Departure was due {periodState.departedDaysAgo}{" "}
+              {periodState.departedDaysAgo === 1 ? "day" : "days"} ago, on {fmtDate(activeProject?.departureDate)}.
+              Record the actual departure, or move the date, in Project admin.
+              {workPct !== null && <span className="mt-1 block text-muted">Work done: {workPct}%.</span>}
+            </p>
           ) : (
             <p className="text-sm text-muted">
               Set arrival and departure dates on the project to track progress against the clock.

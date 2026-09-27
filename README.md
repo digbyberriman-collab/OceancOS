@@ -50,6 +50,8 @@ the fast path when the schema or seed changes under you.
 | `npm run test:e2e` | Browser tests (Playwright) — see [End-to-end tests](#end-to-end-tests) |
 | `npm run qa` | Read-only database integrity checks against the seed |
 | `npm run vessels:import` | Load the vessel register workbook — see [Vessel register](#vessel-register) |
+| `npm run yardperiods:import` | Load the yard-period register: each vessel's history — see [Yard history](#yard-history) |
+| `npm run demo:consolidate` | Move a database seeded before September 2026 onto the current demo workspace — see [Demo workspace](#demo-workspace) |
 
 ## End-to-end tests
 
@@ -133,6 +135,87 @@ entered in the application are never replaced. Sourced observations and data gap
 added, and a gap's status set in the application survives a re-import. Figures are public-source
 and not certificate-verified until a vessel is marked otherwise.
 
+## Yard history
+
+What has been done to each vessel since delivery — refits, rebuilds, repairs, surveys and significant
+yard stays — shown on every vessel page (`/vessels/[id]`, "Yard history"), in the fleet-wide register
+at `/projects`, and period by period at `/projects/[id]`.
+
+Each historical period is a `Project` with status `COMPLETED` and a `YardPeriodRecord` beside it holding
+what the source published: the period type, the dates, the yard and place, the name the vessel went by
+then, the scope, contractors, cost, confidence and notes. Its scope is broken into lines by discipline
+(`ProjectScopeItem`), and `YardPeriodEvidence` keeps the sources behind it, where sources disagree, and
+the claims the register considered and left out. A completed project is a record: no change order,
+crew request or quote can be raised against it, and the dashboard shows no clock for it.
+
+The Oceanco Y7xx Refit & Historical Yard-Period Register (research cutoff 26 September 2026) is committed
+at `prisma/data/Oceanco_Y7xx_Refit_Yard_Period_Register_2026-09-26.xlsx`, with its narrative report
+beside it, and loaded by the seed after the vessel register. To load it — or a newer edition — into a
+deployed database:
+
+```bash
+npm run yardperiods:import                              # the committed workbook
+npm run yardperiods:import -- path/to/newer.xlsx        # a newer edition
+npm run yardperiods:import -- --check                   # what would change; exits 1 if anything would
+npm run yardperiods:import -- path/to/newer.xlsx --overwrite
+```
+
+The rules the import holds to:
+
+- **Vessels are matched by yard number only.** Names collide across hulls — Man of Steel (Y706) was
+  Seven Seas, and Y720 is Seven Seas; Samsara (Y710) was Infinity, and Y719 is Infinity; SHODAN (Y716)
+  was DreAMBoat, and Y726 is DreAMBoat. A period whose vessel is not in the database stops the import.
+- **Dates stay at the precision published.** "2012-Q2", "2017-Spring", "2023-06 approx." and "Date
+  unverified" are stored and shown as labels; the days they cover are used only to order and filter.
+  The six exact yard-period dates that drive the timing cards are never set from a label.
+- **A yard is named only where the source names one.** "Unverified" and "Unspecified USA yard" are kept
+  on the record as published and shown as "Yard not identified in public sources".
+- **Cost bands are planning estimates, never spend.** Every period's reported cost is "Undisclosed";
+  the indicative band ("€30m–€70m+") is stored with its basis, shown only to roles with financial
+  access and always labelled as a planning estimate, and never touches a budget or a total.
+- **Scope is classified by hand.** The workbook's Detailed Scope sheet splits clauses by keyword and
+  misfiles and drops some (KAOS's "Largest Lürssen refit at the time" under Electrical/AV-IT; Draak's
+  helideck removal missing), so `src/lib/yardPeriods/scope.ts` classifies each period's published Scope
+  clause by clause, and a test holds every clause to exactly one entry.
+- **45 rows make 44 periods.** Proyacht's 1,420 hours on Draak are listed as a row of their own but
+  were worked inside the 2023–26 rebuild, so they are recorded as part of it
+  (`src/lib/yardPeriods/merges.ts`, which also says which period each conflict and gap is about).
+- **Nothing is taken away or overwritten by a re-import.** A period is found again by its import key;
+  without `--overwrite` a record only has blanks filled; scope lines, evidence, gaps and observations
+  are only ever added. A scope line removed in the application is hidden, not deleted, so it does not
+  come back.
+- **The vessel's latest refit becomes evidence.** It is recorded beside "Latest refit / rebuild" and
+  fills that particular only where it is blank, so a disagreement with the vessel register shows as a
+  second value rather than replacing the first.
+
+Five vessels have no period in the register (SHODAN, Seven Seas, Koru, Leviathan, DreAMBoat); their
+history says so as an evidence gap, not as proof that no work was done. Periods the register does not
+have — from maintenance logs, class survey history or yard invoices — are added from the vessel page
+("Add a yard period") by a role with `project.edit` that covers the whole vessel, and any period can be
+corrected at `/projects/[id]/edit`.
+
+## Demo workspace
+
+The seed ships a worked example — a yard period with quotes, change orders, crew requests, budgets,
+milestones, risks, inventory and areas — so every screen has something to show. It is fictional, and
+it is parked on **Draak (Y709)**: two projects, `DEMO-01` (in progress, July 2026 to February 2027) and
+`DEMO-02` (booked for 2027), both marked `isDemo`, dated after Draak's real rebuild.
+
+- While a demo project is active, a banner says so, and every list and total covers only the demo
+  workspace (`projectScope()` in `src/lib/project.ts`). While a real project is active, no demo record
+  appears in a list or adds to a total. Opening a demo record by link still works, and it is badged.
+- Demo projects are grouped apart in the switcher, badged wherever they are named, watermarked on PDFs
+  and stamped `DEMO — fictional` on every row of a spreadsheet export.
+- A role scoped to a vessel never reaches the demo projects parked on it.
+- The fleet register, vessel pages and `/projects` always show the real vessels and their history.
+
+Until September 2026 the demo sat on two invented vessels, M/Y Solstice and M/Y Northern Light. On a
+database seeded before then, `npm run demo:consolidate` moves it onto Draak, shifts the dates the seed
+derived from the old arrival (only those — anything a person did keeps its real timestamp), and deletes
+the invented vessels. It refuses if either holds a real project or a role scoped to it, since deleting a
+vessel would turn a vessel-scoped role into one that reaches every project. `-- --check` reports what
+would change. A fresh seed needs none of this.
+
 ## Seeded accounts
 
 `npm run db:seed` creates one account per role — all nineteen — sharing the same password. In
@@ -153,9 +236,9 @@ environment.
 | `crew@oceancos.dev` | Crew | | `guest@oceancos.dev` | Guest |
 | `yard@oceancos.dev` | Yard PM | | | |
 
-Plus `scoped@oceancos.dev`, a Project Manager scoped to only one of the two seeded projects
-(every account above reaches both) — used by `e2e/tenancy.spec.ts` to prove one project's data
-never leaks into another's.
+Plus `scoped@oceancos.dev`, a Project Manager scoped to only one of the two demo projects, `DEMO-01`
+(every account above reaches every project) — used by `e2e/tenancy.spec.ts` to prove one project's
+data never leaks into another's.
 
 ## Further documentation
 

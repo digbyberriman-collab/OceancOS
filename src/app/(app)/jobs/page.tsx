@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject } from "@/lib/project";
+import { projectEyebrow } from "@/lib/projectLabel";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtDate, fmtMoney } from "@/lib/utils";
@@ -17,6 +18,7 @@ import {
   type ContractType,
   type PricingBasis,
 } from "@/lib/enums";
+import { isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +102,7 @@ export default async function JobsPage({
   return (
     <div className="animate-fade-up">
       <PageHeader
-        eyebrow={project.code ? `${project.code} · ${project.yardName ?? ""}`.trim() : "Yard"}
+        eyebrow={projectEyebrow(project)}
         title="Quotes &amp; requests"
         subtitle={view.blurb}
         actions={
@@ -109,7 +111,7 @@ export default async function JobsPage({
               <FileSpreadsheet size={14} />
               Spreadsheet
             </a>
-            {hasPermission(user, PERMISSIONS.JOB_REQUEST) && (
+            {hasPermission(user, PERMISSIONS.JOB_REQUEST) && isProjectWritable(project) && (
               <Link href="/jobs/new" className="btn-primary btn-lg">
                 New quote request
               </Link>

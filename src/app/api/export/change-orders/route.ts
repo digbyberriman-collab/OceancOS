@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { getActiveProject, projectScope } from "@/lib/project";
 import { buildWorkbook } from "@/lib/export/xlsx";
-import { exportFilename, toCsv, type Sheet } from "@/lib/export/table";
+import { exportFilename, toCsv, withDemoStamp, type Sheet } from "@/lib/export/table";
 import { toNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   }
   const showMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
-  const sheet: Sheet<Row> = {
+  const sheet: Sheet<Row> = withDemoStamp<Row>({
     name: project ? `${project.code ?? project.name}` : "Change orders",
     rows,
     totals: showMoney ? ["Estimated cost", "Approved cost"] : [],
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       { header: "Schedule impact (days)", type: "number", value: (r) => r.scheduleImpactDays, width: 20 },
       { header: "Raised", type: "date", value: (r) => r.createdAt, width: 14 },
     ],
-  };
+  }, project?.isDemo ?? false);
 
   const base = project?.code ? `change-orders-${project.code}` : "change-orders";
 

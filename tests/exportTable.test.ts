@@ -5,6 +5,8 @@ import {
   safeSheetName,
   toCsv,
   toGrid,
+  withDemoStamp,
+  DEMO_STAMP,
   type Sheet,
 } from "@/lib/export/table";
 
@@ -137,5 +139,27 @@ describe("exportFilename", () => {
 
   it("produces a name with no characters that need escaping", () => {
     expect(exportFilename("A b/c:d", "xlsx", when)).toMatch(/^[a-z0-9.\-]+$/);
+  });
+});
+
+describe("withDemoStamp", () => {
+  it("leaves a real project's sheet exactly as it was", () => {
+    expect(withDemoStamp(sheet, false)).toBe(sheet);
+  });
+
+  it("leads every row of a demo sheet with the stamp and names the sheet DEMO", () => {
+    const stamped = withDemoStamp(sheet, true);
+    expect(stamped.name).toBe("DEMO Change orders");
+    const { header, body } = toGrid(stamped);
+    expect(header[0]).toBe("Data");
+    expect(body.every((row) => row[0] === DEMO_STAMP)).toBe(true);
+    expect(header.slice(1)).toEqual(toGrid(sheet).header);
+  });
+
+  it("still totals the same columns, with the label in the stamp column", () => {
+    const { totals } = toGrid(withDemoStamp(sheet, true));
+    const plain = toGrid(sheet).totals!;
+    expect(totals![0]).toBe("Total");
+    expect(totals!.slice(2)).toEqual(plain.slice(1));
   });
 });

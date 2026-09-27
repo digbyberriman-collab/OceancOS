@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Ship } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { accessibleProjectIds } from "@/lib/project";
+import { accessibleProjectIds, sortProjectSummaries } from "@/lib/project";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
@@ -11,7 +12,8 @@ import { SectionCard } from "@/components/workflow/SectionCard";
 import { toDateInputValue } from "@/lib/projectDates";
 import { projectTiming } from "@/lib/metrics/project";
 import { fmtDate } from "@/lib/utils";
-import { PROJECT_TYPES } from "@/lib/enums";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABELS, PROJECT_TYPES } from "@/lib/enums";
+import { formatPeriod } from "@/lib/yardPeriods/display";
 import { updateProjectAction, type ProjectFormFlash } from "./actions";
 import { readFormFlash } from "@/lib/formFlash";
 import { FlashCleanup } from "@/components/ui/FlashCleanup";
@@ -45,18 +47,47 @@ export default async function AdminProjectsPage({
   // Only the projects the caller can reach, the same scope the save path
   // enforces with requireProjectAccess. Listing every project exposed codes,
   // yard names and dates of refits a project-scoped editor cannot touch.
-  const projects = await prisma.project.findMany({
-    where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
-    include: { vessel: true },
-    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
-    take: 200,
-  });
+  const projects = sortProjectSummaries(
+    await prisma.project.findMany({
+      where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
+      include: { vessel: true, yardPeriod: { select: { startLabel: true, endLabel: true } } },
+      orderBy: [{ code: "asc" }, { name: "asc" }],
+      take: 200,
+    })
+  );
 
   if (!projects.length) {
     return <EmptyState headingLevel={1} icon={<Ship size={20} />} title="No projects yet" />;
   }
 
   const selected = projects.find((p) => p.id === searchParams.id) ?? projects[0];
+  // Live projects are the ones worked on; completed yard periods follow,
+  // folded away unless one of them is open.
+  const liveProjects = projects.filter((p) => p.status !== "COMPLETED");
+  const completedProjects = projects.filter((p) => p.status === "COMPLETED");
+  const projectLink = (project: (typeof projects)[number]) => {
+    const active = project.id === selected.id;
+    return (
+      <Link
+        key={project.id}
+        href={`/admin/projects?id=${project.id}`}
+        aria-current={active ? "true" : undefined}
+        className={`block rounded-lg border px-3 py-2.5 transition-colors ${
+          active
+            ? "border-line-strong bg-ink-800"
+            : "border-line-soft bg-ink-900/50 hover:border-line hover:bg-ink-850"
+        }`}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium text-white">
+          {project.code ?? project.name}
+          {project.isDemo && <DemoBadge />}
+        </div>
+        <div className="mt-0.5 truncate text-xs text-muted">
+          {project.vessel.name} · {project.name}
+        </div>
+      </Link>
+    );
+  };
   const flash = readFormFlash<ProjectFormFlash>(`project-${selected.id}`);
   const timing = projectTiming({
     arrivalDate: selected.arrivalDate,
@@ -94,28 +125,15 @@ export default async function AdminProjectsPage({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
         {/* Project picker */}
         <nav aria-label="Projects" className="space-y-1.5">
-          {projects.map((project) => {
-            const active = project.id === selected.id;
-            return (
-              <Link
-                key={project.id}
-                href={`/admin/projects?id=${project.id}`}
-                aria-current={active ? "true" : undefined}
-                className={`block rounded-lg border px-3 py-2.5 transition-colors ${
-                  active
-                    ? "border-line-strong bg-ink-800"
-                    : "border-line-soft bg-ink-900/50 hover:border-line hover:bg-ink-850"
-                }`}
-              >
-                <div className="text-sm font-medium text-white">
-                  {project.code ?? project.name}
-                </div>
-                <div className="mt-0.5 truncate text-xs text-muted">
-                  {project.vessel.name} · {project.name}
-                </div>
-              </Link>
-            );
-          })}
+          {liveProjects.map(projectLink)}
+          {completedProjects.length > 0 && (
+            <details open={selected.status === "COMPLETED"} className="pt-2">
+              <summary className="cursor-pointer select-none px-1 py-1.5 text-xs font-medium text-muted hover:text-white">
+                Completed yard periods ({completedProjects.length})
+              </summary>
+              <div className="mt-1.5 space-y-1.5">{completedProjects.map(projectLink)}</div>
+            </details>
+          )}
         </nav>
 
         <SectionCard
@@ -129,7 +147,7 @@ export default async function AdminProjectsPage({
           <form action={updateProjectAction} className="space-y-5">
             <input type="hidden" name="id" value={selected.id} />
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
               <Field label="Project name" className="sm:col-span-2">
                 <Input name="name" defaultValue={flash?.values.name ?? selected.name} required maxLength={120} />
               </Field>
@@ -142,11 +160,20 @@ export default async function AdminProjectsPage({
                   ))}
                 </Select>
               </Field>
+              <Field label="Status" hint="Completed projects take no new work">
+                <Select name="status" defaultValue={flash?.values.status ?? selected.status}>
+                  {PROJECT_STATUSES.map((st) => (
+                    <option key={st} value={st}>
+                      {PROJECT_STATUS_LABELS[st]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project code" hint="Shown in the header switcher">
-                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721" />
+                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721 or Y709" />
               </Field>
               <Field label="Yard">
                 <Input
@@ -166,80 +193,97 @@ export default async function AdminProjectsPage({
               </Field>
             </div>
 
-            <div>
-              <h3 className="eyebrow mb-3">Yard period</h3>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Arrival">
-                  <Input
-                    type="date"
-                    name="arrivalDate"
-                    defaultValue={flash?.values.arrivalDate ?? toDateInputValue(selected.arrivalDate)}
-                  />
-                </Field>
-                <Field label="Haul out">
-                  <Input
-                    type="date"
-                    name="haulOutDate"
-                    defaultValue={flash?.values.haulOutDate ?? toDateInputValue(selected.haulOutDate)}
-                  />
-                </Field>
-                <Field label="Sea trials">
-                  <Input
-                    type="date"
-                    name="seaTrialsDate"
-                    defaultValue={flash?.values.seaTrialsDate ?? toDateInputValue(selected.seaTrialsDate)}
-                  />
-                </Field>
-                <Field label="Departure">
-                  <Input
-                    type="date"
-                    name="departureDate"
-                    defaultValue={flash?.values.departureDate ?? toDateInputValue(selected.departureDate)}
-                  />
-                </Field>
+            {selected.yardPeriod ? (
+              <div className="rounded-lg border border-line-soft bg-ink-950/50 px-3.5 py-3 text-sm text-muted">
+                <h3 className="eyebrow mb-2">Yard period</h3>
+                A historical yard period keeps its dates as published —{" "}
+                <span className="font-medium text-white">
+                  {formatPeriod(selected.yardPeriod.startLabel, selected.yardPeriod.endLabel)}
+                </span>{" "}
+                — on its record, not as exact days.{" "}
+                <Link href={`/projects/${selected.id}/edit`} className="text-accent-bright hover:text-marine">
+                  Edit the record
+                </Link>
               </div>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <h3 className="eyebrow mb-3">Yard period</h3>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <Field label="Arrival">
+                      <Input
+                        type="date"
+                        name="arrivalDate"
+                        defaultValue={flash?.values.arrivalDate ?? toDateInputValue(selected.arrivalDate)}
+                      />
+                    </Field>
+                    <Field label="Haul out">
+                      <Input
+                        type="date"
+                        name="haulOutDate"
+                        defaultValue={flash?.values.haulOutDate ?? toDateInputValue(selected.haulOutDate)}
+                      />
+                    </Field>
+                    <Field label="Sea trials">
+                      <Input
+                        type="date"
+                        name="seaTrialsDate"
+                        defaultValue={flash?.values.seaTrialsDate ?? toDateInputValue(selected.seaTrialsDate)}
+                      />
+                    </Field>
+                    <Field label="Departure">
+                      <Input
+                        type="date"
+                        name="departureDate"
+                        defaultValue={flash?.values.departureDate ?? toDateInputValue(selected.departureDate)}
+                      />
+                    </Field>
+                  </div>
+                </div>
 
-            {/* What these dates currently produce, so a mistake is obvious here
-                rather than on the dashboard. */}
-            <div className="rounded-lg border border-line-soft bg-ink-950/50 px-3.5 py-3">
-              <div className="text-[11px] uppercase tracking-wider text-muted">
-                Currently reads as
-              </div>
-              {timing.onsiteDays === null ? (
-                <p className="mt-1.5 text-sm text-muted">
-                  Set arrival and departure to show a yard period.
-                </p>
-              ) : (
-                <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
-                  <Reading label="Onsite for" value={`${timing.onsiteDays} days`} />
-                  <Reading
-                    label="Started"
-                    value={
-                      timing.startedDaysAgo === null
-                        ? "—"
-                        : timing.startedDaysAgo >= 0
-                          ? `${timing.startedDaysAgo} days ago`
-                          : `in ${Math.abs(timing.startedDaysAgo)} days`
-                    }
-                  />
-                  <Reading
-                    label="Finishes"
-                    value={
-                      timing.finishInDays === null
-                        ? "—"
-                        : timing.finishInDays >= 0
-                          ? `in ${timing.finishInDays} days`
-                          : `${Math.abs(timing.finishInDays)} days ago`
-                    }
-                  />
-                  <Reading
-                    label="Time elapsed"
-                    value={timing.timePct === null ? "—" : `${Math.round(timing.timePct)}%`}
-                  />
-                </dl>
-              )}
-            </div>
+                {/* What these dates currently produce, so a mistake is obvious here
+                    rather than on the dashboard. */}
+                <div className="rounded-lg border border-line-soft bg-ink-950/50 px-3.5 py-3">
+                  <div className="text-[11px] uppercase tracking-wider text-muted">
+                    Currently reads as
+                  </div>
+                  {timing.onsiteDays === null ? (
+                    <p className="mt-1.5 text-sm text-muted">
+                      Set arrival and departure to show a yard period.
+                    </p>
+                  ) : (
+                    <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1.5 text-sm">
+                      <Reading label="Onsite for" value={`${timing.onsiteDays} days`} />
+                      <Reading
+                        label="Started"
+                        value={
+                          timing.startedDaysAgo === null
+                            ? "—"
+                            : timing.startedDaysAgo >= 0
+                              ? `${timing.startedDaysAgo} days ago`
+                              : `in ${Math.abs(timing.startedDaysAgo)} days`
+                        }
+                      />
+                      <Reading
+                        label="Finishes"
+                        value={
+                          timing.finishInDays === null
+                            ? "—"
+                            : timing.finishInDays >= 0
+                              ? `in ${timing.finishInDays} days`
+                              : `${Math.abs(timing.finishInDays)} days ago`
+                        }
+                      />
+                      <Reading
+                        label="Time elapsed"
+                        value={timing.timePct === null ? "—" : `${Math.round(timing.timePct)}%`}
+                      />
+                    </dl>
+                  )}
+                </div>
+
+              </>
+            )}
 
             <div className="flex items-center gap-3">
               <SubmitButton className="btn-primary" pendingText="Saving…">Save project</SubmitButton>

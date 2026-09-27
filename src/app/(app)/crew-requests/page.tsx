@@ -8,7 +8,8 @@ import { fmtDate } from "@/lib/utils";
 import { CREW_REQUEST_CATEGORIES, CREW_REQUEST_STATUSES, PRIORITIES } from "@/lib/enums";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { Users } from "lucide-react";
-import { projectScope } from "@/lib/project";
+import { getActiveProject, projectScope } from "@/lib/project";
+import { isProjectWritable } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,11 @@ export default async function CrewRequestsPage({
       />
     );
   }
+
+  // New work goes on the active project; a completed one takes none.
+  const activeProject = await getActiveProject(user.id);
+  const canCreate =
+    hasPermission(user, PERMISSIONS.CR_CREATE) && (!activeProject || isProjectWritable(activeProject));
 
   const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
@@ -61,7 +67,7 @@ export default async function CrewRequestsPage({
         eyebrow="Workflow"
         subtitle="Defects, operational asks, safety issues — anything that needs an owner."
         actions={
-          hasPermission(user, PERMISSIONS.CR_CREATE) ? (
+          canCreate ? (
             <Link href="/crew-requests/new" className="btn-primary btn-lg">
               New Request
             </Link>
@@ -118,7 +124,7 @@ export default async function CrewRequestsPage({
           }
           icon={<Users size={20} />}
           action={
-            hasPermission(user, PERMISSIONS.CR_CREATE) ? (
+            canCreate ? (
               <Link href="/crew-requests/new" className="btn-primary">New Request</Link>
             ) : null
           }

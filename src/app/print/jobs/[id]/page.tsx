@@ -13,6 +13,7 @@ import {
   type JobStatus,
   type PricingBasis,
 } from "@/lib/enums";
+import { DemoMark } from "@/components/print/DemoMark";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,7 @@ export default async function JobPrint({ params }: { params: { id: string } }) {
           <div>{fmtDate(new Date())}</div>
         </div>
       </header>
+      {job.project.isDemo && <DemoMark />}
 
       <h2>Job &amp; service description</h2>
       <p style={{ fontSize: 11.5, whiteSpace: "pre-wrap", margin: 0 }}>{job.description}</p>

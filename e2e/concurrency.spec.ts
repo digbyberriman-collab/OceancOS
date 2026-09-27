@@ -63,7 +63,8 @@ test.afterAll(async () => {
 
 test.describe("a status change that lands mid-action is not overwritten", () => {
   test("issuing a quote does not reprice a job cancelled in the meantime", async ({ page }) => {
-    const project = await prisma.project.findUniqueOrThrow({ where: { code: "R-00721" } });
+    // The seeded walkthrough project (DEMO-01), found by its fixed id.
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: "p1" } });
     const pm = await prisma.user.findUniqueOrThrow({ where: { email: "pm@oceancos.dev" } });
     const suffix = String(Date.now()).slice(-6);
     const code = `D.${suffix.slice(0, 4)}.${suffix.slice(4)}`;

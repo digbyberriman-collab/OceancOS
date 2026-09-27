@@ -108,7 +108,7 @@ line numbers drift. If one is no longer true, note it in your first commit messa
     `vessel.edit` from the vessel register) at `:6-65`; `PermissionKey` at `:67`.
   - `ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]>` at `:68-184`, "the seed". Since G6.9,
     `admin.users` is held by OWNER, OWNERS_REP and PROJECT_MANAGER; `/admin` checks it separately
-    from `audit.view` (`admin/page.tsx:20-21`).
+    from `audit.view` (`admin/page.tsx:21-22`).
   - `hasPermission` at `:190`, `hasAnyRole` at `:194` (unused outside tests), `assertPermission`
     at `:206`.
 - **Roles and departments:** `src/lib/enums.ts`. `ROLE_KEYS` (19) at `:3-23`, `DEPARTMENTS` (12)
@@ -116,7 +116,7 @@ line numbers drift. If one is no longer true, note it in your first commit messa
 - **Schema:** `prisma/schema.prisma`. `User` (`:14`), `Role` (`:76`), `Permission` (`:85`),
   `RolePermission` (`:92`), `UserRole` (`:101`: `userId, roleId, vesselId?, projectId?,
   departmentId?`, already indexed on every column, no unique constraint on the tuple),
-  `Department` (`:315`: `name, code`, no sort order), `AuditLog` (`:855`: **no `projectId`**).
+  `Department` (`:439`: `name, code`, no sort order), `AuditLog` (`:981`: **no `projectId`**).
   `UserRole.departmentId` is still never read.
 - **Loading the user:** `getCurrentUser` at `src/lib/auth.ts:59`, wrapped in `requestCache`. It
   builds `permissions` at `:75-77` from **every** `UserRole` row, ignoring scope (D1).
@@ -124,14 +124,15 @@ line numbers drift. If one is no longer true, note it in your first commit messa
 
   | Export | Line | What it does |
   |---|---|---|
-  | `resolveProjectWhere` | `:41` | pure; an unscoped assignment reaches every project |
-  | `listProjectsForUser` | `:70` | `requestCache`d; the reachable projects, `take: 200` |
-  | `accessibleProjectIds` | `:97` | the ids of the above |
-  | `projectScope` | `:116` | a Prisma `where` that never matches when nothing is reachable |
-  | `requireProjectAccess` | `:126` | throws `forbidden(...)` for an unreachable project |
-  | `getActiveProject` / `storeActiveProject` | `:149` / `:169` | the header project switcher |
-  | `resolveUserRoleWhereForProject` | `:191` | pure; the assignments that cover a project |
-  | `usersWithPermissionOnProject` | `:210` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
+  | `resolveProjectWhere` | `:44` | pure; an unscoped assignment reaches every project; a vessel-scoped one reaches that vessel's projects except the demo ones |
+  | `listProjectsForUser` | `:77` | `requestCache`d; the reachable projects, `take: 200` |
+  | `accessibleProjectIds` | `:147` | the ids of the above |
+  | `canActForWholeVessel` | `:141` | whether a role covers the whole vessel (unscoped, or scoped to that vessel); gates adding a yard period |
+  | `projectScope` | `:189` | a Prisma `where` over the reachable projects on the active project's side of the demo line; never matches when nothing is reachable |
+  | `requireProjectAccess` | `:201` | throws `forbidden(...)` for an unreachable project |
+  | `getActiveProject` / `storeActiveProject` | `:224` / `:244` | the header project switcher |
+  | `resolveUserRoleWhereForProject` | `:266` | pure; the assignments that cover a project (a demo project is not covered by a vessel-scoped one) |
+  | `usersWithPermissionOnProject` | `:287` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
 
 - **Workflow:** `applyTransition` at `src/lib/workflow/transition.ts:41` is **write-only**: a
   status write conditional on the status read. Callers check legality, permission and project
@@ -139,14 +140,15 @@ line numbers drift. If one is no longer true, note it in your first commit messa
   `permissionForTransition` (`:78`), `JOB_TRANSITION_PERMISSION` (`src/lib/jobs/workflow.ts:48`) and
   `CR_TRANSITION_PERMISSION` (`src/lib/workflow/crewRequest.ts:72`).
 - **Seed** (`prisma/seed.ts`): 19 accounts, one per role, all unscoped (the seven added in G6.9 at
-  `:155`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:187`), used by
-  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806), plus the Oceanco
-  Y700 register: 22 vessels, each with a project coded by its yard number (Y701–Y726). Passwords
+  `:114`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:146`), used by
+  `e2e/tenancy.spec.ts`. Two demo projects on Draak (p1 DEMO-01, p2 DEMO-02, both `isDemo`),
+  plus the Oceanco Y700 register: 22 vessels, each with a project coded by its yard number
+  (Y701–Y726), and 44 `COMPLETED` yard-period projects from the yard-period register. Passwords
   come from `SEED_PASSWORD` and are required in production.
 - **Vessel register** (PR #5):
   - Routes: `/vessel` (the active project's vessel), `/vessels` (the fleet register),
-    `/vessels/[id]` and `/vessels/[id]/edit`. Sidebar entries at `Sidebar.tsx:38` and `:43`; the
-    dashboard's `VesselStrip` at `dashboard/page.tsx:192`.
+    `/vessels/[id]` and `/vessels/[id]/edit`. Sidebar entries at `Sidebar.tsx:39` and `:44`; the
+    dashboard's `VesselStrip` at `dashboard/page.tsx:199`.
   - Visibility has no key: `src/lib/vessels/access.ts` derives a user's vessels from
     `listProjectsForUser`, so every project member, externals included, sees the particulars.
   - One key, `vessel.edit` (OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER), guards both
@@ -156,19 +158,29 @@ line numbers drift. If one is no longer true, note it in your first commit messa
     fleet-level gaps (`vesselId` null).
   - `npm run vessels:import` loads the register workbook from the command line; it has no
     in-app entry point.
+- **Yard history** (`/projects`, `/projects/[id]`, the vessel page's Yard history):
+  - Each historical yard period is a `COMPLETED` project, reached like any other project. Its
+    planning cost band shows only with `financial.view` (`projects/[id]/page.tsx:65`,
+    `projects/page.tsx:47`).
+  - `project.edit` also gates editing a yard period's record and its scope lines, followed by
+    `requireProjectAccess` (`projects/actions.ts:82`, `:151`, `:203`, `:229`). As in D4, the key is
+    checked before the record is loaded.
+  - Adding a yard period (`addYardPeriodAction`, `:273`) also needs a role that covers the whole
+    vessel (`canActForWholeVessel`, `:283`), since a project-scoped user could otherwise create a
+    project they cannot reach.
 - **Admin UI:**
   - `src/app/(app)/admin/page.tsx` is read-only. It shows the user directory to `admin.users`
     holders and the audit log to `audit.view` holders. Its user, vessel and project queries are
-    **not** scoped (`:26-41`).
+    **not** scoped (`:27-42`).
   - `src/app/(app)/admin/projects/*` edits projects on `project.edit`. Its list query
-    (`admin/projects/page.tsx:48`) is scoped to the caller's reach and capped at 200 (PR #7's
+    (`admin/projects/page.tsx:51`) is scoped to the caller's reach and capped at 200 (PR #7's
     Bugbot fix), but the permission is still global.
 - **Change-order approvals** (PR #7's Bugbot fixes): a stage at `MORE_INFO` blocks the chain
   like `PENDING` does, and "Resume review" resets it; `updateChangeOrder` restages CLASS/FLAG rows
   through `approvalStageChanges` (`src/lib/workflow/changeOrder.ts`) when the review flags change.
 - **Shell:** `src/app/(app)/layout.tsx` renders `src/components/layout/AppShell.tsx`, which has the
-  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:57`. The `NAV` array is in
-  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:65` passes `roleKeys[0]` to the
+  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:60`. The `NAV` array is in
+  `Sidebar.tsx:33-56`, rendered unfiltered at `:133`. `TopBar.tsx:65` passes `roleKeys[0]` to the
   profile menu, which shows it at `UserMenu.tsx:73`.
 - **UI kit** (`src/components/ui/`): `Badge`, `ComingSoon` (the "Not yet built" state from G3.11),
   `EmptyState`, `FileDrop`, `FlashCleanup`, `Form`, `PdfButton`, `Skeleton`, `SubmitButton`
@@ -193,20 +205,20 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 |---|---|---|
 | D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. Reachability is scoped; permissions are not. | `src/lib/auth.ts:75-77` |
 | D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:53-54` |
-| D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:210`; `jobs/new/page.tsx:39`; `jobs/actions.ts:126-133` |
-| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:236`→`:239`, `setJobProgress` `:585`→`:588`, `addJobComment` `:649`→`:662`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:59`→`:62`, `confirmAcceptance` `:160`→`:166`, `rejectQuote` `:307`→`:311`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:144`→`:152`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
-| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:320` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
-| D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:111`), the CO print view (`print/change-orders/[id]/page.tsx:39`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:127`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
+| D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:287`; `jobs/new/page.tsx:48`; `jobs/actions.ts:128-135` |
+| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:238`→`:241`, `setJobProgress` `:587`→`:590`, `addJobComment` `:651`→`:664`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:59`→`:62`, `confirmAcceptance` `:160`→`:166`, `rejectQuote` `:307`→`:311`; `change-orders/actions.ts` `updateChangeOrder` `:93`→`:105`; `crew-requests/actions.ts` `assignCrewRequest` `:143`→`:151`; `admin/projects/actions.ts` `updateProjectAction` `:44`→`:81` |
+| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:328` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
+| D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:111`), the CO print view (`print/change-orders/[id]/page.tsx:40`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:129`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
 | D7 | **Money gating is too strict in exports.** They hide prices without `financial.view`, which YARD_PM lacks, so the yard's own quote export has no prices. The job PDF (via `print/jobs/[id]`) shows money the jobs spreadsheet hides. | `src/app/api/export/jobs/route.ts:46`, `api/export/change-orders/route.ts` |
 | D8 | **Exports check the view permission; there is no export permission** (`export` was removed in G6.7 because nothing checked it). The two PDF routes load by id before any project check, which is the residue of data-api's `[EXPOSURE]` PDF finding. | `api/export/jobs/[id]/route.ts:16-20`, `api/export/change-orders/[id]/route.ts:24-28` |
 | D9 | **`/suppliers` has no permission check** (ACTION_PLAN G3.12, still open). | `suppliers/page.tsx:15-16` |
-| D10 | **The dashboard's "Recent activity" shows the global audit log to every user**, described as a deliberate exception in the page's own comment. | `dashboard/page.tsx:78` (query), `:393` (panel) |
-| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:440`, `crew-requests/actions.ts:180` |
+| D10 | **The dashboard's "Recent activity" shows the global audit log to every user**, described as a deliberate exception in the page's own comment. | `dashboard/page.tsx:78` (query), `:422` (panel) |
+| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:448`, `crew-requests/actions.ts:179` |
 | D12 | **Reservation is implicit.** G6.7 deleted 13 keys for modules that have no guards yet; this work re-adds them as explicit `enforced: false` reserved keys (§5). | `audit/findings-dead-code.md:131-134` |
-| D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:32-54,131` |
+| D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:33-56,133` |
 | D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:65`, `UserMenu.tsx:73` |
-| D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:20,27-51` |
-| D16 | **The vessel module runs on one global key.** `vessel.edit` covers editing particulars, attesting them certificate-verified, and moving data gaps, and both vessel actions check it before loading the record. A fleet-level data gap is reachable from any register vessel, so a PM scoped to one refit can close a gap that concerns the whole register, and `/vessels` shows every viewer the fleet-level gaps and the unmapped yard numbers across the whole register. Seeing particulars needs no key, so contractors, suppliers and guests on a project see them too. | `vessels/actions.ts:30`→`:33` and `:116`→`:125`, `:45-46` (verification), `:129-131` (fleet-level gaps); `vessels/page.tsx:46,50` |
+| D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:21,28-52` |
+| D16 | **The vessel module runs on one global key.** `vessel.edit` covers editing particulars, attesting them certificate-verified, and moving data gaps, and both vessel actions check it before loading the record. A fleet-level data gap is reachable from any register vessel, so a PM scoped to one refit can close a gap that concerns the whole register, and `/vessels` shows every viewer the fleet-level gaps and the unmapped yard numbers across the whole register. Seeing particulars needs no key, so contractors, suppliers and guests on a project see them too. | `vessels/actions.ts:30`→`:33` and `:116`→`:126`, `:45-46` (verification), `:130-132` (fleet-level gaps); `vessels/page.tsx:59,63` |
 
 D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are logged at the end of
 `audit/findings-phase5.md` (item P.0, §15, done). D16 was found when the vessel register landed and
@@ -906,7 +918,7 @@ For user U on project P (P has `id` and `vesselId`):
    - it is vessel-scoped to `P.vesselId` with no project, or
    - it is unscoped.
 
-   This differs from today's `resolveProjectWhere` (`src/lib/project.ts:41`), which collects a
+   This differs from today's `resolveProjectWhere` (`src/lib/project.ts:44`), which collects a
    row's `projectId` and `vesselId` independently, so a row with both set reaches every project on
    the vessel. The seed never writes both. The migration item (9.3) counts existing rows with both
    set and logs them as a finding rather than silently narrowing anyone's access.
@@ -986,7 +998,7 @@ as *Removed from project* so an admin can restore them.
 
 ## 9. Seeding without clobbering admin edits
 
-Replace the permission and role loop in `prisma/seed.ts` (the upsert at `:34-41` and the "wipe and reset" at `:44-58`) with `await applySync(prisma, planSync(await readDbState(prisma),
+Replace the permission and role loop in `prisma/seed.ts` (the upsert at `:38-45` and the "wipe and reset" at `:48-62`) with `await applySync(prisma, planSync(await readDbState(prisma),
 catalog, defaults))`.
 
 **`planSync`** is pure and returns a list of operations:
@@ -1035,7 +1047,7 @@ export const getEffectiveAccess = requestCache(async (userId: string, projectId:
 export async function holdersOf(key: PermissionKey, projectId: string): Promise<string[]>; // active user ids
 export async function loadProjectMatrix(projectId: string, editorId: string): Promise<MatrixData>;
 
-// guards.ts — import "server-only"; built on the existing requireProjectAccess (src/lib/project.ts:126)
+// guards.ts — import "server-only"; built on the existing requireProjectAccess (src/lib/project.ts:201)
 export async function forProject(user: CurrentUserT, projectId: string): Promise<CurrentUserT>;
   // clone of user with that project's effective set; throws notFound() if the project is unreachable
 export async function canOn(user: CurrentUserT, key: PermissionKey, projectId: string): Promise<boolean>;
@@ -1069,14 +1081,14 @@ export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey,
 
 **Holder lookups (D3).** Reimplement `usersWithPermissionOnProject(project, key)` on
 `holdersOf`, keeping its name and signature so its five callers do not change
-(`change-orders/actions.ts:273,419`, `jobs/actions.ts:193,546`, `jobs/[id]/accept/actions.ts:289`).
+(`change-orders/actions.ts:281,427`, `jobs/actions.ts:195,548`, `jobs/[id]/accept/actions.ts:289`).
 **This is a semantic change** from "any covering assignment grants it" (union) to "the winning
 assignments grant it, after overrides" (D-5). Call it out in the commit message. Then:
 
 | Site | Replacement |
 |---|---|
-| Authoriser dropdown (`jobs/new/page.tsx:39`) | `holdersOf(JOB_ACCEPT, project.id)` |
-| Authoriser validation (`jobs/actions.ts:126-133`) | `canOn(authoriser, JOB_ACCEPT, project.id)` |
+| Authoriser dropdown (`jobs/new/page.tsx:48`) | `holdersOf(JOB_ACCEPT, project.id)` |
+| Authoriser validation (`jobs/actions.ts:128-135`) | `canOn(authoriser, JOB_ACCEPT, project.id)` |
 
 **Caching:** `requestCache` gives one resolution per request (G4.3's mechanism). Permissions are
 still derived fresh on every request, so changes take effect immediately. Unit tests exercise
@@ -1173,7 +1185,7 @@ Blocks prevent the save. Warnings require an acknowledgement checkbox plus the r
   Every control round-trips through the URL, so views are linkable and survive reload.
 - **Sidebar:** add "Users & access" under System. `/admin` keeps the user directory (gated by
   `admin.users`) and the audit log (gated by `audit.view` / `audit.view.all`).
-- **Page width:** the page opts out of `AppShell`'s `max-w-[1400px]` (`AppShell.tsx:52`). The
+- **Page width:** the page opts out of `AppShell`'s `max-w-[1400px]` (`AppShell.tsx:60`). The
   matrix scrolls inside its own container; the page never scrolls sideways.
 
 ### 12.2 Tabs
@@ -1411,7 +1423,7 @@ searchPeople(q)
 Paths are under `src/app/(app)/` unless shown otherwise.
 
 1. **Sidebar and TopBar (D13, D14).**
-   - `NAV` entries (`src/components/layout/Sidebar.tsx:32-54`) gain a `moduleId`. The layout
+   - `NAV` entries (`src/components/layout/Sidebar.tsx:33-56`) gain a `moduleId`. The layout
      computes the visible module ids on the server and passes **ids only**, via `AppShell`, to
      `Sidebar.tsx`.
    - Each entry shows when the user holds **any** of its module's `navKeys` (`[viewKey]` unless
@@ -1447,14 +1459,14 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 7. **Money redaction (D6).** `money.ts` provides `canSeeMoney(perms, moduleId)`, and every figure
    still goes through `toNumber()` / `fmtMoney(value, currency)` per `CLAUDE.md`. Apply it to:
    - **Jobs:** list group and grand totals (`jobs/page.tsx`); detail lines, total and VC price
-     adjustment (`jobs/[id]/page.tsx`); print (`src/app/print/jobs/[id]/page.tsx:130-191`). The
+     adjustment (`jobs/[id]/page.tsx`); print (`src/app/print/jobs/[id]/page.tsx:132-193`). The
      accept and quote pages are already restricted to signers and the yard, who hold the key by
      implication.
    - **Change orders:** list cost column (`change-orders/page.tsx`); detail estimated and approved
      cost (`change-orders/[id]/page.tsx`). The print view switches its existing `canSeeMoney`
-     (`print/change-orders/[id]/page.tsx:39`) from `financial.view` to `change_order.cost.view`.
+     (`print/change-orders/[id]/page.tsx:40`) from `financial.view` to `change_order.cost.view`.
    - **Approvals:** the cost column, and the dashboard's approvals panel.
-   - **Crew requests:** detail cost impact (`crew-requests/[id]/page.tsx:127`).
+   - **Crew requests:** detail cost impact (`crew-requests/[id]/page.tsx:129`).
    - **Dashboard:** budget panels and charts keep `financial.view` (`dashboard/page.tsx:111`).
    - **Scaffold modules:** logistics cost, inventory replacement cost, contractor value and risk
      cost impact are gated by `financial.view`.
@@ -1477,7 +1489,7 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 10. **Approvals page (D5).**
     - Add a page gate: `approvals.view` or any CO stage key.
     - Import `CO_STAGE_PERMISSION`, delete the local `STAGE_PERM` (`approvals/page.tsx:16`), and
-      remove both `as any` (`:30` and `change-orders/actions.ts:320`).
+      remove both `as any` (`:30` and `change-orders/actions.ts:328`).
     - Scope to the active project, and show the full queue only with `approvals.view`.
 11. **Crew requests.** G2.4 already made `CR_TRANSITION_PERMISSION`
     (`src/lib/workflow/crewRequest.ts:72`) exhaustive. Its own comment defers a progress permission
@@ -1532,7 +1544,7 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
   preference).
 - **(e)** No holder lookup outside `src/lib/permissions/`: neither the Prisma form
   `permissions: { some: { permission:` nor the in-memory form `role.permissions.some(` (the
-  shape of the authoriser check at `jobs/actions.ts:126-133`). This locks in D3.
+  shape of the authoriser check at `jobs/actions.ts:128-135`). This locks in D3.
 - **(f)** No `"use client"` file imports from `permissions/catalog` or `permissions/defaults`.
 
 ### 14.3 End-to-end (Playwright, `e2e/access.spec.ts`)

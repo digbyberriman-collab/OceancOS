@@ -6,6 +6,10 @@ import { ROLE_PERMISSIONS, PERMISSIONS } from "../src/lib/rbac";
 import { seedJobs } from "./seedJobs";
 import { DEFAULT_REGISTER_PATH, readVesselRegister } from "../src/lib/vessels/workbook";
 import { importVesselRegister } from "../src/lib/vessels/importRegister";
+import { consolidateDemo } from "../src/lib/demo/consolidate";
+import { DEMO_PRIMARY, DEMO_SECONDARY } from "../src/lib/demo/data";
+import { DEFAULT_YARD_REGISTER_PATH, readYardPeriodRegister } from "../src/lib/yardPeriods/workbook";
+import { importYardPeriods } from "../src/lib/yardPeriods/importRegister";
 
 const prisma = new PrismaClient();
 
@@ -64,74 +68,29 @@ async function main() {
     await prisma.department.upsert({ where: { name: code }, update: {}, create: { name: code, code } });
   }
 
-  // Vessel + project + areas
-  const vessel = await prisma.vessel.upsert({
-    where: { id: "v1" },
-    update: {},
-    create: { id: "v1", name: "M/Y Solstice", flag: "Cayman", loa: 95, deliveredYear: 2018, vesselType: "Motor yacht" },
-  });
+  // The Oceanco Y700 register: 22 vessels, each with a project, and the
+  // evidence behind every figure. The same loader runs in production through
+  // `npm run vessels:import`. It comes first because the demo workspace below
+  // is parked on one of its vessels.
+  const register = await readVesselRegister(DEFAULT_REGISTER_PATH);
+  const imported = await importVesselRegister(prisma, register);
+  console.log(
+    `  vessel register: ${register.vessels.length} vessels ` +
+      `(${imported.vesselsCreated} new, ${imported.projectsCreated} projects created, ` +
+      `${imported.observationsAdded} observations added)`
+  );
 
-  // Yard period for the primary project. These dates drive the Home timing
-  // cards and the time-progress ring, so they are set on update too.
-  const projectYardPeriod = {
-    code: "R-00721",
-    yardName: "MB92 La Ciotat",
-    currency: "EUR",
-    startDate: new Date("2026-03-01"),
-    targetEndDate: new Date("2026-09-30"),
-    arrivalDate: new Date("2026-03-01"),
-    haulOutDate: new Date("2026-03-08"),
-    seaTrialsDate: new Date("2026-09-12"),
-    departureDate: new Date("2026-09-30"),
-  };
-
-  const project = await prisma.project.upsert({
-    where: { id: "p1" },
-    update: projectYardPeriod,
-    create: {
-      id: "p1",
-      vesselId: vessel.id,
-      name: "2026 Refit",
-      type: "REFIT",
-      ...projectYardPeriod,
-    },
-  });
-
-  // A second vessel and project so the header project switcher is exercised.
-  const vessel2 = await prisma.vessel.upsert({
-    where: { id: "v2" },
-    update: {},
-    create: { id: "v2", name: "M/Y Northern Light", flag: "Malta", loa: 68, deliveredYear: 2012, vesselType: "Motor yacht" },
-  });
-
-  const project2YardPeriod = {
-    code: "R-00806",
-    yardName: "Amico & Co",
-    currency: "EUR",
-    startDate: new Date("2026-10-05"),
-    targetEndDate: new Date("2027-02-20"),
-    arrivalDate: new Date("2026-10-05"),
-    haulOutDate: new Date("2026-10-12"),
-    departureDate: new Date("2027-02-20"),
-  };
-
-  await prisma.project.upsert({
-    where: { id: "p2" },
-    update: project2YardPeriod,
-    create: {
-      id: "p2",
-      vesselId: vessel2.id,
-      name: "Winter Maintenance Period",
-      type: "REFIT",
-      ...project2YardPeriod,
-    },
-  });
-
-  const areaSeeds = ["Owner's Suite", "Bridge", "Engine Room", "Tender Garage", "Galley", "Sundeck"];
-  for (const name of areaSeeds) {
-    const exists = await prisma.vesselArea.findFirst({ where: { vesselId: vessel.id, name } });
-    if (!exists) await prisma.vesselArea.create({ data: { vesselId: vessel.id, name } });
-  }
+  // The demo workspace: two fictional projects on Draak (Y709), marked
+  // isDemo, with its milestones and areas — src/lib/demo/. On a database
+  // seeded before the demo moved, this also moves it off the invented
+  // vessels it used to sit on. Everything below hangs its sample records off
+  // these two projects.
+  const demo = await consolidateDemo(prisma);
+  console.log(
+    `  demo workspace: ${demo.projectsCreated} created, ${demo.projectsUpdated} updated, ` +
+      `${demo.vesselsDeleted} invented vessels removed`
+  );
+  const project = { id: DEMO_PRIMARY.id };
 
   // Users
   //
@@ -176,7 +135,7 @@ async function main() {
     }
   }
 
-  // A project-scoped user, reaching only p1 ("2026 Refit"), never p2.
+  // A project-scoped user, reaching only p1 (DEMO-01), never p2.
   //
   // Every one of the nineteen accounts above holds an unscoped role
   // assignment, so every one of them can already reach both seeded
@@ -222,18 +181,6 @@ async function main() {
         forecastFinal: Math.round(original * 1.07),
       },
     });
-  }
-
-  // Milestones
-  const milestoneSeeds: { name: string; type: string; date: string }[] = [
-    { name: "Yard arrival", type: "YARD_PERIOD", date: "2026-03-01" },
-    { name: "Class inspection", type: "CLASS_INSPECTION", date: "2026-05-15" },
-    { name: "Sea trials", type: "SEA_TRIAL", date: "2026-08-20" },
-    { name: "Delivery", type: "DELIVERY", date: "2026-09-30" },
-  ];
-  for (const m of milestoneSeeds) {
-    const exists = await prisma.milestone.findFirst({ where: { projectId: project.id, name: m.name } });
-    if (!exists) await prisma.milestone.create({ data: { projectId: project.id, name: m.name, type: m.type, date: new Date(m.date) } });
   }
 
   // Sample change order with approval chain
@@ -291,7 +238,7 @@ async function main() {
       { number: "CO-0011", title: "Passerelle motor replacement", description: "Replace the passerelle drive motor and controller.", reason: "Intermittent failure under load.", departmentCode: "DECK", priority: "MEDIUM", estimatedCost: 28_300, scheduleImpactDays: 3, status: "CANCELLED", daysAfterArrival: 76, approvedStages: 0 },
     ];
 
-    const arrival = projectYardPeriod.arrivalDate;
+    const arrival = DEMO_PRIMARY.arrivalDate;
     for (const co of extraChangeOrders) {
       const exists = await prisma.changeOrder.findUnique({ where: { number: co.number } });
       if (exists) continue;
@@ -354,16 +301,16 @@ async function main() {
     });
   }
 
-  // One change order and one crew request that live on p2 only — the record
+  // One change order and one crew request that live on p2 (DEMO-02) only — the record
   // e2e/tenancy.spec.ts proves scoped@oceancos.dev cannot reach.
   if (pm && crew) {
     const existingP2Co = await prisma.changeOrder.findUnique({ where: { number: "CO-P2-0001" } });
     if (!existingP2Co) {
       await prisma.changeOrder.create({
         data: {
-          projectId: "p2",
+          projectId: DEMO_SECONDARY.id,
           number: "CO-P2-0001",
-          title: "Northern Light galley refrigeration replacement",
+          title: "Crew galley refrigeration replacement",
           description: "Replace both under-counter refrigeration units in the crew galley.",
           reason: "Compressors beyond economic repair.",
           departmentCode: "INTERIOR",
@@ -377,11 +324,11 @@ async function main() {
         },
       });
     }
-    const existingP2Cr = await prisma.crewRequest.findFirst({ where: { projectId: "p2" } });
+    const existingP2Cr = await prisma.crewRequest.findFirst({ where: { projectId: DEMO_SECONDARY.id } });
     if (!existingP2Cr) {
       await prisma.crewRequest.create({
         data: {
-          projectId: "p2",
+          projectId: DEMO_SECONDARY.id,
           number: "REQ-P2-0001",
           title: "Sundeck helm chair upholstery",
           description: "Split seam on the port helm chair, exposed foam.",
@@ -440,18 +387,19 @@ async function main() {
     }
   }
 
-  await seedJobs(prisma, project.id, projectYardPeriod.arrivalDate);
+  await seedJobs(prisma, project.id, DEMO_PRIMARY.arrivalDate);
 
-  // The Oceanco Y700 register: 22 vessels, each with a project, and the
-  // evidence behind every figure. The same loader runs in production through
-  // `npm run vessels:import`.
-  const register = await readVesselRegister(DEFAULT_REGISTER_PATH);
-  const imported = await importVesselRegister(prisma, register);
+  // The yard-period register: each vessel's historical refits, rebuilds,
+  // repairs and surveys, as completed projects with their scope and
+  // evidence. The same loader runs in production through
+  // `npm run yardperiods:import`.
+  const yardRegister = await readYardPeriodRegister(DEFAULT_YARD_REGISTER_PATH);
+  const yardImport = await importYardPeriods(prisma, yardRegister);
   console.log(
-    `  vessel register: ${register.vessels.length} vessels ` +
-      `(${imported.vesselsCreated} new, ${imported.projectsCreated} projects created, ` +
-      `${imported.observationsAdded} observations added)`
+    `  yard-period register: ${yardImport.summary.projectsCreated} yard periods, ` +
+      `${yardImport.summary.scopeLinesAdded} scope lines, ${yardImport.summary.gapsAdded} data gaps`
   );
+  for (const w of yardImport.warnings) console.warn(`    warning: ${w}`);
 
   // src/lib/sequence.ts allocates CO-/REQ- numbers from these counters, not
   // from a row count — sync them to what this seed actually created so the

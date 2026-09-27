@@ -88,3 +88,34 @@ function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, n));
 }
+
+export type YardPeriodState =
+  /** A historical yard period: a record, not live work. */
+  | { kind: "COMPLETED" }
+  /** No arrival or departure set yet. */
+  | { kind: "NO_DATES" }
+  | { kind: "UPCOMING"; arrivesInDays: number }
+  | { kind: "IN_PROGRESS" }
+  /** Departure has passed but the project is still open. */
+  | { kind: "OVERRUN"; departedDaysAgo: number };
+
+/**
+ * Where a project stands against its yard period, for choosing what the
+ * dashboard shows. Time elapsed against the clock only means something while
+ * the vessel is in the yard; before arrival, after departure or for a
+ * completed record, a ring stuck at 0% or 100% "behind the clock" is noise.
+ */
+export function yardPeriodState(input: {
+  status: string;
+  arrivalDate?: Date | null;
+  departureDate?: Date | null;
+  now?: Date;
+}): YardPeriodState {
+  if (input.status === "COMPLETED") return { kind: "COMPLETED" };
+  const { arrivalDate, departureDate } = input;
+  if (!arrivalDate || !departureDate) return { kind: "NO_DATES" };
+  const now = input.now ?? new Date();
+  if (now < arrivalDate) return { kind: "UPCOMING", arrivesInDays: daysBetween(now, arrivalDate) };
+  if (now > departureDate) return { kind: "OVERRUN", departedDaysAgo: daysBetween(departureDate, now) };
+  return { kind: "IN_PROGRESS" };
+}

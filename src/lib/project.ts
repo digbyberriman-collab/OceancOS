@@ -7,6 +7,7 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "./db";
+import { PROJECT_STATUSES } from "./enums";
 import { forbidden } from "./errors";
 import { requestCache } from "./requestCache";
 
@@ -18,7 +19,9 @@ export type ProjectSummary = {
   code: string | null;
   vesselId: string;
   vesselName: string;
+  vesselYardNumber: string | null;
   status: string;
+  isDemo: boolean;
 };
 
 type RoleScope = { projectId: string | null; vesselId: string | null };
@@ -42,7 +45,7 @@ export function resolveProjectWhere(
   scopes: RoleScope[]
 ):
   | { archivedAt: null }
-  | { archivedAt: null; OR: Array<{ id: { in: string[] } } | { vesselId: { in: string[] } }> }
+  | { archivedAt: null; OR: Array<{ id: { in: string[] } } | { vesselId: { in: string[] }; isDemo: false }> }
   | null {
   const projectIds = scopes.map((s) => s.projectId).filter((x): x is string => !!x);
   const vesselIds = scopes.map((s) => s.vesselId).filter((x): x is string => !!x);
@@ -55,7 +58,11 @@ export function resolveProjectWhere(
     archivedAt: null,
     OR: [
       ...(projectIds.length ? [{ id: { in: projectIds } }] : []),
-      ...(vesselIds.length ? [{ vesselId: { in: vesselIds } }] : []),
+      // A role over a real vessel reaches its real projects, never the demo
+      // workspace parked on it: Draak's own crew have no business in the
+      // fictional walkthrough data. A demo project is reached by name or by
+      // an unscoped role only.
+      ...(vesselIds.length ? [{ vesselId: { in: vesselIds }, isDemo: false as const }] : []),
     ],
   };
 }
@@ -78,20 +85,63 @@ export const listProjectsForUser = requestCache(async (userId: string): Promise<
 
   const projects = await prisma.project.findMany({
     where,
-    include: { vessel: { select: { name: true } } },
-    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
+    include: { vessel: { select: { name: true, yardNumber: true } } },
+    orderBy: [{ code: "asc" }, { name: "asc" }],
     take: 200,
   });
 
-  return projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    code: p.code,
-    vesselId: p.vesselId,
-    vesselName: p.vessel.name,
-    status: p.status,
-  }));
+  return sortProjectSummaries(
+    projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      code: p.code,
+      vesselId: p.vesselId,
+      vesselName: p.vessel.name,
+      vesselYardNumber: p.vessel.yardNumber,
+      status: p.status,
+      isDemo: p.isDemo,
+    }))
+  );
 });
+
+/**
+ * Live projects first — active, then planned, then completed — each by code.
+ * Alphabetical status order would put COMPLETED before PLANNED, and the first
+ * project is the one a user lands in when nothing is selected.
+ */
+export function sortProjectSummaries<T extends { status: string; code: string | null; name: string }>(
+  projects: T[]
+): T[] {
+  const rank = (status: string) => {
+    const i = (PROJECT_STATUSES as readonly string[]).indexOf(status);
+    return i === -1 ? PROJECT_STATUSES.length : i;
+  };
+  return [...projects].sort(
+    (a, b) =>
+      rank(a.status) - rank(b.status) ||
+      (a.code ?? "").localeCompare(b.code ?? "") ||
+      a.name.localeCompare(b.name)
+  );
+}
+
+/**
+ * Whether a set of role scopes covers a whole vessel — every project on it,
+ * including ones not created yet. An unscoped role does, and so does one
+ * scoped to the vessel; a role scoped to one project does not. Pure.
+ */
+export function rolesCoverVessel(scopes: RoleScope[], vesselId: string): boolean {
+  return scopes.some((s) => !s.projectId && (!s.vesselId || s.vesselId === vesselId));
+}
+
+/**
+ * Whether the user may add a project to this vessel: only someone whose role
+ * covers the whole vessel, since anyone else could create a project they
+ * then cannot reach.
+ */
+export async function canActForWholeVessel(userId: string, vesselId: string): Promise<boolean> {
+  const scopes = await prisma.userRole.findMany({ where: { userId }, select: { projectId: true, vesselId: true } });
+  return rolesCoverVessel(scopes, vesselId);
+}
 
 /** The ids of the projects this user can reach. Empty for a user with none. */
 export async function accessibleProjectIds(userId: string): Promise<string[]> {
@@ -99,9 +149,32 @@ export async function accessibleProjectIds(userId: string): Promise<string[]> {
 }
 
 /**
- * A Prisma filter fragment scoping a query to the projects this user can
- * reach — the value of a `projectId` filter on any project-scoped model, e.g.
+ * The projects a list or a total should cover: the reachable projects on the
+ * same side of the demo line as the one the user is working in.
+ *
+ * Working in a real project, the demo workspace is left out entirely, so its
+ * fictional change orders, budgets and milestones never appear in a real
+ * vessel's lists or add to its totals. Working in a demo project, only demo
+ * projects are covered, so the walkthrough never shows real records either.
+ * Pure — the decision `projectScope` makes, testable without a request.
+ */
+export function workspaceProjectIds(
+  projects: { id: string; isDemo: boolean }[],
+  activeIsDemo: boolean
+): string[] {
+  return projects.filter((p) => p.isDemo === activeIsDemo).map((p) => p.id);
+}
+
+/**
+ * A Prisma filter fragment scoping a list or total to the projects this user
+ * can reach in their current workspace — the value of a `projectId` filter on
+ * any project-scoped model, e.g.
  * `prisma.changeOrder.findMany({ where: projectScope(userId) })`.
+ *
+ * This is list scope, not access control: it also drops reachable projects on
+ * the other side of the demo line (`workspaceProjectIds`). Whether a user may
+ * open one record is `accessibleProjectIds` / `requireProjectAccess`, which
+ * ignore the workspace. Reads the session, so call it inside a request.
  *
  * Always a concrete `{ in: [...ids] }`, never `undefined`. A user who can
  * reach every project (an unscoped role) gets every active project id
@@ -114,7 +187,9 @@ export async function accessibleProjectIds(userId: string): Promise<string[]> {
  * nothing.
  */
 export async function projectScope(userId: string): Promise<{ projectId: { in: string[] } }> {
-  return { projectId: { in: await accessibleProjectIds(userId) } };
+  const projects = await listProjectsForUser(userId);
+  const active = await getActiveProject(userId);
+  return { projectId: { in: workspaceProjectIds(projects, active?.isDemo ?? false) } };
 }
 
 /**
@@ -188,12 +263,14 @@ export async function storeActiveProject(userId: string, projectId: string) {
  *
  * Pure, for the same reason `resolveProjectWhere` is.
  */
-export function resolveUserRoleWhereForProject(project: { id: string; vesselId: string }) {
+export function resolveUserRoleWhereForProject(project: { id: string; vesselId: string; isDemo: boolean }) {
   return {
     OR: [
       { projectId: null, vesselId: null },
       { projectId: project.id },
-      { vesselId: project.vesselId },
+      // Mirrors resolveProjectWhere: a vessel-scoped role never reaches a demo
+      // project, so it is never told about one either.
+      ...(project.isDemo ? [] : [{ vesselId: project.vesselId }]),
     ],
   };
 }
@@ -208,7 +285,7 @@ export function resolveUserRoleWhereForProject(project: { id: string; vesselId: 
  * every vessel, including the job code and title of one they could not open.
  */
 export async function usersWithPermissionOnProject(
-  project: { id: string; vesselId: string },
+  project: { id: string; vesselId: string; isDemo: boolean },
   permKey: string
 ): Promise<string[]> {
   const users = await prisma.user.findMany({

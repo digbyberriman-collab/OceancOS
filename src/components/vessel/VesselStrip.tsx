@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Anchor, ArrowUpRight } from "lucide-react";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { formatVesselValue, vesselField, type VesselFieldKey, type VesselParticulars } from "@/lib/vessels/fields";
 
 const STRIP: { key: VesselFieldKey; label: string }[] = [
@@ -14,9 +15,12 @@ const STRIP: { key: VesselFieldKey; label: string }[] = [
 export function VesselStrip({
   vessel,
   projectCode,
+  isDemo = false,
 }: {
   vessel: Partial<VesselParticulars> & { name: string };
   projectCode?: string | null;
+  /** The active project is demo data; say so beside the vessel it is parked on. */
+  isDemo?: boolean;
 }) {
   return (
     <div className="surface mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 animate-fade-up">
@@ -25,7 +29,10 @@ export function VesselStrip({
           <Anchor className="h-4 w-4" aria-hidden />
         </span>
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-sm font-semibold text-white">{vessel.name}</div>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold text-white">{vessel.name}</span>
+            {isDemo && <DemoBadge />}
+          </div>
           <div className="text-[11px] text-faint">
             {[projectCode, vessel.vesselType].filter(Boolean).join(" · ") || "Vessel"}
           </div>
