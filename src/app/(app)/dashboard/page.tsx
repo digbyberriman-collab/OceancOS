@@ -189,7 +189,7 @@ export default async function DashboardPage() {
         subtitle="Live operational view across all active vessels and projects."
       />
 
-      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} />}
+      {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} isDemo={activeProject.isDemo} />}
 
       {/* Stat row */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">

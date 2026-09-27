@@ -5,6 +5,7 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { listProjectsForUser } from "@/lib/project";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
 import { resolveUserNames } from "@/lib/users";
+import { DemoMark } from "@/components/print/DemoMark";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,7 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
           <div>{fmtDate(new Date())}</div>
         </div>
       </header>
+      {co.project.isDemo && <DemoMark />}
 
       <h2>Details</h2>
       <table>

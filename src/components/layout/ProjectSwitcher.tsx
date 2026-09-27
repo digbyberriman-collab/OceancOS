@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { Ship, ChevronDown } from "lucide-react";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { setActiveProjectAction } from "@/app/(app)/_actions";
 import { cn } from "@/lib/utils";
 import type { ProjectSummary } from "@/lib/project";
@@ -32,6 +33,16 @@ export function ProjectSwitcher({
   if (!projects.length) return null;
 
   const active = projects.find((p) => p.id === activeId) ?? projects[0];
+  // Fictional projects are grouped apart and labelled, never mixed in with
+  // the real vessels' projects.
+  const demo = projects.filter((p) => p.isDemo);
+  const real = projects.filter((p) => !p.isDemo);
+  const option = (p: ProjectSummary) => (
+    <option key={p.id} value={p.id} className="bg-ink-900 text-white">
+      {p.code ? `${p.code} · ` : ""}
+      {p.vesselName} — {p.name}
+    </option>
+  );
   const visibility = mobile ? "flex md:hidden" : "hidden md:flex";
 
   // A single project needs no control — show it as a static label.
@@ -43,6 +54,7 @@ export function ProjectSwitcher({
           <span className="font-medium text-white">{active.code ?? active.name}</span>
           <span className="ml-1.5 text-faint">{active.vesselName}</span>
         </span>
+        {active.isDemo && <DemoBadge />}
       </div>
     );
   }
@@ -58,12 +70,12 @@ export function ProjectSwitcher({
           onChange={() => formRef.current?.requestSubmit()}
           className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-xs font-medium text-white"
         >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id} className="bg-ink-900 text-white">
-              {p.code ? `${p.code} · ` : ""}
-              {p.vesselName} — {p.name}
-            </option>
-          ))}
+          {demo.length > 0 && (
+            <optgroup label="Demo workspace — fictional" className="bg-ink-900 text-warn">
+              {demo.map(option)}
+            </optgroup>
+          )}
+          {real.map(option)}
         </select>
         <ChevronDown
           className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-faint"

@@ -34,6 +34,7 @@ import {
   MessageSquare,
   History,
 } from "lucide-react";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,7 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
           subtitle={`${co.project.vessel.name} · ${co.project.name}`}
           actions={
             <>
+              {co.project.isDemo && <DemoBadge />}
               <StatusBadge value={co.status} />
               <PriorityBadge value={co.priority} />
               <PdfButton href={`/api/export/change-orders/${co.id}`} />

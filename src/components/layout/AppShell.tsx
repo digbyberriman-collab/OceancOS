@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { DemoBanner } from "./DemoBanner";
 import type { ProjectSummary } from "@/lib/project";
 
 /**
@@ -26,6 +27,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
+  const active = projects.find((p) => p.id === activeProjectId);
 
   return (
     <div className="min-h-screen flex">
@@ -49,6 +51,7 @@ export function AppShell({
           activeProjectId={activeProjectId}
           onOpenNav={() => setNavOpen(true)}
         />
+        {active?.isDemo && <DemoBanner vesselName={active.vesselName} />}
         <main id="main" className="flex-1 p-6 max-w-[1400px] w-full mx-auto">
           {children}
         </main>
