@@ -200,6 +200,48 @@ export const VESSEL_VERIFICATION_LABELS: Record<(typeof VESSEL_VERIFICATION)[num
   CERTIFICATE_VERIFIED: "Certificate-verified",
 };
 
+/**
+ * The disciplines a yard period's scope of work is grouped by — the column
+ * families of the yard-period register, plus GENERAL for work that spans
+ * them (a contractor's hours on a whole rebuild).
+ */
+export const SCOPE_DISCIPLINES = [
+  "STRUCTURE_HULL_PAINT",
+  "MECHANICAL_PROPULSION",
+  "ELECTRICAL_AVIT_NAV",
+  "INTERIOR_GUEST",
+  "DECK_TENDER_MISSION",
+  "SURVEY_CLASS_COMPLIANCE",
+  "GENERAL",
+] as const;
+export type ScopeDiscipline = (typeof SCOPE_DISCIPLINES)[number];
+export const SCOPE_DISCIPLINE_LABELS: Record<ScopeDiscipline, string> = {
+  STRUCTURE_HULL_PAINT: "Structure, hull & paint",
+  MECHANICAL_PROPULSION: "Mechanical & propulsion",
+  ELECTRICAL_AVIT_NAV: "Electrical, AV/IT & navigation",
+  INTERIOR_GUEST: "Interior & guest areas",
+  DECK_TENDER_MISSION: "Deck, tenders & mission equipment",
+  SURVEY_CLASS_COMPLIANCE: "Survey, class & compliance",
+  GENERAL: "General",
+};
+
+/**
+ * How far a published yard period can be relied on. High: the yard, a
+ * contractor or an official source, or corroborated. Medium: a reputable
+ * broker, database or trade source. Low: incomplete secondary evidence.
+ */
+export const CONFIDENCE_LEVELS = ["HIGH", "MEDIUM", "LOW"] as const;
+export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
+export const CONFIDENCE_LABELS: Record<ConfidenceLevel, string> = {
+  HIGH: "High confidence",
+  MEDIUM: "Medium confidence",
+  LOW: "Low confidence",
+};
+
+/** What a piece of yard-history evidence is. */
+export const YARD_EVIDENCE_KINDS = ["SOURCE", "CONFLICT", "EXCLUDED"] as const;
+export type YardEvidenceKind = (typeof YARD_EVIDENCE_KINDS)[number];
+
 export const DATA_GAP_STATUSES = ["OPEN", "IN_PROGRESS", "CLOSED"] as const;
 export const DATA_GAP_PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 

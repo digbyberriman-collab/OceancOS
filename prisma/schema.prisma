@@ -125,15 +125,15 @@ model UserRole {
 // for every vessel whether or not a value is known yet. Values are the
 // preferred figure; alternatives and their sources live in VesselObservation.
 model Vessel {
-  id                     String    @id @default(cuid())
+  id                     String               @id @default(cuid())
   // Identity & registry
   name                   String
-  yardNumber             String?   @unique // builder's hull / yard code, e.g. "Y709"
+  yardNumber             String?              @unique // builder's hull / yard code, e.g. "Y709"
   builder                String?
   vesselType             String?
   formerNames            String?
-  deliveredYear          Int?      @map("builtYear")
-  imo                    String?   @unique
+  deliveredYear          Int?                 @map("builtYear")
+  imo                    String?              @unique
   mmsi                   String?
   callSign               String?
   flag                   String?
@@ -177,7 +177,7 @@ model Vessel {
   classSociety           String?
   classNotation          String?
   // UNVERIFIED | PUBLIC_SOURCE | CERTIFICATE_VERIFIED
-  verification           String    @default("UNVERIFIED")
+  verification           String               @default("UNVERIFIED")
   particularsCheckedOn   DateTime?
   // Notes & references
   identityNote           String?
@@ -189,8 +189,8 @@ model Vessel {
   databaseUrl            String?
   identitySupplementUrl  String?
   notes                  String?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
   updatedById            String?
   archivedAt             DateTime?
   projects               Project[]
@@ -198,13 +198,14 @@ model Vessel {
   userRoles              UserRole[]
   observations           VesselObservation[]
   dataGaps               VesselDataGap[]
+  yardEvidence           YardPeriodEvidence[]
 }
 
 // A publication a vessel observation was taken from: builder fleet page,
 // vessel database, broker listing, naval architect and so on.
 model VesselSource {
-  id              String              @id @default(cuid())
-  code            String              @unique // e.g. "B709", "V709", "FLEET"
+  id              String               @id @default(cuid())
+  code            String               @unique // e.g. "B709", "V709", "FLEET"
   publisher       String?
   sourceType      String?
   scope           String?
@@ -212,9 +213,10 @@ model VesselSource {
   url             String?
   accessedOn      DateTime?
   limitations     String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   observations    VesselObservation[]
+  yardEvidence    YardPeriodEvidence[]
 }
 
 // One sourced value for one field of one vessel. Alternatives are kept side by
@@ -250,8 +252,10 @@ model VesselObservation {
 model VesselDataGap {
   id             String    @id @default(cuid())
   vesselId       String?
+  // The yard period the gap is about, when it is about one.
+  projectId      String?
   scope          String
-  priority       String    // CRITICAL | HIGH | MEDIUM | LOW
+  priority       String // CRITICAL | HIGH | MEDIUM | LOW
   issue          String
   treatment      String?
   evidenceNeeded String?
@@ -264,23 +268,25 @@ model VesselDataGap {
   updatedById    String?
   fingerprint    String    @unique
   vessel         Vessel?   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  project        Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([vesselId, status])
+  @@index([projectId])
 }
 
 model Project {
-  id             String          @id @default(cuid())
+  id             String               @id @default(cuid())
   vesselId       String
   name           String
   // Short project code shown in the header, e.g. "R-00721".
-  code           String?         @unique
+  code           String?              @unique
   type           String // REFIT | NEW_BUILD | CONVERSION
   // ACTIVE | PLANNED | COMPLETED (CHECK). ACTIVE and PLANNED take new work;
   // a COMPLETED project is a record of a yard period that has finished.
-  status         String          @default("ACTIVE")
+  status         String               @default("ACTIVE")
   // Fictional walkthrough data. Kept apart from real vessels' lists and
   // totals by projectScope(), and marked wherever it is shown.
-  isDemo         Boolean         @default(false)
+  isDemo         Boolean              @default(false)
   startDate      DateTime?
   targetEndDate  DateTime?
   // Yard period — drives the Home timing cards and the time-progress ring.
@@ -289,12 +295,12 @@ model Project {
   haulOutDate    DateTime?
   seaTrialsDate  DateTime?
   departureDate  DateTime?
-  currency       String          @default("EUR")
+  currency       String               @default("EUR")
   notes          String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
   archivedAt     DateTime?
-  vessel         Vessel          @relation(fields: [vesselId], references: [id])
+  vessel         Vessel               @relation(fields: [vesselId], references: [id])
   changeOrders   ChangeOrder[]
   crewRequests   CrewRequest[]
   budgets        Budget[]
@@ -308,13 +314,126 @@ model Project {
   inventory      InventoryItem[]
   userRoles      UserRole[]
   approvals      Approval[]
-  activeSessions Session[]       @relation("ActiveSessions")
+  activeSessions Session[]            @relation("ActiveSessions")
   jobs           Job[]
   jobSections    JobSection[]
+  // The published record of a historical yard period, when this project is one.
+  yardPeriod     YardPeriodRecord?
+  scopeItems     ProjectScopeItem[]
+  evidence       YardPeriodEvidence[]
+  dataGaps       VesselDataGap[]
 
   @@index([vesselId])
   @@index([vesselId, status])
   @@index([isDemo])
+}
+
+// ---------- Yard history ----------
+//
+// A historical yard period is a Project (status COMPLETED) with this record
+// beside it: what the source published about the period, verbatim, at the
+// precision it was published. Kept off Project itself so the columns only a
+// historical record has are not read on every page, and so the planning cost
+// bands sit apart from anything that sums a project's money — they are
+// order-of-magnitude planning estimates, never historical spend.
+model YardPeriodRecord {
+  id                String    @id @default(cuid())
+  projectId         String    @unique
+  // Identity of the register row this came from, so a re-import finds it
+  // again. Null for a period entered in the application.
+  importKey         String?   @unique
+  origin            String    @default("IMPORT") // IMPORT | MANUAL (CHECK)
+  // The vessel's name at the time ("Equanimity" for Draak in 2017).
+  nameAtPeriod      String?
+  // As published: "Dry-dock / maintenance", "Comprehensive rebuild / role conversion".
+  periodType        String
+  // Dates exactly as published — "2012-Q2", "2017-Spring", "2023-06 approx.",
+  // "Date unverified" — never turned into a day the source did not give.
+  startLabel        String
+  endLabel          String
+  precisionLabel    String?
+  approximate       Boolean   @default(false)
+  // Bounds of the labels, for ordering and filtering only; never displayed.
+  sortStart         DateTime? @db.Date
+  sortEnd           DateTime? @db.Date
+  // As published, including "Unverified"; Project.yardName holds the yard
+  // only when one is actually identified.
+  yardText          String?
+  cityText          String?
+  countryText       String?
+  scopeSummary      String?
+  contractorsText   String?
+  // "Undisclosed" unless a source published a figure.
+  reportedCostText  String?
+  // Planning estimate only: "€30m–€70m+" and its bounds.
+  costBandLabel     String?
+  costBandLow       Decimal?  @db.Decimal(14, 2)
+  costBandHigh      Decimal?  @db.Decimal(14, 2)
+  costBandOpenEnded Boolean   @default(false)
+  costBandCurrency  String?
+  costBandBasis     String?
+  confidence        String? // HIGH | MEDIUM | LOW (CHECK)
+  notes             String?
+  // The register edition the record was last loaded from, e.g. "2026-09-26".
+  registerEdition   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  updatedById       String?
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([sortStart])
+}
+
+// One line of a yard period's scope of work, grouped by discipline. Scope
+// lines are not Jobs: a Job is a priced quote with a lifecycle, and a
+// historical period's published scope has neither.
+model ProjectScopeItem {
+  id          String    @id @default(cuid())
+  projectId   String
+  // STRUCTURE_HULL_PAINT | MECHANICAL_PROPULSION | ELECTRICAL_AVIT_NAV |
+  // INTERIOR_GUEST | DECK_TENDER_MISSION | SURVEY_CLASS_COMPLIANCE | GENERAL (CHECK)
+  discipline  String
+  description String
+  sortOrder   Int       @default(0)
+  origin      String    @default("IMPORT") // IMPORT | MANUAL (CHECK)
+  // For imported lines: the project and the text, not the discipline, so a
+  // line reclassified in the application is not added again by a re-import.
+  fingerprint String?   @unique
+  // Hidden rather than deleted, so a re-import does not bring it back.
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  createdById String?
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, discipline])
+}
+
+// The evidence behind a yard period, or behind the absence of one.
+//   SOURCE   — a publication the period rests on, with its confidence.
+//   CONFLICT — sources disagree about the period; how the register treated it.
+//   EXCLUDED — a claim considered and left out (build-phase work, a weak
+//              report), at vessel level, so nobody adds it back unknowingly.
+model YardPeriodEvidence {
+  id            String        @id @default(cuid())
+  vesselId      String
+  projectId     String?
+  kind          String // SOURCE | CONFLICT | EXCLUDED (CHECK)
+  sourceId      String?
+  sourceUrl     String?
+  sourceQuality String?
+  confidence    String? // HIGH | MEDIUM | LOW (CHECK)
+  issue         String?
+  qualification String?
+  origin        String        @default("IMPORT") // IMPORT | MANUAL (CHECK)
+  fingerprint   String        @unique
+  createdAt     DateTime      @default(now())
+  createdById   String?
+  vessel        Vessel        @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  project       Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source        VesselSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([vesselId])
 }
 
 model Department {
