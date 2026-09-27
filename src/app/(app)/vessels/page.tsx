@@ -7,6 +7,7 @@ import { listProjectsForUser } from "@/lib/project";
 import { formatVesselValue, vesselCompleteness, vesselField } from "@/lib/vessels/fields";
 import { compareWithDatabase, DATABASE_OBSERVATION } from "@/lib/vessels/comparison";
 import { missingYardNumbers } from "@/lib/vessels/workbook";
+import { formatPeriod } from "@/lib/yardPeriods/display";
 import { EmptyState, PageHeader } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/workflow/SectionCard";
@@ -32,7 +33,10 @@ export default async function FleetRegisterPage({
     return <EmptyState icon={<Ship size={20} />} title="No vessels yet" hint="You are not on any project yet." />;
   }
 
-  const [vessels, fleetGaps, allYardNumbers] = await Promise.all([
+  // Yard history: the completed, real projects this user can reach.
+  const history = { vesselId: { in: ids }, id: { in: projectIds }, isDemo: false, status: "COMPLETED", archivedAt: null };
+
+  const [vessels, fleetGaps, allYardNumbers, periodCounts, latestPeriods] = await Promise.all([
     prisma.vessel.findMany({
       where: { id: { in: ids }, archivedAt: null },
       include: {
@@ -59,7 +63,18 @@ export default async function FleetRegisterPage({
       where: { archivedAt: null, yardNumber: { not: null } },
       select: { yardNumber: true },
     }),
+    prisma.project.groupBy({ by: ["vesselId"], where: history, _count: { _all: true } }),
+    // Each vessel's most recent period, one row per vessel.
+    prisma.$queryRaw<{ vesselId: string; startLabel: string; endLabel: string }[]>`
+      SELECT DISTINCT ON (p."vesselId") p."vesselId", r."startLabel", r."endLabel"
+      FROM "YardPeriodRecord" r
+      JOIN "Project" p ON p."id" = r."projectId"
+      WHERE p."vesselId" = ANY(${ids}) AND p."id" = ANY(${projectIds})
+        AND p."isDemo" = false AND p."status" = 'COMPLETED' AND p."archivedAt" IS NULL
+      ORDER BY p."vesselId", r."sortEnd" DESC NULLS LAST, r."sortStart" DESC NULLS LAST`,
   ]);
+  const periodCount = new Map(periodCounts.map((g) => [g.vesselId, g._count._all]));
+  const latestPeriod = new Map(latestPeriods.map((l) => [l.vesselId, formatPeriod(l.startLabel, l.endLabel)]));
 
   // Yard-numbered vessels in build order, then any without a yard number by name.
   vessels.sort((a, b) =>
@@ -126,6 +141,8 @@ export default async function FleetRegisterPage({
                 <th scope="col">Yard no.</th>
                 <th scope="col">Vessel</th>
                 <th scope="col">Delivered</th>
+                <th scope="col" className="text-right">Yard periods</th>
+                <th scope="col">Latest period</th>
                 <th scope="col">IMO</th>
                 <th scope="col">Flag</th>
                 <th scope="col" className="text-right">LOA</th>
@@ -154,6 +171,16 @@ export default async function FleetRegisterPage({
                     </span>
                   </td>
                   <td>{v.deliveredYear ?? <Dash />}</td>
+                  <td className="text-right">
+                    {periodCount.get(v.id) ? (
+                      <Link href={`/vessels/${v.id}#history`} className="text-white hover:text-marine tnum">
+                        {periodCount.get(v.id)}
+                      </Link>
+                    ) : (
+                      <span className="text-faint">0</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap text-muted">{latestPeriod.get(v.id) ?? <Dash />}</td>
                   <td className="text-muted">{v.imo ?? <Dash />}</td>
                   <td className="whitespace-nowrap text-muted">{v.flag ?? <Dash />}</td>
                   {COLUMNS.map((key) => (

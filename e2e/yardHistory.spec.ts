@@ -37,6 +37,18 @@ test.describe("yard history", () => {
     ).toBeVisible();
   });
 
+  test("counts each vessel's periods in the fleet register, with its latest", async ({ page }) => {
+    await signIn(page, PM);
+    await page.goto("/vessels");
+    // The register's own summary sheet gives 2019 as Vibrant Curiosity's latest
+    // period; its master rows run to 2023, and those are what is shown.
+    const row = page.locator("table tbody tr").filter({ hasText: "Vibrant Curiosity" });
+    await expect(row.getByRole("link", { name: "6", exact: true })).toBeVisible();
+    await expect(row).toContainText("2023");
+    const shodan = page.locator("table tbody tr").filter({ hasText: "SHODAN" });
+    await expect(shodan.locator("td").nth(3)).toHaveText("0");
+  });
+
   test("says when no period was found, as a gap in the evidence", async ({ page }) => {
     await signIn(page, PM);
     await openVessel(page, "SHODAN");
