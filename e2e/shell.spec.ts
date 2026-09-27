@@ -3,6 +3,11 @@ import { test, expect, type Page } from "@playwright/test";
 // Credentials come from prisma/seed.ts.
 const PM = { email: "pm@oceancos.dev", password: "password" };
 const CREW = { email: "crew@oceancos.dev", password: "password" };
+// Platform-wide (PLATFORM_WIDE_ROLES in src/lib/enums.ts) and seeded
+// unscoped, so it reaches every project — pm@ is seeded scoped to one
+// project only (ACTION_PLAN.md G1.4) and cannot exercise the multi-project
+// <select> the switcher test below needs.
+const OWNERS_REP = { email: "rep@oceancos.dev", password: "password" };
 
 async function signIn(page: Page, user: { email: string; password: string }) {
   await page.goto("/login");
@@ -56,7 +61,10 @@ test.describe("authentication", () => {
 
 test.describe("project switcher", () => {
   test("lists the seeded projects and remembers the choice", async ({ page }) => {
-    await signIn(page, PM);
+    // pm@ is seeded scoped to one project only (ACTION_PLAN.md G1.4), so
+    // it can no longer exercise the multi-project <select> — this needs a
+    // platform-wide account, which reaches every seeded project.
+    await signIn(page, OWNERS_REP);
 
     // The switcher renders twice since G2.7 — once in TopBar (desktop) and
     // once in Sidebar's mobile drawer (e2e/mobileNav.spec.ts covers that
@@ -119,18 +127,25 @@ test.describe("mobile navigation", () => {
     await expect(drawerNav.getByRole("link", { name: "Dashboard" })).toBeVisible();
     await expect(drawerNav.getByRole("link", { name: "Quotes & requests" })).toBeVisible();
     // TopBar's own copy of the switcher (hidden at this width) still exists
-    // in the DOM, so scope to the one the drawer actually shows.
-    await expect(page.getByText("R-00721").locator("visible=true")).toHaveCount(1);
+    // in the DOM, and the dashboard's VesselStrip also shows the project
+    // code, so scope to the drawer itself rather than counting every
+    // visible instance on the page.
+    await expect(page.getByTestId("mobile-nav-drawer").getByText("R-00721")).toBeVisible();
 
     // Following a link closes the drawer and navigates.
     await drawerNav.getByRole("link", { name: "Crew requests" }).click();
     await page.waitForURL("**/crew-requests");
     await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Close navigation" })).toHaveCount(0);
+    // The drawer stays in the DOM, translated off-screen, rather than being
+    // unmounted or hidden via CSS visibility/display — a transform alone
+    // doesn't register as "hidden" to Playwright's actionability checks, so
+    // assert on the drawer's own translate class instead (e2e/mobileNav.spec.ts
+    // uses the same pattern for the same component).
+    await expect(page.getByTestId("mobile-nav-drawer")).toHaveClass(/-translate-x-full/);
 
     // Reopening and clicking the backdrop closes it without navigating.
     await page.getByRole("button", { name: "Open menu" }).click();
-    await expect(page.getByRole("button", { name: "Close navigation" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close menu" })).toBeVisible();
     await page.mouse.click(350, 400); // outside the 288px-wide drawer panel
     await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
     await expect(page).toHaveURL(/\/crew-requests$/);
@@ -141,13 +156,18 @@ test.describe("mobile navigation", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/dashboard");
 
-    await expect(page.locator("aside")).toBeVisible();
+    // Sidebar.tsx is a plain div, not an <aside> — the primary nav is the
+    // `navigation` landmark, not nested inside a `complementary` one
+    // (ACTION_PLAN.md G5.5) — so target the same drawer element the mobile
+    // test above does; at this width it's the persistent sidebar instead.
+    await expect(page.getByTestId("mobile-nav-drawer")).toBeVisible();
     await expect(page.getByRole("button", { name: "Open menu" })).toBeHidden();
     // PM reaches a single seeded project, so the static-label branch of
     // ProjectSwitcher renders rather than the <select> — either way it must
     // be visible in the topbar again above the breakpoint, not just inside
-    // the (now hidden) drawer.
-    await expect(page.getByText("R-00721")).toBeVisible();
+    // the (now hidden) drawer. Scoped to the banner: the dashboard's
+    // VesselStrip also shows the project code, in #main.
+    await expect(page.getByRole("banner").getByText("R-00721")).toBeVisible();
   });
 });
 

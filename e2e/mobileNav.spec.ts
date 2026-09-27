@@ -6,14 +6,19 @@ import { test, expect } from "@playwright/test";
 // (768px) breakpoint, toggled from TopBar's hamburger button.
 
 const PM = { email: "pm@oceancos.dev", password: "password" };
+// Platform-wide (PLATFORM_WIDE_ROLES in src/lib/enums.ts) and seeded
+// unscoped, so it reaches every project — pm@ is seeded scoped to one
+// project only (ACTION_PLAN.md G1.4) and cannot exercise the multi-project
+// <select> the switcher test below needs.
+const OWNERS_REP = { email: "rep@oceancos.dev", password: "password" };
 
 test.describe("mobile navigation", () => {
   test.use({ viewport: { width: 375, height: 667 } }); // iPhone SE-class
 
-  async function signIn(page: import("@playwright/test").Page) {
+  async function signIn(page: import("@playwright/test").Page, user: { email: string; password: string } = PM) {
     await page.goto("/login");
-    await page.getByLabel(/email/i).fill(PM.email);
-    await page.getByLabel(/password/i).fill(PM.password);
+    await page.getByLabel(/email/i).fill(user.email);
+    await page.getByLabel(/password/i).fill(user.password);
     await page.getByRole("button", { name: /sign in/i }).click();
     await page.waitForURL("**/dashboard");
   }
@@ -60,10 +65,11 @@ test.describe("mobile navigation", () => {
   });
 
   test("the project switcher appears inside the drawer, not nowhere", async ({ page }) => {
-    // PM reaches two seeded projects — the switcher renders as a real
-    // <select>, not the single-project static label. Before G2.7 this had
-    // no mobile equivalent at all (ui-ux's separate finding).
-    await signIn(page);
+    // A platform-wide account reaches multiple seeded projects, so the
+    // switcher renders as a real <select>, not the single-project static
+    // label. Before G2.7 this had no mobile equivalent at all (ui-ux's
+    // separate finding).
+    await signIn(page, OWNERS_REP);
     await page.getByRole("button", { name: /open menu/i }).click();
     await expect(page.getByTestId("mobile-nav-drawer").getByLabel("Active project")).toBeVisible();
   });

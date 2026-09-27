@@ -73,7 +73,10 @@ test.describe("project administration", () => {
 
     // The switcher reads the same record. Scoped to the banner landmark
     // since G2.7 added a second (mobile-drawer) instance of the switcher.
+    // pm@ is scoped to this one project only (ACTION_PLAN.md G1.4), so
+    // ProjectSwitcher renders it as a static label rather than the
+    // multi-project <select> — assert on that label's text instead.
     await page.goto("/dashboard");
-    await expect(page.getByRole("banner").getByLabel("Active project")).toBeVisible();
+    await expect(page.getByRole("banner").getByText("R-00721")).toBeVisible();
   });
 });

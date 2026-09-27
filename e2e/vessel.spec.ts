@@ -1,7 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 
 // Credentials come from prisma/seed.ts; the vessels from the committed register.
-const PM = { email: "pm@oceancos.dev", password: "password" };
+// A vessel is reachable only through a project the signer holds a role on
+// (src/lib/vessels/access.ts's vesselIdsForUser) — pm@ and crew@ are seeded
+// scoped to one project each (ACTION_PLAN.md G1.4), which does not include
+// the register import's Y709/Draak. OWNERS_REP is a platform-wide role
+// (PLATFORM_WIDE_ROLES in src/lib/enums.ts), seeded unscoped so it reaches
+// every project — the register-spanning tests below need that reach, and
+// OWNERS_REP also holds vessel.edit.
+const OWNERS_REP = { email: "rep@oceancos.dev", password: "password" };
 const CREW = { email: "crew@oceancos.dev", password: "password" };
 
 async function signIn(page: Page, user: { email: string; password: string }) {
@@ -12,15 +19,15 @@ async function signIn(page: Page, user: { email: string; password: string }) {
   await page.waitForURL("**/dashboard");
 }
 
-async function openDraak(page: Page) {
+async function openVessel(page: Page, name: string) {
   await page.goto("/vessels");
-  await page.getByRole("link", { name: "Draak", exact: true }).click();
+  await page.getByRole("link", { name, exact: true }).click();
   await page.waitForURL(/\/vessels\/[^/]+$/);
 }
 
 test.describe("vessel particulars", () => {
   test("show the active project's vessel, placeholders included", async ({ page }) => {
-    await signIn(page, PM);
+    await signIn(page, OWNERS_REP);
 
     // The header's switcher, not the mobile drawer's copy; and wait for the
     // server action that persists the choice before navigating, or /vessel
@@ -45,7 +52,7 @@ test.describe("vessel particulars", () => {
   });
 
   test("list every register vessel and the unmapped yard numbers", async ({ page }) => {
-    await signIn(page, PM);
+    await signIn(page, OWNERS_REP);
     await page.goto("/vessels");
 
     const yardNumbers = await page.locator("tbody tr td:first-child").allTextContents();
@@ -55,8 +62,10 @@ test.describe("vessel particulars", () => {
   });
 
   test("are read-only to crew", async ({ page }) => {
+    // crew@ is scoped to its own project only (G1.4) — its own vessel,
+    // M/Y Solstice, not the register's Y709/Draak, is what it can reach.
     await signIn(page, CREW);
-    await openDraak(page);
+    await openVessel(page, "M/Y Solstice");
     await expect(page.getByRole("link", { name: /edit particulars/i })).toHaveCount(0);
 
     await page.goto(`${page.url()}/edit`);
@@ -64,8 +73,8 @@ test.describe("vessel particulars", () => {
   });
 
   test("record an edit as a value and as evidence", async ({ page }) => {
-    await signIn(page, PM);
-    await openDraak(page);
+    await signIn(page, OWNERS_REP);
+    await openVessel(page, "Draak");
     await page.getByRole("link", { name: /edit particulars/i }).click();
     await page.waitForURL(/\/edit$/);
 
@@ -82,8 +91,8 @@ test.describe("vessel particulars", () => {
   });
 
   test("refuse a bad IMO number", async ({ page }) => {
-    await signIn(page, PM);
-    await openDraak(page);
+    await signIn(page, OWNERS_REP);
+    await openVessel(page, "Draak");
     await page.getByRole("link", { name: /edit particulars/i }).click();
     await page.waitForURL(/\/edit$/);
 
@@ -94,8 +103,8 @@ test.describe("vessel particulars", () => {
   });
 
   test("will not close a data gap without the evidence that closed it", async ({ page }) => {
-    await signIn(page, PM);
-    await openDraak(page);
+    await signIn(page, OWNERS_REP);
+    await openVessel(page, "Draak");
 
     const gap = page.locator("li", { hasText: "Post-2026 rebuild tonnage" });
     await gap.getByText("Update status").click();
