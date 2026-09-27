@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { ComingSoon } from "@/components/ui/ComingSoon";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
@@ -12,7 +13,21 @@ export default async function SuppliersPage({
 }: {
   searchParams: { q?: string };
 }) {
-  await requireUser();
+  const user = await requireUser();
+  // Every other module page under (app) gates on its own _VIEW permission;
+  // this one had none at all (auth-security's "unguarded suppliers page",
+  // the same C15 shape as the dashboard and approvals pages). Supplier
+  // carries no project column (it is a fleet-wide directory, unlike
+  // Contractor), so a permission gate is the only fix available here.
+  if (!hasPermission(user, PERMISSIONS.SUP_VIEW)) {
+    return (
+      <EmptyState
+        title="Access restricted"
+        hint="You don't have permission to view suppliers."
+        icon={<Factory size={20} />}
+      />
+    );
+  }
   const where: any = { archivedAt: null };
   if (searchParams.q) {
     where.name = { contains: searchParams.q, mode: "insensitive" };

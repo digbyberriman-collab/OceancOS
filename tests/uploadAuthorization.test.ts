@@ -7,35 +7,25 @@ import { PERMISSIONS } from "@/lib/rbac";
 // (projects/<projectId>/<resource>/<resourceId>/...), so that let any
 // signed-in user download any project's attachments (auth-security
 // [UPLOADS], G2.5). These tests call the real exported GET handler with
-// everything it touches mocked, to prove it now resolves the key to its
-// owning record and checks both project access and the relevant view
-// permission before ever reading bytes.
+// everything it touches mocked, to prove it now requires both the view
+// permission the key's resource type needs and access to the key's project
+// before ever reading bytes — resolving both straight from the key itself
+// (parseObjectKey), never a database round trip, per storageKeys.test.ts.
 
-const { getCurrentUser, attachmentFindFirst, jobFindUnique, listProjectsForUser, getObject } =
-  vi.hoisted(() => ({
-    getCurrentUser: vi.fn(),
-    attachmentFindFirst: vi.fn(),
-    jobFindUnique: vi.fn(),
-    listProjectsForUser: vi.fn(),
-    getObject: vi.fn(),
-  }));
+const { getCurrentUser, accessibleProjectIds, getObjectStream } = vi.hoisted(() => ({
+  getCurrentUser: vi.fn(),
+  accessibleProjectIds: vi.fn(),
+  getObjectStream: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({ getCurrentUser }));
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    attachment: { findFirst: attachmentFindFirst },
-    job: { findUnique: jobFindUnique },
-    changeOrder: { findUnique: vi.fn() },
-    crewRequest: { findUnique: vi.fn() },
-  },
-}));
-vi.mock("@/lib/project", () => ({ listProjectsForUser }));
+vi.mock("@/lib/project", () => ({ accessibleProjectIds }));
 vi.mock("@/lib/storage", async () => {
   const actual = await vi.importActual<typeof import("@/lib/storage")>("@/lib/storage");
   return {
     ...actual,
     storageDriverName: () => "local",
-    getObject,
+    getObjectStream,
   };
 });
 
@@ -52,63 +42,64 @@ function req(key: string) {
 const KEY = "projects/p1/Job/job1/abc123-photo.jpg";
 
 beforeEach(() => {
-  attachmentFindFirst.mockReset();
-  jobFindUnique.mockReset();
-  listProjectsForUser.mockReset().mockResolvedValue([{ id: "p1" }]);
-  getObject.mockReset().mockResolvedValue(Buffer.from("bytes"));
+  accessibleProjectIds.mockReset().mockResolvedValue(["p1"]);
+  getObjectStream.mockReset().mockResolvedValue({ stream: new ReadableStream(), size: 5 });
 });
 
 describe("GET /api/uploads/local", () => {
-  it("404s a key with no matching Attachment row, rather than serving whatever is on disk", async () => {
-    getCurrentUser.mockResolvedValue(fakeUser([PERMISSIONS.JOB_VIEW]));
-    attachmentFindFirst.mockResolvedValue(null);
-
-    const res = await GET(req(KEY));
-
-    expect(res.status).toBe(404);
-    expect(getObject).not.toHaveBeenCalled();
-  });
-
-  it("404s (not 403) when the caller cannot reach the attachment's project", async () => {
-    getCurrentUser.mockResolvedValue(fakeUser([PERMISSIONS.JOB_VIEW]));
-    attachmentFindFirst.mockResolvedValue({ jobId: "job1", changeOrderId: null, crewRequestId: null });
-    jobFindUnique.mockResolvedValue({ projectId: "p-other" });
-    listProjectsForUser.mockResolvedValue([{ id: "p1" }]); // p1, not p-other
-
-    const res = await GET(req(KEY));
-
-    expect(res.status).toBe(404);
-    expect(getObject).not.toHaveBeenCalled();
-  });
-
-  it("404s a caller who can reach the project but lacks the resource's view permission", async () => {
+  it("403s a caller who lacks the resource's view permission, before touching the project or the disk", async () => {
     getCurrentUser.mockResolvedValue(fakeUser([])); // no JOB_VIEW at all
-    attachmentFindFirst.mockResolvedValue({ jobId: "job1", changeOrderId: null, crewRequestId: null });
-    jobFindUnique.mockResolvedValue({ projectId: "p1" });
+
+    const res = await GET(req(KEY));
+
+    expect(res.status).toBe(403);
+    expect(accessibleProjectIds).not.toHaveBeenCalled();
+    expect(getObjectStream).not.toHaveBeenCalled();
+  });
+
+  it("403s a caller who holds the permission but cannot reach the key's project", async () => {
+    getCurrentUser.mockResolvedValue(fakeUser([PERMISSIONS.JOB_VIEW]));
+    accessibleProjectIds.mockResolvedValue(["p-other"]); // not p1
+
+    const res = await GET(req(KEY));
+
+    expect(res.status).toBe(403);
+    expect(getObjectStream).not.toHaveBeenCalled();
+  });
+
+  it("404s when nothing is on disk for an otherwise-authorised key", async () => {
+    getCurrentUser.mockResolvedValue(fakeUser([PERMISSIONS.JOB_VIEW]));
+    getObjectStream.mockResolvedValue(null);
 
     const res = await GET(req(KEY));
 
     expect(res.status).toBe(404);
-    expect(getObject).not.toHaveBeenCalled();
   });
 
-  it("serves the bytes once the attachment resolves to a project the caller can reach with the right permission", async () => {
+  it("serves the bytes once the key's resource permission and project access both check out", async () => {
     getCurrentUser.mockResolvedValue(fakeUser([PERMISSIONS.JOB_VIEW]));
-    attachmentFindFirst.mockResolvedValue({ jobId: "job1", changeOrderId: null, crewRequestId: null });
-    jobFindUnique.mockResolvedValue({ projectId: "p1" });
 
     const res = await GET(req(KEY));
 
     expect(res.status).toBe(200);
-    expect(getObject).toHaveBeenCalledWith(KEY);
+    expect(getObjectStream).toHaveBeenCalledWith(KEY);
   });
 
-  it("refuses an anonymous request before ever looking up the attachment", async () => {
+  it("refuses an anonymous request before ever checking permission or project access", async () => {
     getCurrentUser.mockResolvedValue(null);
 
     const res = await GET(req(KEY));
 
     expect(res.status).toBe(401);
-    expect(attachmentFindFirst).not.toHaveBeenCalled();
+    expect(accessibleProjectIds).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unrecognised resource type rather than defaulting to allowed", async () => {
+    getCurrentUser.mockResolvedValue(fakeUser(Object.values(PERMISSIONS) as string[]));
+
+    const res = await GET(req("projects/p1/Unknown/r1/abc123-file.pdf"));
+
+    expect(res.status).toBe(403);
+    expect(getObjectStream).not.toHaveBeenCalled();
   });
 });

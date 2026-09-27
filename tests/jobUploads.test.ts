@@ -43,15 +43,22 @@ const {
 }));
 
 vi.mock("@/lib/auth", () => ({ requireUser }));
-vi.mock("@/lib/db", () => ({
-  prisma: {
+vi.mock("@/lib/db", () => {
+  const client = {
     job: { findUnique: jobFindUnique, findMany: jobFindMany, create: jobCreate },
     jobSection: { findUnique: jobSectionFindUnique },
     user: { findUnique: userFindUnique, findMany: userFindMany },
     comment: { create: commentCreate },
     attachment: { createMany: attachmentCreateMany },
-  },
-}));
+  };
+  return {
+    prisma: {
+      ...client,
+      $transaction: (arg: unknown) =>
+        typeof arg === "function" ? (arg as (tx: typeof client) => unknown)(client) : Promise.all(arg as unknown[]),
+    },
+  };
+});
 vi.mock("@/lib/project", () => ({
   getActiveProject,
   listProjectsForUser,

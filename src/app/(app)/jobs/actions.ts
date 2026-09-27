@@ -21,6 +21,7 @@ import {
 import type { JobStatus } from "@/lib/enums";
 import { CONTRACT_TYPES, PRICING_BASES } from "@/lib/enums";
 import { forbidden, invalid, notFound } from "@/lib/errors";
+import { isAllowedUploadType, isSafeObjectKey, objectKeyPrefix } from "@/lib/storage";
 import { applyTransition } from "@/lib/workflow/transition";
 import { setFormFlash } from "@/lib/formFlash";
 import type { UploadedFile } from "@/components/ui/FileDrop";
@@ -165,7 +166,10 @@ export async function createJobRequest(formData: FormData) {
     },
   });
 
-  await attachUploads(formData, job.id, user.id, "Job");
+  // jobs/new/page.tsx's FileDrop signs uploads under the placeholder
+  // resourceId "new", because the job does not exist yet when the browser
+  // asks /api/uploads/sign for a key.
+  await attachUploads(formData, project.id, job.id, user.id, "Job", undefined, "new");
 
   await recordAudit({
     actorId: user.id,
@@ -640,7 +644,7 @@ export async function addJobComment(formData: FormData) {
   // typed with no way to tell whether it posted.
   if (!body) throw invalid("Write something before posting.");
 
-  await loadJob(user.id, jobId);
+  const job = await loadJob(user.id, jobId);
 
   if (asMinute) assertPermission(user, PERMISSIONS.MINUTES_RECORD);
 
@@ -658,7 +662,7 @@ export async function addJobComment(formData: FormData) {
         body,
       },
     });
-    await attachUploads(formData, jobId, user.id, "Job", created.id, tx);
+    await attachUploads(formData, job.projectId, jobId, user.id, "Job", created.id, jobId, tx);
     return created;
   });
 
@@ -710,13 +714,34 @@ export async function toggleJobFavourite(formData: FormData) {
  * the parent row (addJobComment) can pass a transaction's `tx` and get one
  * atomic write instead of two — ACTION_PLAN.md G3.4. Defaults to the
  * top-level client for callers with nothing else to wrap it with.
+ *
+ * The only thing standing between "the key /api/uploads/sign actually
+ * issued" and "any string the client feels like sending" used to be
+ * `typeof row.key === "string"` — filename, mimetype and size were taken on
+ * trust too. That let a key from another project (or job) be pasted into
+ * this form and laundered into a record this project's users can see
+ * (auth-security [UPLOADS], G2.5). Every row is now checked against the one
+ * prefix `/api/uploads/sign` would itself have minted for this exact
+ * project, resource and record, and against the same content-type
+ * allowlist sign-time enforces — a row failing either is refused outright
+ * rather than silently dropped, since a legitimate upload through this
+ * app's own flow can never produce one.
  */
 async function attachUploads(
   formData: FormData,
+  projectId: string,
   resourceId: string,
   uploaderId: string,
   resource: string,
   commentId?: string,
+  /**
+   * The resourceId the key was actually signed against, when it differs
+   * from `resourceId` — the create form signs uploads under the placeholder
+   * "new" before the record exists (see the call in createJobRequest).
+   * Defaults to `resourceId` for every other caller, where the record
+   * already existed at sign time.
+   */
+  keyResourceId: string = resourceId,
   client: Prisma.TransactionClient | typeof prisma = prisma
 ) {
   const entries = formData.getAll("attachments").map(String).filter(Boolean);
@@ -738,6 +763,16 @@ async function attachUploads(
     .filter((row): row is NonNullable<typeof row> => !!row && typeof row.key === "string");
 
   if (!rows.length) return;
+
+  const prefix = objectKeyPrefix({ projectId, resource, resourceId: keyResourceId });
+  for (const row of rows) {
+    if (!isSafeObjectKey(row.key) || !row.key.startsWith(prefix)) {
+      throw forbidden("That upload was not issued for this record.");
+    }
+    if (!isAllowedUploadType(row.contentType)) {
+      throw invalid("That file type is not allowed.");
+    }
+  }
 
   await client.attachment.createMany({
     data: rows.map((row) => ({

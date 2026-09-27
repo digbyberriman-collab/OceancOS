@@ -31,6 +31,20 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const user = await requireUser();
 
+  // Every panel here aggregates across modules, so no single module page's
+  // own guard protects it — each one is gated on the permission of the data
+  // it renders, and the query is skipped rather than fetched and hidden. A
+  // signed-in user holding none of these would otherwise see every other
+  // panel's data regardless (AUDIT_REPORT_ADDENDUM.md C15).
+  const canViewCO = hasPermission(user, PERMISSIONS.CO_VIEW);
+  const canViewCR = hasPermission(user, PERMISSIONS.CR_VIEW);
+  const canViewSchedule = hasPermission(user, PERMISSIONS.SCH_VIEW);
+  const canViewRisks = hasPermission(user, PERMISSIONS.RSK_VIEW);
+  // AuditLog carries no project column at all, so AUDIT_VIEW is the only
+  // gate available — the same one /admin's own audit log uses.
+  const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
+
   // Every count and list below reflects only the projects this user can
   // reach — a project-scoped user must never see a number on their own
   // dashboard that comes from work they cannot open. AuditLog is the one
@@ -57,25 +71,37 @@ export default async function DashboardPage() {
     myApprovals,
     activeProject,
   ] = await Promise.all([
-    prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } }),
-    prisma.changeOrder.count({
-      where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
-    }),
-    prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } }),
-    prisma.crewRequest.count({
-      where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
-    }),
-    prisma.milestone.findMany({
-      where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
-      orderBy: { date: "asc" },
-      take: 5,
-    }),
-    prisma.risk.findMany({
-      where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
-      orderBy: { rating: "desc" },
-      take: 5,
-    }),
-    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }),
+    canViewCO
+      ? prisma.changeOrder.count({ where: { ...scope, status: { notIn: ["CLOSED", "CANCELLED", "REJECTED"] } } })
+      : 0,
+    canViewCO
+      ? prisma.changeOrder.count({
+          where: { ...scope, status: { in: ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"] } },
+        })
+      : 0,
+    canViewCR
+      ? prisma.crewRequest.count({ where: { ...scope, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } } })
+      : 0,
+    canViewCR
+      ? prisma.crewRequest.count({
+          where: { ...scope, dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CLOSED", "REJECTED"] } },
+        })
+      : 0,
+    canViewSchedule
+      ? prisma.milestone.findMany({
+          where: { ...scope, date: { gte: new Date() }, status: { not: "COMPLETED" } },
+          orderBy: { date: "asc" },
+          take: 5,
+        })
+      : [],
+    canViewRisks
+      ? prisma.risk.findMany({
+          where: { ...scope, status: { in: ["OPEN", "ESCALATED"] } },
+          orderBy: { rating: "desc" },
+          take: 5,
+        })
+      : [],
+    canViewAudit ? prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 10 }) : [],
     // A backstop cap, not a real page size — see the identical note on
     // /financials (ACTION_PLAN.md G4.1): `forecast`'s per-row conditional
     // can't be expressed as a Prisma `aggregate` without raw SQL, and
@@ -85,11 +111,13 @@ export default async function DashboardPage() {
       include: { project: { select: { currency: true } } },
       take: 2000,
     }),
-    prisma.changeOrderApproval.findMany({
-      where: { decision: "PENDING", changeOrder: scope },
-      include: { changeOrder: { include: { project: { select: { currency: true } } } } },
-      take: 5,
-    }),
+    canViewCO
+      ? prisma.changeOrderApproval.findMany({
+          where: { decision: "PENDING", changeOrder: scope },
+          include: { changeOrder: { include: { project: { select: { currency: true } } } } },
+          take: 5,
+        })
+      : [],
     getActiveProject(user.id),
   ]);
 
@@ -108,16 +136,16 @@ export default async function DashboardPage() {
   const budgetCurrency = aggregateCurrency(budgets.map((b) => b.project.currency));
   const mixedBudgetCurrencies = budgets.length > 0 && budgetCurrency === null;
 
-  const canViewFinancials = hasPermission(user, PERMISSIONS.FIN_VIEW);
-
   // ---- Charts ---------------------------------------------------------------
   // The one genuinely dependent stage: needs `activeProject.id` from above.
-  const changeOrders = await prisma.changeOrder.findMany({
-    where: activeProject ? { projectId: activeProject.id } : scope,
-    select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
-    orderBy: { createdAt: "asc" },
-    take: 5000,
-  });
+  const changeOrders = canViewCO
+    ? await prisma.changeOrder.findMany({
+        where: activeProject ? { projectId: activeProject.id } : scope,
+        select: { status: true, estimatedCost: true, approvedCost: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+        take: 5000,
+      })
+    : [];
 
   // Statuses are states, so they wear the status colours rather than arbitrary
   // series hues, and cancelled work is deliberately recessive.
@@ -191,24 +219,33 @@ export default async function DashboardPage() {
 
       {activeProject && <VesselStrip vessel={activeProject.vessel} projectCode={activeProject.code} />}
 
-      {/* Stat row */}
+      {/* Stat row — a card for data the viewer cannot see is omitted rather
+          than shown as a misleading zero. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-6 animate-fade-up">
-        <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
-        <StatCard
-          label="Awaiting approval"
-          value={coPending}
-          href="/approvals"
-          tone="warn"
-          icon={ClipboardCheck}
-        />
-        <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
-        <StatCard
-          label="Overdue items"
-          value={crOverdue}
-          tone={crOverdue > 0 ? "bad" : "muted"}
-          href="/crew-requests?overdue=1"
-          icon={AlertTriangle}
-        />
+        {canViewCO && (
+          <StatCard label="Open change orders" value={coOpen} href="/change-orders" icon={FileStack} />
+        )}
+        {canViewCO && (
+          <StatCard
+            label="Awaiting approval"
+            value={coPending}
+            href="/approvals"
+            tone="warn"
+            icon={ClipboardCheck}
+          />
+        )}
+        {canViewCR && (
+          <StatCard label="Open crew requests" value={crOpen} href="/crew-requests" icon={Users} />
+        )}
+        {canViewCR && (
+          <StatCard
+            label="Overdue items"
+            value={crOverdue}
+            tone={crOverdue > 0 ? "bad" : "muted"}
+            href="/crew-requests?overdue=1"
+            icon={AlertTriangle}
+          />
+        )}
       </div>
 
       {/* Budget + milestones */}
@@ -237,7 +274,9 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Upcoming milestones">
-          {milestonesUpcoming.length === 0 ? (
+          {!canViewSchedule ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the schedule.</p>
+          ) : milestonesUpcoming.length === 0 ? (
             <p className="text-sm text-muted">No milestones scheduled.</p>
           ) : (
             <ol className="relative space-y-3.5 pl-1">
@@ -266,7 +305,11 @@ export default async function DashboardPage() {
         style={{ animationDelay: "90ms" }}
       >
         <Panel title="Change orders by status" link={{ href: "/change-orders", label: "All change orders" }}>
-          <Donut slices={statusSlices} centreLabel="change orders" format="count" />
+          {!canViewCO ? (
+            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
+          ) : (
+            <Donut slices={statusSlices} centreLabel="change orders" format="count" />
+          )}
         </Panel>
 
         <Panel title="Progress against the yard period">
@@ -301,7 +344,9 @@ export default async function DashboardPage() {
           title="Approvals waiting on you and others"
           link={{ href: "/approvals", label: "All approvals" }}
         >
-          {myApprovals.length === 0 ? (
+          {!canViewCO ? (
+            <p className="text-sm text-muted">You don&apos;t have access to change orders.</p>
+          ) : myApprovals.length === 0 ? (
             <p className="text-sm text-muted">All caught up.</p>
           ) : (
             <div className="-mx-2 overflow-x-auto">
@@ -310,7 +355,7 @@ export default async function DashboardPage() {
                   <tr>
                     <th>Stage</th>
                     <th>Change order</th>
-                    <th className="text-right">Cost</th>
+                    {canViewFinancials && <th className="text-right">Cost</th>}
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -329,9 +374,11 @@ export default async function DashboardPage() {
                           {a.changeOrder.title}
                         </Link>
                       </td>
-                      <td className="text-right tnum text-white">
-                        {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
-                      </td>
+                      {canViewFinancials && (
+                        <td className="text-right tnum text-white">
+                          {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
+                        </td>
+                      )}
                       <td>
                         <StatusBadge value={a.changeOrder.status} />
                       </td>
@@ -344,7 +391,9 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Top risks" link={{ href: "/risks", label: "Risk register" }}>
-          {risksOpen.length === 0 ? (
+          {!canViewRisks ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the risk register.</p>
+          ) : risksOpen.length === 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted">
               <ShieldAlert className="h-4 w-4 text-ok" />
               No open risks.
@@ -391,7 +440,9 @@ export default async function DashboardPage() {
       {/* Recent activity */}
       <div className="animate-fade-up" style={{ animationDelay: "180ms" }}>
         <Panel title="Recent activity">
-          {recent.length === 0 ? (
+          {!canViewAudit ? (
+            <p className="text-sm text-muted">You don&apos;t have access to the audit log.</p>
+          ) : recent.length === 0 ? (
             <p className="text-sm text-muted">No activity yet.</p>
           ) : (
             <ul className="divide-y divide-line-soft">

@@ -21,6 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function CrewRequestDetail({ params }: { params: { id: string } }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CR_VIEW)) return notFound();
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   // Comments accumulate for the life of the request with no natural
   // ceiling (ACTION_PLAN.md G4.5) — bounded to the most recent 50, fetched
@@ -123,9 +124,11 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
                   {fmtDate(cr.dueDate)}
                 </span>
               </DefRow>
-              <DefRow label="Cost Impact">
-                <span className="tnum font-medium">{fmtMoney(cr.costImpact, cr.project.currency)}</span>
-              </DefRow>
+              {canSeeMoney && (
+                <DefRow label="Cost Impact">
+                  <span className="tnum font-medium">{fmtMoney(cr.costImpact, cr.project.currency)}</span>
+                </DefRow>
+              )}
               <DefRow label="Schedule Impact">
                 {cr.scheduleImpactDays ? (
                   <span className="tnum font-medium text-warn">+{cr.scheduleImpactDays} days</span>

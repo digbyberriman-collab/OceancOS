@@ -16,6 +16,7 @@ import { getActiveProject, requireProjectAccess, usersWithPermissionOnProject } 
 import {
   CO_STAGE_PERMISSION as STAGE_PERMISSION,
   CO_STATUSES_AWAITING_DECISION,
+  CO_TRANSITIONS_REQUIRING_CEREMONY,
   approvalStageChanges,
   assertTransitionChangeOrder,
   canDecideApproval,
@@ -180,6 +181,18 @@ export async function transitionChangeOrder(id: string, toStatus: string, commen
   await requireProjectAccess(user.id, co.projectId);
 
   const target = ChangeOrderStatusSchema.parse(toStatus);
+
+  // APPROVED, REJECTED and MORE_INFO are reached only by deciding the
+  // approval chain (decideChangeOrderApproval), never by this generic
+  // action — see CO_TRANSITIONS_REQUIRING_CEREMONY. Without this,
+  // permissionForTransition's CO_EDIT fallback lets any PROJECT_MANAGER or
+  // OWNERS_REP — neither holds a CO_APPROVE_* permission — skip the entire
+  // chain by posting this action directly (audit/findings-phase5.md,
+  // Critical).
+  if (CO_TRANSITIONS_REQUIRING_CEREMONY.includes(target)) {
+    throw forbidden("Deciding this change order goes through the approval chain, not this action.");
+  }
+
   // Who can move it where — see lib/workflow/changeOrder.ts
   assertPermission(user, permissionForTransition(target));
   assertTransitionChangeOrder(co.status as ChangeOrderStatus, target);

@@ -2,13 +2,13 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/EmptyState";
+import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { fmtMoney, fmtDate } from "@/lib/utils";
 import { decideChangeOrderApproval } from "../change-orders/actions";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ClipboardX } from "lucide-react";
 import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +25,24 @@ const STAGE_PERM: Record<string, string> = {
 
 export default async function ApprovalsPage() {
   const user = await requireUser();
+
+  // This page aggregates across every approval stage, which no single
+  // module page's own guard protects — before this, it ran with no gate at
+  // all beyond requireUser() (C15 in AUDIT_REPORT_ADDENDUM.md). A CREW
+  // session, holding none of CO_VIEW or any CO_APPROVE_* permission, could
+  // read every pending change order's number, title and cost through
+  // "Pending with Other Approvers".
+  if (!hasPermission(user, PERMISSIONS.CO_VIEW)) {
+    return (
+      <EmptyState
+        title="Access restricted"
+        hint="You don't have permission to view approvals."
+        icon={<ClipboardX size={20} />}
+      />
+    );
+  }
+
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const myStages = (Object.keys(STAGE_PERM) as (keyof typeof STAGE_PERM)[]).filter((s) =>
     hasPermission(user, STAGE_PERM[s] as any)
@@ -104,7 +122,7 @@ export default async function ApprovalsPage() {
                   <th scope="col">Stage</th>
                   <th scope="col">Change Order</th>
                   <th scope="col">Status</th>
-                  <th scope="col" className="text-right">Cost</th>
+                  {canSeeMoney && <th scope="col" className="text-right">Cost</th>}
                   <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
                   <th scope="col">Action</th>
                 </tr>
@@ -129,9 +147,11 @@ export default async function ApprovalsPage() {
                     <td>
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
+                      </td>
+                    )}
                     <td className="text-right tnum">
                       {a.changeOrder.scheduleImpactDays ? (
                         <span className="text-warn">+{a.changeOrder.scheduleImpactDays}d</span>
@@ -197,7 +217,7 @@ export default async function ApprovalsPage() {
                   <th scope="col">Stage</th>
                   <th scope="col">Change Order</th>
                   <th scope="col">Status</th>
-                  <th scope="col" className="text-right">Cost</th>
+                  {canSeeMoney && <th scope="col" className="text-right">Cost</th>}
                   <th scope="col" className="text-right">Raised</th>
                 </tr>
               </thead>
@@ -219,9 +239,11 @@ export default async function ApprovalsPage() {
                     <td>
                       <StatusBadge value={a.changeOrder.status} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(a.changeOrder.estimatedCost, a.changeOrder.project.currency)}
+                      </td>
+                    )}
                     <td className="text-right tnum text-muted text-xs">
                       {fmtDate(a.createdAt)}
                     </td>

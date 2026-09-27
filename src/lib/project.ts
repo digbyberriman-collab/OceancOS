@@ -7,6 +7,7 @@
 
 import { cookies } from "next/headers";
 import { prisma } from "./db";
+import { PLATFORM_WIDE_ROLES, type RoleKey } from "./enums";
 import { forbidden } from "./errors";
 import { requestCache } from "./requestCache";
 
@@ -21,7 +22,7 @@ export type ProjectSummary = {
   status: string;
 };
 
-type RoleScope = { projectId: string | null; vesselId: string | null };
+type RoleScope = { projectId: string | null; vesselId: string | null; roleKey: string };
 
 /**
  * The Prisma `where` a set of role scopes admits for `Project`, or `null` when
@@ -33,10 +34,17 @@ type RoleScope = { projectId: string | null; vesselId: string | null };
  * is exactly one place it is made.
  *
  * A user whose role assignments name specific projects or vessels reaches
- * only those; a user with an unscoped assignment (the common case for
- * owner-side staff) reaches every active project. `null` — not an empty `OR`,
- * which would still match everything — is what a scoped user with no project
- * or vessel named resolves to.
+ * only those. An assignment that names neither a project nor a vessel
+ * reaches every active project only when the role itself is one of
+ * `PLATFORM_WIDE_ROLES` — the fleet-wide owner-side case this branch exists
+ * for. The same unscoped shape on any other role is a provisioning gap, not
+ * a grant (ACTION_PLAN.md G1.4, AUDIT_REPORT_ADDENDUM.md C16: this branch
+ * used to grant every project to every unscoped role, which is how a yard
+ * PM or a contractor engaged for one vessel could reach every vessel on the
+ * platform), and falls through to the fail-closed empty-scope case below.
+ * `null` — not an empty `OR`, which would still match everything — is what
+ * a scoped (or ungranted, non-platform-wide) user with no project or vessel
+ * named resolves to.
  */
 export function resolveProjectWhere(
   scopes: RoleScope[]
@@ -46,9 +54,11 @@ export function resolveProjectWhere(
   | null {
   const projectIds = scopes.map((s) => s.projectId).filter((x): x is string => !!x);
   const vesselIds = scopes.map((s) => s.vesselId).filter((x): x is string => !!x);
-  const hasUnscopedRole = scopes.some((s) => !s.projectId && !s.vesselId);
+  const hasUnscopedPlatformRole = scopes.some(
+    (s) => !s.projectId && !s.vesselId && PLATFORM_WIDE_ROLES.has(s.roleKey as RoleKey)
+  );
 
-  if (hasUnscopedRole) return { archivedAt: null };
+  if (hasUnscopedPlatformRole) return { archivedAt: null };
   if (!projectIds.length && !vesselIds.length) return null;
 
   return {
@@ -70,10 +80,10 @@ export function resolveProjectWhere(
 export const listProjectsForUser = requestCache(async (userId: string): Promise<ProjectSummary[]> => {
   const scopes = await prisma.userRole.findMany({
     where: { userId },
-    select: { projectId: true, vesselId: true },
+    select: { projectId: true, vesselId: true, role: { select: { key: true } } },
   });
 
-  const where = resolveProjectWhere(scopes);
+  const where = resolveProjectWhere(scopes.map((s) => ({ ...s, roleKey: s.role.key })));
   if (!where) return [];
 
   const projects = await prisma.project.findMany({

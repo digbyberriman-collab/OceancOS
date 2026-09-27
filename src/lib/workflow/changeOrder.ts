@@ -55,6 +55,24 @@ export const CO_LEGAL_TRANSITIONS: Record<ChangeOrderStatus, ChangeOrderStatus[]
 /** Terminal statuses — nothing moves out of these. */
 export const CO_TERMINAL_STATUSES: ChangeOrderStatus[] = ["CLOSED", "CANCELLED"];
 
+/**
+ * Statuses reachable only through `decideChangeOrderApproval`'s
+ * approval-chain ceremony, never through the generic `transitionChangeOrder`
+ * action — audit/findings-phase5.md's "[RBAC] — transitionChangeOrder's
+ * generic CO_EDIT fallback reaches every status, including APPROVED,
+ * bypassing the entire approval chain" (Critical). `permissionForTransition`
+ * falls back to `CO_EDIT` for every status it doesn't special-case,
+ * including these three, and `CO_LEGAL_TRANSITIONS` must still list them as
+ * legal edges so `decideChangeOrderApproval` itself can reach them — so
+ * legality and permission alone don't stop `transitionChangeOrder(id,
+ * "APPROVED")` from letting any CO_EDIT holder (PROJECT_MANAGER,
+ * OWNERS_REP — neither holds a CO_APPROVE_* permission) skip the entire
+ * chain. Checked explicitly in `transitionChangeOrder`, mirroring
+ * lib/jobs/workflow.ts's JOB_TRANSITIONS_REQUIRING_CEREMONY for the same
+ * shape of bug on the job side.
+ */
+export const CO_TRANSITIONS_REQUIRING_CEREMONY: ChangeOrderStatus[] = ["APPROVED", "REJECTED", "MORE_INFO"];
+
 export function canTransitionChangeOrder(from: ChangeOrderStatus, to: ChangeOrderStatus): boolean {
   return CO_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }

@@ -40,6 +40,7 @@ export const dynamic = "force-dynamic";
 export default async function ChangeOrderDetail({ params }: { params: { id: string } }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) return notFound();
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   // approvals is never unbounded by nature (one row per stage, at most
   // seven) — only history and comments accumulate for the life of the
@@ -113,12 +114,16 @@ export default async function ChangeOrderDetail({ params }: { params: { id: stri
                 <span className="whitespace-pre-wrap">{co.reason}</span>
               </DefRow>
               <DefRow label="Department">{co.departmentCode ?? "—"}</DefRow>
-              <DefRow label="Estimated Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost, co.project.currency)}</span>
-              </DefRow>
-              <DefRow label="Approved Cost">
-                <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost, co.project.currency)}</span>
-              </DefRow>
+              {canSeeMoney && (
+                <DefRow label="Estimated Cost">
+                  <span className="tnum font-medium text-white">{fmtMoney(co.estimatedCost, co.project.currency)}</span>
+                </DefRow>
+              )}
+              {canSeeMoney && (
+                <DefRow label="Approved Cost">
+                  <span className="tnum font-medium text-white">{fmtMoney(co.approvedCost, co.project.currency)}</span>
+                </DefRow>
+              )}
               <DefRow label="Schedule Impact">
                 {co.scheduleImpactDays ? (
                   <span className={cn("tnum font-medium", co.scheduleImpactDays > 0 ? "text-warn" : "text-ok")}>

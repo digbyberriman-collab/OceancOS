@@ -29,6 +29,7 @@ export default async function ChangeOrdersPage({
       />
     );
   }
+  const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
   const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
@@ -137,7 +138,7 @@ export default async function ChangeOrdersPage({
                 <th scope="col">Title</th>
                 <th scope="col">Status</th>
                 <th scope="col">Priority</th>
-                <th scope="col" className="text-right">Cost</th>
+                {canSeeMoney && <th scope="col" className="text-right">Cost</th>}
                 <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
                 <th scope="col">Created</th>
               </tr>
@@ -169,9 +170,11 @@ export default async function ChangeOrdersPage({
                     <td>
                       <PriorityBadge value={co.priority} />
                     </td>
-                    <td className="text-right tnum">
-                      {fmtMoney(co.approvedCost ?? co.estimatedCost, co.project.currency)}
-                    </td>
+                    {canSeeMoney && (
+                      <td className="text-right tnum">
+                        {fmtMoney(co.approvedCost ?? co.estimatedCost, co.project.currency)}
+                      </td>
+                    )}
                     <td className="text-right tnum">
                       {schedDays > 0 ? (
                         <span className="text-warn">+{schedDays}d</span>

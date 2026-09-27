@@ -420,7 +420,7 @@ test.describe("workflow guardrails", () => {
     await page.getByRole("button", { name: /cancel quote/i }).click();
 
     await expect(page.getByRole("heading", { name: /not permitted/i })).toBeVisible();
-    await expect(page.getByText(/can only be reached its own way/i)).toBeVisible();
+    await expect(page.getByText(/goes through the confirmation code, not this action/i)).toBeVisible();
 
     // Nothing moved: reloading the job shows it still sitting at QUOTE_SENT,
     // not CLIENT_ACCEPTED.
