@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Ship } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { accessibleProjectIds } from "@/lib/project";
+import { accessibleProjectIds, sortProjectSummaries } from "@/lib/project";
+import { DemoBadge } from "@/components/ui/DemoBadge";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
@@ -45,18 +46,47 @@ export default async function AdminProjectsPage({
   // Only the projects the caller can reach, the same scope the save path
   // enforces with requireProjectAccess. Listing every project exposed codes,
   // yard names and dates of refits a project-scoped editor cannot touch.
-  const projects = await prisma.project.findMany({
-    where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
-    include: { vessel: true },
-    orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
-    take: 200,
-  });
+  const projects = sortProjectSummaries(
+    await prisma.project.findMany({
+      where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
+      include: { vessel: true },
+      orderBy: [{ code: "asc" }, { name: "asc" }],
+      take: 200,
+    })
+  );
 
   if (!projects.length) {
     return <EmptyState headingLevel={1} icon={<Ship size={20} />} title="No projects yet" />;
   }
 
   const selected = projects.find((p) => p.id === searchParams.id) ?? projects[0];
+  // Live projects are the ones worked on; completed yard periods follow,
+  // folded away unless one of them is open.
+  const liveProjects = projects.filter((p) => p.status !== "COMPLETED");
+  const completedProjects = projects.filter((p) => p.status === "COMPLETED");
+  const projectLink = (project: (typeof projects)[number]) => {
+    const active = project.id === selected.id;
+    return (
+      <Link
+        key={project.id}
+        href={`/admin/projects?id=${project.id}`}
+        aria-current={active ? "true" : undefined}
+        className={`block rounded-lg border px-3 py-2.5 transition-colors ${
+          active
+            ? "border-line-strong bg-ink-800"
+            : "border-line-soft bg-ink-900/50 hover:border-line hover:bg-ink-850"
+        }`}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium text-white">
+          {project.code ?? project.name}
+          {project.isDemo && <DemoBadge />}
+        </div>
+        <div className="mt-0.5 truncate text-xs text-muted">
+          {project.vessel.name} · {project.name}
+        </div>
+      </Link>
+    );
+  };
   const flash = readFormFlash<ProjectFormFlash>(`project-${selected.id}`);
   const timing = projectTiming({
     arrivalDate: selected.arrivalDate,
@@ -94,28 +124,15 @@ export default async function AdminProjectsPage({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
         {/* Project picker */}
         <nav aria-label="Projects" className="space-y-1.5">
-          {projects.map((project) => {
-            const active = project.id === selected.id;
-            return (
-              <Link
-                key={project.id}
-                href={`/admin/projects?id=${project.id}`}
-                aria-current={active ? "true" : undefined}
-                className={`block rounded-lg border px-3 py-2.5 transition-colors ${
-                  active
-                    ? "border-line-strong bg-ink-800"
-                    : "border-line-soft bg-ink-900/50 hover:border-line hover:bg-ink-850"
-                }`}
-              >
-                <div className="text-sm font-medium text-white">
-                  {project.code ?? project.name}
-                </div>
-                <div className="mt-0.5 truncate text-xs text-muted">
-                  {project.vessel.name} · {project.name}
-                </div>
-              </Link>
-            );
-          })}
+          {liveProjects.map(projectLink)}
+          {completedProjects.length > 0 && (
+            <details open={selected.status === "COMPLETED"} className="pt-2">
+              <summary className="cursor-pointer select-none px-1 py-1.5 text-xs font-medium text-muted hover:text-white">
+                Completed yard periods ({completedProjects.length})
+              </summary>
+              <div className="mt-1.5 space-y-1.5">{completedProjects.map(projectLink)}</div>
+            </details>
+          )}
         </nav>
 
         <SectionCard

@@ -6,6 +6,7 @@ import { DemoBadge } from "@/components/ui/DemoBadge";
 import { setActiveProjectAction } from "@/app/(app)/_actions";
 import { cn } from "@/lib/utils";
 import type { ProjectSummary } from "@/lib/project";
+import { switcherGroups } from "@/lib/switcher";
 
 /**
  * Header project selector, mirroring The Bridge's project-code dropdown.
@@ -30,13 +31,13 @@ export function ProjectSwitcher({
 }) {
   const formRef = useRef<HTMLFormElement>(null);
 
-  if (!projects.length) return null;
+  // Live projects by vessel, the demo workspace apart, completed yard periods
+  // left to the vessel's history — see lib/switcher.ts.
+  const groups = switcherGroups(projects, activeId);
+  const offered = groups.flatMap((g) => g.projects);
+  if (!offered.length) return null;
 
-  const active = projects.find((p) => p.id === activeId) ?? projects[0];
-  // Fictional projects are grouped apart and labelled, never mixed in with
-  // the real vessels' projects.
-  const demo = projects.filter((p) => p.isDemo);
-  const real = projects.filter((p) => !p.isDemo);
+  const active = offered.find((p) => p.id === activeId) ?? offered[0];
   const option = (p: ProjectSummary) => (
     <option key={p.id} value={p.id} className="bg-ink-900 text-white">
       {p.code ? `${p.code} · ` : ""}
@@ -46,7 +47,7 @@ export function ProjectSwitcher({
   const visibility = mobile ? "flex md:hidden" : "hidden md:flex";
 
   // A single project needs no control — show it as a static label.
-  if (projects.length === 1) {
+  if (offered.length === 1) {
     return (
       <div className={cn("items-center gap-2 rounded-lg border border-line bg-ink-900/60 px-3 py-1.5", visibility)}>
         <Ship className="h-3.5 w-3.5 shrink-0 text-marine" aria-hidden />
@@ -70,12 +71,11 @@ export function ProjectSwitcher({
           onChange={() => formRef.current?.requestSubmit()}
           className="w-full cursor-pointer appearance-none bg-transparent pr-5 text-xs font-medium text-white"
         >
-          {demo.length > 0 && (
-            <optgroup label="Demo workspace — fictional" className="bg-ink-900 text-warn">
-              {demo.map(option)}
+          {groups.map((g) => (
+            <optgroup key={g.key} label={g.label} className={g.key === "demo" ? "bg-ink-900 text-warn" : "bg-ink-900"}>
+              {g.projects.map(option)}
             </optgroup>
-          )}
-          {real.map(option)}
+          ))}
         </select>
         <ChevronDown
           className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-faint"

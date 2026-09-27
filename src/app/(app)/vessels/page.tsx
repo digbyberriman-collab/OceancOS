@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, Ship } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { vesselIdsForUser } from "@/lib/vessels/access";
+import { listProjectsForUser } from "@/lib/project";
 import { formatVesselValue, vesselCompleteness, vesselField } from "@/lib/vessels/fields";
 import { compareWithDatabase, DATABASE_OBSERVATION } from "@/lib/vessels/comparison";
 import { missingYardNumbers } from "@/lib/vessels/workbook";
@@ -25,7 +25,9 @@ export default async function FleetRegisterPage({
   searchParams: { saved?: string; err?: string };
 }) {
   const user = await requireUser();
-  const ids = await vesselIdsForUser(user.id);
+  const reachable = await listProjectsForUser(user.id);
+  const ids = [...new Set(reachable.map((p) => p.vesselId))];
+  const projectIds = reachable.map((p) => p.id);
   if (!ids.length) {
     return <EmptyState icon={<Ship size={20} />} title="No vessels yet" hint="You are not on any project yet." />;
   }
@@ -34,7 +36,14 @@ export default async function FleetRegisterPage({
     prisma.vessel.findMany({
       where: { id: { in: ids }, archivedAt: null },
       include: {
-        projects: { where: { archivedAt: null }, select: { id: true, code: true, name: true }, orderBy: { code: "asc" } },
+        // The live, real projects this user can reach: completed yard periods
+        // are the vessel's history, and the demo workspace is not a vessel's.
+        projects: {
+          where: { archivedAt: null, id: { in: projectIds }, isDemo: false, status: { not: "COMPLETED" } },
+          select: { id: true, code: true, name: true },
+          orderBy: { code: "asc" },
+          take: 20,
+        },
         dataGaps: { select: { status: true } },
         observations: {
           where: { fieldLabel: { in: Object.values(DATABASE_OBSERVATION) } },
