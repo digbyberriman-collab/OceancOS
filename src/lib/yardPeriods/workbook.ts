@@ -112,6 +112,13 @@ export type YardPeriodRegister = {
   gaps: RegisterGap[];
 };
 
+/** A period's identity in the register: yard number, dates and type as published. */
+export function periodKey(
+  p: Pick<RegisterPeriod, "yardNumber" | "startLabel" | "endLabel" | "periodType">,
+): string {
+  return [p.yardNumber, p.startLabel, p.endLabel, p.periodType].map((s) => s.trim()).join("|");
+}
+
 // ---------- Cells ----------
 
 const text = rawText;
