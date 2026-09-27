@@ -35,7 +35,7 @@ export async function notify(opts: {
       resourceId: opts.resourceId ?? null,
     })),
   });
-  // Email fan-out is deliberately a no-op until SMTP is configured. See lib/notifications/email.ts.
+  // Email fan-out is deliberately a no-op until SMTP is configured. See lib/email.ts.
   if (process.env.SMTP_HOST) {
     // dynamic import to avoid bundling nodemailer until configured
     try {

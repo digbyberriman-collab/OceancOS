@@ -9,6 +9,7 @@ import { fmtMoney, fmtDate } from "@/lib/utils";
 import { CHANGE_ORDER_STATUSES, PRIORITIES } from "@/lib/enums";
 import { FilterBar, FilterField } from "@/components/workflow/FilterBar";
 import { ClipboardList } from "lucide-react";
+import { projectScope } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function ChangeOrdersPage({
   if (!hasPermission(user, PERMISSIONS.CO_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Access restricted"
         hint="You don't have permission to view change orders."
         icon={<ClipboardList size={20} />}
@@ -28,7 +30,7 @@ export default async function ChangeOrdersPage({
     );
   }
 
-  const where: any = { archivedAt: null };
+  const where: any = { archivedAt: null, ...(await projectScope(user.id)) };
   if (searchParams.status) where.status = searchParams.status;
   if (searchParams.priority) where.priority = searchParams.priority;
   if (searchParams.q) {
@@ -41,6 +43,7 @@ export default async function ChangeOrdersPage({
 
   const cos = await prisma.changeOrder.findMany({
     where,
+    include: { project: { select: { currency: true } } },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
@@ -130,13 +133,13 @@ export default async function ChangeOrdersPage({
           <table className="table-base">
             <thead>
               <tr>
-                <th className="w-32">Number</th>
-                <th>Title</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th className="text-right">Cost</th>
-                <th className="text-right">Schedule&nbsp;Δ</th>
-                <th>Created</th>
+                <th scope="col" className="w-32">Number</th>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th scope="col">Priority</th>
+                <th scope="col" className="text-right">Cost</th>
+                <th scope="col" className="text-right">Schedule&nbsp;Δ</th>
+                <th scope="col">Created</th>
               </tr>
             </thead>
             <tbody>
@@ -167,7 +170,7 @@ export default async function ChangeOrdersPage({
                       <PriorityBadge value={co.priority} />
                     </td>
                     <td className="text-right tnum">
-                      {fmtMoney(co.approvedCost ?? co.estimatedCost)}
+                      {fmtMoney(co.approvedCost ?? co.estimatedCost, co.project.currency)}
                     </td>
                     <td className="text-right tnum">
                       {schedDays > 0 ? (

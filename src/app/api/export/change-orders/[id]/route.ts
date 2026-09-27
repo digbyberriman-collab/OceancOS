@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
-import { appBaseUrl, renderPdf } from "@/lib/export/pdf";
+import { appBaseUrl, PdfBusyError, renderPdf } from "@/lib/export/pdf";
 import { exportFilename } from "@/lib/export/table";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +46,12 @@ export async function GET(request: Request, { params }: { params: { id: string }
       },
     });
   } catch (err) {
+    if (err instanceof PdfBusyError) {
+      return NextResponse.json(
+        { error: "The PDF renderer is busy", detail: err.message, hint: "Try again in a few seconds." },
+        { status: 503 }
+      );
+    }
     // A missing browser is a deployment problem, not a bad request. Say so
     // plainly rather than returning a stack trace from inside Playwright.
     const message = err instanceof Error ? err.message : "PDF rendering failed";

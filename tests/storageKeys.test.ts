@@ -4,6 +4,7 @@ import {
   buildObjectKey,
   isAllowedUploadType,
   isSafeObjectKey,
+  parseObjectKey,
   safeFilename,
 } from "@/lib/storage/keys";
 
@@ -123,5 +124,37 @@ describe("upload type allowlist", () => {
 
   it("lists no duplicates", () => {
     expect(new Set(ALLOWED_UPLOAD_TYPES).size).toBe(ALLOWED_UPLOAD_TYPES.length);
+  });
+});
+
+describe("parseObjectKey", () => {
+  it("recovers exactly what buildObjectKey put in", () => {
+    const key = buildObjectKey(
+      { projectId: "p1", resource: "Job", resourceId: "j99", filename: "report.pdf" },
+      "abcdef0123456789"
+    );
+    expect(parseObjectKey(key)).toEqual({ projectId: "p1", resource: "Job", resourceId: "j99" });
+  });
+
+  it("is the shape the download route trusts for authorisation — the C3 fix", () => {
+    // buildObjectKey is only ever called from /api/uploads/sign, after that
+    // route has already checked listProjectsForUser includes projectId — so
+    // a syntactically valid key's project segment is sound to authorise
+    // against directly, with no database round trip.
+    const key = "projects/p1/Job/j1/aaaaaaaaaaaaaaaa-x.pdf";
+    expect(parseObjectKey(key)).toEqual({ projectId: "p1", resource: "Job", resourceId: "j1" });
+  });
+
+  it("rejects a key with the wrong number of segments", () => {
+    expect(parseObjectKey("projects/p1/Job/aaaa-x.pdf")).toBeNull();
+    expect(parseObjectKey("projects/p1/Job/j1/extra/aaaa-x.pdf")).toBeNull();
+  });
+
+  it("rejects a key that does not start with the projects/ prefix", () => {
+    expect(parseObjectKey("exports/p1/Job/j1/aaaa-x.pdf")).toBeNull();
+  });
+
+  it("rejects an empty key", () => {
+    expect(parseObjectKey("")).toBeNull();
   });
 });

@@ -1,16 +1,20 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Ship } from "lucide-react";
 import { requireUser } from "@/lib/auth";
+import { accessibleProjectIds } from "@/lib/project";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { toDateInputValue } from "@/lib/projectDates";
 import { projectTiming } from "@/lib/metrics/project";
 import { fmtDate } from "@/lib/utils";
 import { PROJECT_TYPES } from "@/lib/enums";
-import { updateProjectAction } from "./actions";
+import { updateProjectAction, type ProjectFormFlash } from "./actions";
+import { readFormFlash } from "@/lib/formFlash";
+import { FlashCleanup } from "@/components/ui/FlashCleanup";
 
 export const dynamic = "force-dynamic";
 
@@ -25,29 +29,35 @@ const PROJECT_TYPE_LABELS: Record<(typeof PROJECT_TYPES)[number], string> = {
 export default async function AdminProjectsPage({
   searchParams,
 }: {
-  searchParams: { id?: string; err?: string; saved?: string };
+  searchParams: { id?: string; saved?: string };
 }) {
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.PROJ_EDIT)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Forbidden"
         hint="Editing projects is restricted to the project manager and the owner's representative."
       />
     );
   }
 
+  // Only the projects the caller can reach, the same scope the save path
+  // enforces with requireProjectAccess. Listing every project exposed codes,
+  // yard names and dates of refits a project-scoped editor cannot touch.
   const projects = await prisma.project.findMany({
-    where: { archivedAt: null },
+    where: { archivedAt: null, id: { in: await accessibleProjectIds(user.id) } },
     include: { vessel: true },
     orderBy: [{ status: "asc" }, { code: "asc" }, { name: "asc" }],
+    take: 200,
   });
 
   if (!projects.length) {
-    return <EmptyState icon={<Ship size={20} />} title="No projects yet" />;
+    return <EmptyState headingLevel={1} icon={<Ship size={20} />} title="No projects yet" />;
   }
 
   const selected = projects.find((p) => p.id === searchParams.id) ?? projects[0];
+  const flash = readFormFlash<ProjectFormFlash>(`project-${selected.id}`);
   const timing = projectTiming({
     arrivalDate: selected.arrivalDate,
     departureDate: selected.departureDate,
@@ -61,7 +71,8 @@ export default async function AdminProjectsPage({
         subtitle="Project codes and yard periods. These dates drive the timing cards and the progress against the clock."
       />
 
-      {searchParams.saved && !searchParams.err && (
+      {flash && <FlashCleanup name={`project-${selected.id}`} />}
+      {searchParams.saved && !flash && (
         <div
           role="status"
           className="mb-5 flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok/10 px-3.5 py-3 text-sm text-ok"
@@ -70,13 +81,13 @@ export default async function AdminProjectsPage({
           <span>Project saved.</span>
         </div>
       )}
-      {searchParams.err && (
+      {flash && (
         <div
           role="alert"
           className="mb-5 flex items-start gap-2.5 rounded-lg border border-bad/30 bg-bad/10 px-3.5 py-3 text-sm text-bad"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          <span>{searchParams.err}</span>
+          <span>{flash.error}</span>
         </div>
       )}
 
@@ -120,10 +131,10 @@ export default async function AdminProjectsPage({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project name" className="sm:col-span-2">
-                <Input name="name" defaultValue={selected.name} required maxLength={120} />
+                <Input name="name" defaultValue={flash?.values.name ?? selected.name} required maxLength={120} />
               </Field>
               <Field label="Type">
-                <Select name="type" defaultValue={selected.type}>
+                <Select name="type" defaultValue={flash?.values.type ?? selected.type}>
                   {PROJECT_TYPES.map((t) => (
                     <option key={t} value={t}>
                       {PROJECT_TYPE_LABELS[t]}
@@ -135,13 +146,17 @@ export default async function AdminProjectsPage({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project code" hint="Shown in the header switcher">
-                <Input name="code" defaultValue={selected.code ?? ""} placeholder="R-00721" />
+                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721" />
               </Field>
               <Field label="Yard">
-                <Input name="yardName" defaultValue={selected.yardName ?? ""} placeholder="MB92 La Ciotat" />
+                <Input
+                  name="yardName"
+                  defaultValue={flash?.values.yardName ?? selected.yardName ?? ""}
+                  placeholder="MB92 La Ciotat"
+                />
               </Field>
               <Field label="Currency">
-                <Select name="currency" defaultValue={selected.currency}>
+                <Select name="currency" defaultValue={flash?.values.currency ?? selected.currency}>
                   {CURRENCIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -155,16 +170,32 @@ export default async function AdminProjectsPage({
               <h3 className="eyebrow mb-3">Yard period</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="Arrival">
-                  <Input type="date" name="arrivalDate" defaultValue={toDateInputValue(selected.arrivalDate)} />
+                  <Input
+                    type="date"
+                    name="arrivalDate"
+                    defaultValue={flash?.values.arrivalDate ?? toDateInputValue(selected.arrivalDate)}
+                  />
                 </Field>
                 <Field label="Haul out">
-                  <Input type="date" name="haulOutDate" defaultValue={toDateInputValue(selected.haulOutDate)} />
+                  <Input
+                    type="date"
+                    name="haulOutDate"
+                    defaultValue={flash?.values.haulOutDate ?? toDateInputValue(selected.haulOutDate)}
+                  />
                 </Field>
                 <Field label="Sea trials">
-                  <Input type="date" name="seaTrialsDate" defaultValue={toDateInputValue(selected.seaTrialsDate)} />
+                  <Input
+                    type="date"
+                    name="seaTrialsDate"
+                    defaultValue={flash?.values.seaTrialsDate ?? toDateInputValue(selected.seaTrialsDate)}
+                  />
                 </Field>
                 <Field label="Departure">
-                  <Input type="date" name="departureDate" defaultValue={toDateInputValue(selected.departureDate)} />
+                  <Input
+                    type="date"
+                    name="departureDate"
+                    defaultValue={flash?.values.departureDate ?? toDateInputValue(selected.departureDate)}
+                  />
                 </Field>
               </div>
             </div>
@@ -211,7 +242,7 @@ export default async function AdminProjectsPage({
             </div>
 
             <div className="flex items-center gap-3">
-              <button className="btn-primary">Save project</button>
+              <SubmitButton className="btn-primary" pendingText="Saving…">Save project</SubmitButton>
               <span className="text-xs text-faint">
                 Last updated {fmtDate(selected.updatedAt)}
               </span>

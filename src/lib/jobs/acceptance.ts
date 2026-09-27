@@ -8,6 +8,7 @@
 // Pure functions here; the database work lives in the server action.
 
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
+import { Prisma } from "@prisma/client";
 
 export const CHALLENGE_TTL_MINUTES = 10;
 export const MAX_CHALLENGE_ATTEMPTS = 5;
@@ -83,13 +84,20 @@ export function challengeProblemMessage(problem: ChallengeProblem): string {
  * Recorded with the acceptance so it can be proved later that the quote was not
  * altered between the code being sent and the signature landing. A change to
  * any line, the total or the validity produces a different hash.
+ *
+ * `total`, `quantity` and `unitPrice` are `Prisma.Decimal` (ACTION_PLAN.md
+ * G3.2) rather than `number`, and stay that way here rather than being
+ * converted — `Decimal`'s `toJSON()` renders its canonical normalised
+ * string (e.g. "1234.5" whether the value came from "1234.50" or
+ * "1234.5000"), which is exactly what makes the hash reproducible. A plain
+ * `number` round-tripped through a float doesn't carry that guarantee.
  */
 export function quoteFingerprint(job: {
   code: string;
-  total: number;
+  total: Prisma.Decimal;
   currency: string;
   validityDays?: number | null;
-  lines: { description: string; quantity: number; unit: string; unitPrice: number }[];
+  lines: { description: string; quantity: Prisma.Decimal; unit: string; unitPrice: Prisma.Decimal }[];
 }): string {
   const canonical = JSON.stringify({
     code: job.code,

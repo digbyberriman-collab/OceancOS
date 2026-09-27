@@ -8,7 +8,8 @@ import { listProjectsForUser } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { Field, Input } from "@/components/ui/Form";
-import { fmtDate, fmtMoney } from "@/lib/utils";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { isExpired } from "@/lib/jobs/workflow";
 import { CHALLENGE_TTL_MINUTES, challengeProblem } from "@/lib/jobs/acceptance";
 import { confirmAcceptance, rejectQuote, requestAcceptanceCode } from "./actions";
@@ -30,6 +31,7 @@ export default async function AcceptQuote({
   if (!hasPermission(user, PERMISSIONS.JOB_ACCEPT)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Not an authoriser"
         hint="Only a designated authoriser can accept a quote. Ask your project manager."
       />
@@ -54,6 +56,7 @@ export default async function AcceptQuote({
   if (!["QUOTE_SENT", "EXPIRED"].includes(job.status)) {
     return (
       <EmptyState
+        headingLevel={1}
         title="Nothing to accept"
         hint={`${job.code} is not awaiting a decision.`}
         action={
@@ -136,18 +139,18 @@ export default async function AcceptQuote({
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>Description</th>
-                      <th className="text-right">Qty</th>
-                      <th>Unit</th>
-                      <th className="text-right">Unit price</th>
-                      <th className="text-right">Total</th>
+                      <th scope="col">Description</th>
+                      <th scope="col" className="text-right">Qty</th>
+                      <th scope="col">Unit</th>
+                      <th scope="col" className="text-right">Unit price</th>
+                      <th scope="col" className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {job.lines.map((line) => (
                       <tr key={line.id}>
                         <td>{line.description}</td>
-                        <td className="text-right tnum">{line.quantity.toLocaleString("en-GB")}</td>
+                        <td className="text-right tnum">{toNumber(line.quantity).toLocaleString("en-GB")}</td>
                         <td className="text-muted">{line.unit}</td>
                         <td className="text-right tnum">{fmtMoney(line.unitPrice, currency)}</td>
                         <td className="text-right font-medium text-white tnum">
@@ -237,13 +240,15 @@ export default async function AcceptQuote({
                     className="text-center text-lg tracking-[0.4em] tnum"
                   />
                 </Field>
-                <button className="btn-primary btn-lg w-full justify-center">
+                <SubmitButton className="btn-primary btn-lg w-full justify-center" pendingText="Confirming…">
                   Accept {fmtMoney(job.total, currency)}
-                </button>
+                </SubmitButton>
               </form>
               <form action={requestAcceptanceCode} className="mt-3">
                 <input type="hidden" name="jobId" value={job.id} />
-                <button className="btn-ghost w-full justify-center text-xs">Send a new code</button>
+                <SubmitButton className="btn-ghost w-full justify-center text-xs" pendingText="Sending…">
+                  Send a new code
+                </SubmitButton>
               </form>
             </SectionCard>
           ) : (
@@ -256,12 +261,13 @@ export default async function AcceptQuote({
               </p>
               <form action={requestAcceptanceCode}>
                 <input type="hidden" name="jobId" value={job.id} />
-                <button
+                <SubmitButton
                   className="btn-primary btn-lg w-full justify-center"
                   disabled={Boolean(coBlocking)}
+                  pendingText="Sending code…"
                 >
                   Accept quote
-                </button>
+                </SubmitButton>
               </form>
               {coBlocking && (
                 <p className="mt-2 text-xs text-warn">
@@ -278,7 +284,9 @@ export default async function AcceptQuote({
                 <Field label="Reason" hint="Shared with the yard.">
                   <Input name="reason" placeholder="Why the quote is being rejected" />
                 </Field>
-                <button className="btn-danger w-full justify-center">Reject quote</button>
+                <SubmitButton className="btn-danger w-full justify-center" pendingText="Rejecting…">
+                  Reject quote
+                </SubmitButton>
               </form>
             </SectionCard>
           )}

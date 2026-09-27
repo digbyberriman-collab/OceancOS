@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { listProjectsForUser } from "@/lib/project";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
+import { resolveUserNames } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +28,13 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
   });
   if (!co) return notFound();
 
-  const decidedIds = co.approvals.map((a) => a.decidedById).filter((x): x is string => !!x);
-  const names = new Map(
-    (
-      await prisma.user.findMany({
-        where: { id: { in: [...decidedIds, co.createdById] } },
-        select: { id: true, name: true },
-      })
-    ).map((u) => [u.id, u.name])
-  );
+  const projects = await listProjectsForUser(user.id);
+  if (!projects.some((p) => p.id === co.projectId)) return notFound();
+
+  const names = await resolveUserNames([
+    ...co.approvals.map((a) => a.decidedById),
+    co.createdById,
+  ]);
 
   const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
 
@@ -85,8 +85,8 @@ export default async function ChangeOrderPrint({ params }: { params: { id: strin
           <Row label="Department" value={co.departmentCode ?? "—"} />
           <Row label="Raised by" value={names.get(co.createdById) ?? "—"} />
           <Row label="Raised on" value={fmtDateTime(co.createdAt)} />
-          {canSeeMoney && <Row label="Estimated cost" value={fmtMoney(co.estimatedCost)} />}
-          {canSeeMoney && <Row label="Approved cost" value={fmtMoney(co.approvedCost)} />}
+          {canSeeMoney && <Row label="Estimated cost" value={fmtMoney(co.estimatedCost, co.project.currency)} />}
+          {canSeeMoney && <Row label="Approved cost" value={fmtMoney(co.approvedCost, co.project.currency)} />}
           <Row
             label="Schedule impact"
             value={co.scheduleImpactDays ? `${co.scheduleImpactDays} days` : "None"}

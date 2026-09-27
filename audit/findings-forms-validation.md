@@ -882,15 +882,20 @@ crew request.** `{dueDate: ""}` returns `FAIL dueDate: Invalid date`. `.optional
 `undefined`, never `""`, and an untouched `<input type="date">` posts `""`.
 `crew-requests/new/page.tsx:104` has no `defaultValue`, so this fires on the default path.
 
-**Corrected — the empty-string finding is real, the foreign-key claim is not.**
-`{assignedToId: ""}`, `{vesselAreaId: ""}` and `{departmentCode: ""}` all parse successfully and
-are written verbatim, so the column holds `""` where it should hold `NULL`. That is a genuine
-data-integrity defect: `where: { assignedToId: null }` will not match these rows, and
-`"" !== null` breaks every "unassigned" query. But **none of the three columns carries a foreign
-key**. In `prisma/schema.prisma` the `CrewRequest` model declares `departmentCode String?`,
-`vesselAreaId String?` and `assignedToId String?` with no `@relation` on any of them; the model's
-only relations are `project` and `linkedChangeOrder`. `linkedChangeOrderId` *is* an FK — and it is
-not a field on the create form, so it cannot arrive as `""` from there.
+**Retraction, 2026-09-21: my earlier correction here was wrong.** It claimed the foreign-key half
+of this finding was false, on the grounds that `linkedChangeOrderId` "is not a field on the create
+form, so it cannot arrive as `\`\` from there." That is incorrect —
+`crew-requests/new/page.tsx:129` reads `<Select name="linkedChangeOrderId" defaultValue="">`, it
+*is* on the form, and I had the line number in front of me two paragraphs above this one when I
+wrote the claim. Reproduced directly rather than re-read this time: submitting the create form
+with no change order selected (the default "— No linked change order" option) throws
+`PrismaClientKnownRequestError P2003`, *"Foreign key constraint violated:
+`CrewRequest_linkedChangeOrderId_fkey`"*, an unhandled 500 the user hits on the default path.
 
-Severity for this finding is therefore **High, not Critical**: it corrupts data and breaks
-filters, but it does not throw at the database.
+So the original finding was right in full. `assignedToId`, `vesselAreaId` and `departmentCode`
+still carry no `@relation` and still corrupt data silently rather than throwing — that part of my
+correction holds. `linkedChangeOrderId` does carry one and does throw. **Restored to Critical.**
+
+The lesson for this audit, not just this finding: a claim I verify by reading is a claim I have
+not verified. This one was checked twice by reading and wrongly corrected both times; it took
+running the actual form to catch it. Prefer execution over inspection wherever the two disagree.

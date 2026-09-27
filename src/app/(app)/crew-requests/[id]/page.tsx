@@ -6,11 +6,15 @@ import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui/EmptyState";
 import { StatusBadge, PriorityBadge } from "@/components/ui/Badge";
 import { Field, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { transitionCrewRequest, assignCrewRequest, addCrewRequestComment } from "../actions";
 import { ArrowLeft, MessageSquare, AlertTriangle } from "lucide-react";
+import { accessibleProjectIds } from "@/lib/project";
+import { crewRequestActions } from "@/lib/workflow/crewRequest";
+import type { CrewRequestStatus } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -18,30 +22,44 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.CR_VIEW)) return notFound();
 
+  // Comments accumulate for the life of the request with no natural
+  // ceiling (ACTION_PLAN.md G4.5) — bounded to the most recent 50, fetched
+  // newest-first so `take` keeps the recent end, reversed below for the
+  // thread's oldest-first reading order.
+  const COMMENTS_CAP = 50;
   const cr = await prisma.crewRequest.findUnique({
     where: { id: params.id },
     include: {
       project: { include: { vessel: true } },
-      comments: { orderBy: { createdAt: "asc" } },
+      comments: { orderBy: { createdAt: "desc" }, take: COMMENTS_CAP },
       linkedChangeOrder: true,
+      _count: { select: { comments: true } },
     },
   });
   if (!cr) return notFound();
 
-  const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  const comments = [...cr.comments].reverse();
+
+  const projectIds = await accessibleProjectIds(user.id);
+  if (!projectIds.includes(cr.projectId)) return notFound();
+
+  // Doubles as the assignee picker's option list (below), so this genuinely
+  // needs every active user, not just the ones referenced on this request —
+  // `take` is a safety cap, not a real page size (ACTION_PLAN.md G4.1).
+  const users = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: "asc" },
+    take: 500,
+  });
   const userMap = new Map(users.map((u) => [u.id, u.name]));
 
-  const transitions: Record<string, { to: string; label: string; tone?: "danger" }[]> = {
-    NEW: [{ to: "TRIAGED", label: "Triage" }, { to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    TRIAGED: [{ to: "ASSIGNED", label: "Mark Assigned" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    ASSIGNED: [{ to: "IN_PROGRESS", label: "Start Work" }, { to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    IN_PROGRESS: [{ to: "BLOCKED", label: "Mark Blocked" }, { to: "AWAITING_APPROVAL", label: "Await Approval" }, { to: "COMPLETED", label: "Complete" }],
-    BLOCKED: [{ to: "IN_PROGRESS", label: "Resume Work" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    AWAITING_APPROVAL: [{ to: "IN_PROGRESS", label: "Back to Work" }, { to: "COMPLETED", label: "Complete" }, { to: "REJECTED", label: "Reject", tone: "danger" }],
-    COMPLETED: [{ to: "CLOSED", label: "Close" }],
-    REJECTED: [{ to: "NEW", label: "Reopen" }],
-    CLOSED: [],
-  };
+  // Filtered by permission — the static map this replaced rendered every
+  // button to every viewer regardless of whether they held anything at all
+  // (part of AUDIT_REPORT.md's Critical C6).
+  const allowedTransitions = crewRequestActions(cr.status as CrewRequestStatus).filter((t) =>
+    hasPermission(user, t.permission)
+  );
 
   const now = new Date();
   const isOverdue =
@@ -106,7 +124,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
                 </span>
               </DefRow>
               <DefRow label="Cost Impact">
-                <span className="tnum font-medium">{fmtMoney(cr.costImpact)}</span>
+                <span className="tnum font-medium">{fmtMoney(cr.costImpact, cr.project.currency)}</span>
               </DefRow>
               <DefRow label="Schedule Impact">
                 {cr.scheduleImpactDays ? (
@@ -134,14 +152,14 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           </SectionCard>
 
           {/* Workflow actions */}
-          {(transitions[cr.status] ?? []).length > 0 && (
+          {allowedTransitions.length > 0 && (
             <SectionCard title="Workflow Actions">
               <div className="flex flex-wrap gap-2">
-                {(transitions[cr.status] ?? []).map((t) => (
+                {allowedTransitions.map((t) => (
                   <form key={t.to} action={async () => { "use server"; await transitionCrewRequest(cr.id, t.to); }}>
-                    <button className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
+                    <SubmitButton className={t.tone === "danger" ? "btn-danger" : "btn-primary"}>
                       {t.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
@@ -162,7 +180,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
                   ))}
                 </Select>
               </Field>
-              <button className="btn-primary w-full">Save Assignment</button>
+              <SubmitButton className="btn-primary w-full" pendingText="Saving…">Save Assignment</SubmitButton>
             </form>
           ) : (
             <p className="text-sm text-muted">
@@ -177,19 +195,24 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
         title="Comments"
         className="mb-4"
         headerRight={
-          cr.comments.length > 0 ? (
-            <span className="badge badge-muted tnum">{cr.comments.length}</span>
+          cr._count.comments > 0 ? (
+            <span className="badge badge-muted tnum">{cr._count.comments}</span>
           ) : undefined
         }
       >
         <div className="space-y-3 mb-5 max-h-72 overflow-y-auto">
-          {cr.comments.length === 0 && (
+          {cr._count.comments === 0 && (
             <div className="flex items-center gap-2 text-sm text-muted py-2">
               <MessageSquare size={14} />
               No comments yet.
             </div>
           )}
-          {cr.comments.map((c) => (
+          {cr._count.comments > COMMENTS_CAP && (
+            <p className="text-xs text-faint">
+              Showing the {COMMENTS_CAP} most recent of {cr._count.comments} comments.
+            </p>
+          )}
+          {comments.map((c) => (
             <div key={c.id} className="text-sm bg-ink-850/40 rounded-lg px-3 py-2.5 border border-line-soft">
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-medium text-white text-xs">
@@ -206,7 +229,7 @@ export default async function CrewRequestDetail({ params }: { params: { id: stri
           <Field label="Add a comment">
             <Textarea name="body" required placeholder="Write a comment…" />
           </Field>
-          <button className="btn-primary">Post Comment</button>
+          <SubmitButton className="btn-primary" pendingText="Posting…">Post Comment</SubmitButton>
         </form>
       </SectionCard>
 

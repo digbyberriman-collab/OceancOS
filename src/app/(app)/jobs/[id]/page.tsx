@@ -8,19 +8,22 @@ import {
   MessageSquare,
   Paperclip,
   Star,
-  Printer,
 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
 import { listProjectsForUser } from "@/lib/project";
-import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { PageHeader } from "@/components/ui/EmptyState";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { SectionCard } from "@/components/workflow/SectionCard";
 import { DefGrid, DefRow } from "@/components/workflow/DefinitionGrid";
 import { Field, Textarea } from "@/components/ui/Form";
-import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/utils";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { PdfButton } from "@/components/ui/PdfButton";
+import { fmtBytes, fmtDate, fmtDateTime, fmtMoney, toNumber } from "@/lib/utils";
+import { downloadUrl } from "@/lib/storage";
 import { daysUntilExpiry, isExpired, jobActions } from "@/lib/jobs/workflow";
+import { resolveUserNames } from "@/lib/users";
 import {
   CONTRACT_TYPE_LABELS,
   PRICING_BASIS_LABELS,
@@ -43,6 +46,14 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
   const user = await requireUser();
   if (!hasPermission(user, PERMISSIONS.JOB_VIEW)) return notFound();
 
+  // Neither history nor comments has a natural ceiling — a contested
+  // variation accumulates a row per transition and a comment per exchange
+  // for the life of the job, and both were fetched whole on every view
+  // (ACTION_PLAN.md G4.5). Bounded to the most recent N, with the true
+  // totals in `_count` so the page can say when there's more.
+  const HISTORY_CAP = 20;
+  const COMMENTS_CAP = 50;
+  const ATTACHMENTS_CAP = 50;
   const job = await prisma.job.findUnique({
     where: { id: params.id },
     include: {
@@ -52,41 +63,36 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
       lines: { orderBy: { sort: "asc" } },
       notes: { orderBy: [{ kind: "asc" }, { sort: "asc" }] },
       variation: true,
-      history: { orderBy: { createdAt: "desc" } },
+      history: { orderBy: { createdAt: "desc" }, take: HISTORY_CAP },
+      // Fetched newest-first so `take` keeps the *recent* end of a long
+      // thread rather than the oldest, then reversed below for the
+      // chronological, oldest-first reading order the thread is rendered in.
       comments: {
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         include: { attachments: true },
+        take: COMMENTS_CAP,
       },
-      attachments: { orderBy: { createdAt: "desc" } },
+      attachments: { orderBy: { createdAt: "desc" }, take: ATTACHMENTS_CAP },
       favourites: { where: { userId: user.id } },
+      _count: { select: { history: true, comments: true, attachments: true } },
     },
   });
   if (!job) return notFound();
 
+  const comments = [...job.comments].reverse();
+
   const projects = await listProjectsForUser(user.id);
   if (!projects.some((p) => p.id === job.projectId)) return notFound();
 
-  const people = await prisma.user.findMany({
-    where: {
-      id: {
-        in: Array.from(
-          new Set(
-            [
-              job.createdById,
-              job.designatedAuthoriserId,
-              job.clientAcceptedById,
-              job.yardAcceptedById,
-              ...job.comments.map((c) => c.authorId),
-              ...job.history.map((h) => h.actorId).filter((x): x is string => !!x),
-            ].filter((x): x is string => !!x)
-          )
-        ),
-      },
-    },
-    select: { id: true, name: true },
-  });
-  const nameOf = (id: string | null | undefined) =>
-    (id && people.find((p) => p.id === id)?.name) || "—";
+  const usersMap = await resolveUserNames([
+    job.createdById,
+    job.designatedAuthoriserId,
+    job.clientAcceptedById,
+    job.yardAcceptedById,
+    ...job.comments.map((c) => c.authorId),
+    ...job.history.map((h) => h.actorId),
+  ]);
+  const nameOf = (id: string | null | undefined) => (id && usersMap.get(id)) || "—";
 
   const currency = job.currency || job.project.currency;
   const expired = isExpired(job);
@@ -100,13 +106,28 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
   );
   const canQuote =
     hasPermission(user, PERMISSIONS.JOB_ISSUE_QUOTE) &&
-    ["NEW_REQUEST"].includes(job.status);
+    ["NEW_REQUEST", "QUOTE_SENT", "EXPIRED"].includes(job.status);
   const canProgress =
-    hasPermission(user, PERMISSIONS.JOB_PROGRESS) && job.status === "ACCEPTED";
+    hasPermission(user, PERMISSIONS.JOB_PROGRESS) &&
+    ["ACCEPTED", "MINOR_DEFICIENCY"].includes(job.status);
 
   const invoicingTerms = Array.isArray(job.variation?.invoicingTerms)
     ? (job.variation?.invoicingTerms as InvoicingTerm[])
     : [];
+
+  // Every Attachment (job-level and per-comment) resolves to a download URL up
+  // front, since generating one is async (a signed GET on the S3 driver).
+  const allAttachments = [...job.attachments, ...job.comments.flatMap((c) => c.attachments)];
+  const hrefById = new Map<string, string | null>(
+    await Promise.all(
+      allAttachments.map(
+        async (a): Promise<[string, string | null]> => [
+          a.id,
+          a.url ?? (a.storageKey ? await downloadUrl(a.storageKey) : null),
+        ]
+      )
+    )
+  );
 
   return (
     <div className="animate-fade-up">
@@ -128,18 +149,15 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
               <StatusBadge value={job.status} />
               <form action={toggleJobFavourite}>
                 <input type="hidden" name="jobId" value={job.id} />
-                <button
+                <SubmitButton
                   className={`btn text-xs ${isFavourite ? "border-warn/40 text-warn" : ""}`}
                   aria-pressed={isFavourite}
                 >
                   <Star size={13} className={isFavourite ? "fill-warn" : ""} />
                   {isFavourite ? "Favourited" : "Favourite"}
-                </button>
+                </SubmitButton>
               </form>
-              <a href={`/api/export/jobs/${job.id}`} className="btn" target="_blank" rel="noopener">
-                <Printer size={14} />
-                PDF
-              </a>
+              <PdfButton href={`/api/export/jobs/${job.id}`} />
             </>
           }
         />
@@ -181,18 +199,18 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                 <table className="table-base">
                   <thead>
                     <tr>
-                      <th>Description</th>
-                      <th className="text-right">Quantity</th>
-                      <th>Unit</th>
-                      <th className="text-right">Unit price</th>
-                      <th className="text-right">Total</th>
+                      <th scope="col">Description</th>
+                      <th scope="col" className="text-right">Quantity</th>
+                      <th scope="col">Unit</th>
+                      <th scope="col" className="text-right">Unit price</th>
+                      <th scope="col" className="text-right">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {job.lines.map((line) => (
                       <tr key={line.id}>
                         <td>{line.description}</td>
-                        <td className="text-right tnum">{line.quantity.toLocaleString("en-GB")}</td>
+                        <td className="text-right tnum">{toNumber(line.quantity).toLocaleString("en-GB")}</td>
                         <td className="text-muted">{line.unit}</td>
                         <td className="text-right tnum">{fmtMoney(line.unitPrice, currency)}</td>
                         <td className="text-right font-medium text-white tnum">
@@ -200,6 +218,8 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                  <tfoot>
                     <tr>
                       <td colSpan={4} className="text-right font-medium text-muted">
                         Total
@@ -208,13 +228,55 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                         {fmtMoney(job.total, currency)}
                       </td>
                     </tr>
-                  </tbody>
+                  </tfoot>
                 </table>
               </div>
             ) : (
               <p className="text-sm text-muted">
                 Not yet priced. The yard adds the lines when it issues the quote.
               </p>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Attachments"
+            headerRight={
+              job._count.attachments > 0 ? (
+                <span className="badge badge-muted tnum">{job._count.attachments}</span>
+              ) : undefined
+            }
+          >
+            {job._count.attachments === 0 ? (
+              <p className="text-sm text-muted py-1">No files attached to this request.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {job._count.attachments > ATTACHMENTS_CAP && (
+                  <li className="text-xs text-faint pb-1">
+                    Showing the {ATTACHMENTS_CAP} most recent of {job._count.attachments}.
+                  </li>
+                )}
+                {job.attachments.map((file) => {
+                  const href = hrefById.get(file.id);
+                  return (
+                    <li key={file.id} className="flex items-center gap-2 text-sm">
+                      <Paperclip size={13} className="text-faint shrink-0" />
+                      {href ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-accent hover:text-accent-bright transition-colors truncate"
+                        >
+                          {file.filename}
+                        </a>
+                      ) : (
+                        <span className="truncate">{file.filename}</span>
+                      )}
+                      <span className="ml-auto shrink-0 text-xs text-faint tnum">{fmtBytes(file.size)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </SectionCard>
 
@@ -289,19 +351,24 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
           <SectionCard
             title="Comments"
             headerRight={
-              job.comments.length > 0 ? (
-                <span className="badge badge-muted tnum">{job.comments.length}</span>
+              job._count.comments > 0 ? (
+                <span className="badge badge-muted tnum">{job._count.comments}</span>
               ) : undefined
             }
           >
             <div className="mb-5 max-h-96 space-y-3 overflow-y-auto">
-              {job.comments.length === 0 && (
+              {job._count.comments === 0 && (
                 <div className="flex items-center gap-2 py-2 text-sm text-muted">
                   <MessageSquare size={14} />
                   No comments yet.
                 </div>
               )}
-              {job.comments.map((comment) => (
+              {job._count.comments > COMMENTS_CAP && (
+                <p className="text-xs text-faint">
+                  Showing the {COMMENTS_CAP} most recent of {job._count.comments} comments.
+                </p>
+              )}
+              {comments.map((comment) => (
                 <div
                   key={comment.id}
                   className={`rounded-lg border px-3 py-2.5 text-sm ${
@@ -321,12 +388,26 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                   <div className="whitespace-pre-wrap leading-relaxed">{comment.body}</div>
                   {comment.attachments.length > 0 && (
                     <ul className="mt-2 space-y-1">
-                      {comment.attachments.map((file) => (
-                        <li key={file.id} className="flex items-center gap-1.5 text-xs text-muted">
-                          <Paperclip size={11} />
-                          {file.filename}
-                        </li>
-                      ))}
+                      {comment.attachments.map((file) => {
+                        const href = hrefById.get(file.id);
+                        return (
+                          <li key={file.id} className="flex items-center gap-1.5 text-xs text-muted">
+                            <Paperclip size={11} />
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener"
+                                className="text-accent hover:text-accent-bright transition-colors"
+                              >
+                                {file.filename}
+                              </a>
+                            ) : (
+                              file.filename
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -340,13 +421,13 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                   <Textarea name="body" required placeholder="Write a comment…" />
                 </Field>
                 <div className="flex flex-wrap gap-2">
-                  <button name="kind" value="MESSAGE" className="btn-primary">
+                  <SubmitButton name="kind" value="MESSAGE" className="btn-primary" pendingText="Posting…">
                     Send message
-                  </button>
+                  </SubmitButton>
                   {hasPermission(user, PERMISSIONS.MINUTES_RECORD) && (
-                    <button name="kind" value="MINUTE" className="btn">
+                    <SubmitButton name="kind" value="MINUTE" className="btn" pendingText="Posting…">
                       Record minute
-                    </button>
+                    </SubmitButton>
                   )}
                 </div>
               </form>
@@ -439,7 +520,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
             <SectionCard title="Yard">
               <Link href={`/jobs/${job.id}/quote`} className="btn-primary w-full justify-center">
                 <FileText size={14} />
-                Price this request
+                {job.status === "NEW_REQUEST" ? "Price this request" : "Revise quote"}
               </Link>
             </SectionCard>
           )}
@@ -458,7 +539,7 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                     className="input-base"
                   />
                 </Field>
-                <button className="btn-primary">Save</button>
+                <SubmitButton className="btn-primary" pendingText="Saving…">Save</SubmitButton>
               </form>
             </SectionCard>
           )}
@@ -474,16 +555,17 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
                       <input
                         name="reason"
                         placeholder="Reason (recorded on the job)"
+                        aria-label="Reason"
                         className="input-base text-xs"
                       />
                     )}
-                    <button
+                    <SubmitButton
                       className={`w-full justify-center ${
                         action.tone === "danger" ? "btn-danger" : action.tone === "primary" ? "btn-primary" : "btn"
                       }`}
                     >
                       {action.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 ))}
               </div>
@@ -503,7 +585,14 @@ export default async function JobDetail({ params }: { params: { id: string } }) 
               </SectionCard>
             )}
 
-          <SectionCard title="History">
+          <SectionCard
+            title="History"
+            headerRight={
+              job._count.history > HISTORY_CAP ? (
+                <span className="text-[11px] text-faint">most recent {HISTORY_CAP} of {job._count.history}</span>
+              ) : undefined
+            }
+          >
             <ul className="max-h-72 space-y-2.5 overflow-y-auto text-sm">
               {job.history.map((entry) => (
                 <li key={entry.id} className="flex gap-2.5">

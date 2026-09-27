@@ -2,8 +2,10 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertPermission, PERMISSIONS } from "@/lib/rbac";
-import { PageHeader } from "@/components/ui/EmptyState";
+import { getActiveProject } from "@/lib/project";
+import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
 import { Field, Input, Select, Textarea } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CREW_REQUEST_CATEGORIES, DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createCrewRequest } from "../actions";
 import { ArrowLeft } from "lucide-react";
@@ -13,10 +15,23 @@ export const dynamic = "force-dynamic";
 export default async function NewCrewRequest() {
   const user = await requireUser();
   assertPermission(user, PERMISSIONS.CR_CREATE);
-  const projects = await prisma.project.findMany({ where: { archivedAt: null }, include: { vessel: true } });
-  const users = await prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } });
-  const areas = await prisma.vesselArea.findMany();
-  const cos = await prisma.changeOrder.findMany({ where: { status: { notIn: ["CLOSED", "CANCELLED"] } }, orderBy: { createdAt: "desc" }, take: 50 });
+
+  // The project is the caller's active project, not a choice on this form —
+  // see the note on CrewRequestCreateSchema in lib/validators.ts.
+  const project = await getActiveProject(user.id);
+  if (!project) return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
+
+  const users = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, name: true, email: true },
+    orderBy: { name: "asc" },
+  });
+  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
+  const cos = await prisma.changeOrder.findMany({
+    where: { projectId: project.id, status: { notIn: ["CLOSED", "CANCELLED"] } },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
 
   return (
     <div className="animate-fade-up">
@@ -30,32 +45,20 @@ export default async function NewCrewRequest() {
         </Link>
         <PageHeader
           title="New Crew Request"
-          eyebrow="Crew Requests"
+          eyebrow={project.code ?? project.name}
           subtitle="Capture an operational item with a clear owner and due date."
         />
       </div>
 
       <form action={createCrewRequest} className="max-w-2xl space-y-0">
-        {/* Project & core */}
-        <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
-          <div className="eyebrow mb-1">Project</div>
-          <Field label="Project">
-            <Select name="projectId" required>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.vessel.name} — {p.name}</option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-
         {/* Details */}
-        <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
+        <div className="surface p-6 rounded-b-none border-b-0 space-y-5">
           <div className="eyebrow mb-1">Request Details</div>
           <Field label="Title">
             <Input name="title" required minLength={3} maxLength={200} placeholder="Brief description of the request…" />
           </Field>
           <Field label="Description">
-            <Textarea name="description" required placeholder="Full details, context, and what resolution looks like…" />
+            <Textarea name="description" required minLength={3} placeholder="Full details, context, and what resolution looks like…" />
           </Field>
         </div>
 
@@ -110,7 +113,7 @@ export default async function NewCrewRequest() {
         <div className="surface p-6 rounded-none border-t-0 border-b-0 space-y-5">
           <div className="eyebrow mb-1">Impact</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Field label="Cost Impact (EUR)">
+            <Field label={`Cost Impact (${project.currency})`}>
               <Input type="number" name="costImpact" min={0} step="0.01" defaultValue={0} />
             </Field>
             <Field label="Schedule Impact (days)">
@@ -136,9 +139,9 @@ export default async function NewCrewRequest() {
             <p className="text-xs text-muted">
               The request will be created in <span className="font-medium text-white">New</span> status and routed for triage.
             </p>
-            <button className="btn-primary btn-lg" type="submit">
+            <SubmitButton className="btn-primary btn-lg" pendingText="Creating…">
               Create Request
-            </button>
+            </SubmitButton>
           </div>
         </div>
       </form>

@@ -12,6 +12,7 @@ import {
   MIN_PASSWORD_LENGTH,
 } from "@/lib/passwordReset";
 import { Field, Input } from "@/components/ui/Form";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 import { BrandMark } from "@/components/auth/BrandMark";
 import { BrandPanel } from "@/components/auth/BrandPanel";
 
@@ -141,7 +142,9 @@ export default async function ResetPage({
                     minLength={MIN_PASSWORD_LENGTH}
                   />
                 </Field>
-                <button className="btn-primary btn-lg w-full">Set password</button>
+                <SubmitButton className="btn-primary btn-lg w-full" pendingText="Setting password…">
+                  Set password
+                </SubmitButton>
               </form>
             </div>
           )}

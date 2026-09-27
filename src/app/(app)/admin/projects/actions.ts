@@ -10,7 +10,25 @@ import {
   parseDateField,
   validateYardPeriod,
 } from "@/lib/projectDates";
+import { requireProjectAccess } from "@/lib/project";
+import { notFound } from "@/lib/errors";
+import { setFormFlash } from "@/lib/formFlash";
 import { PROJECT_TYPES } from "@/lib/enums";
+
+export type ProjectFormFlash = {
+  error: string;
+  values: {
+    name: string;
+    type: string;
+    code: string;
+    yardName: string;
+    currency: string;
+    arrivalDate: string;
+    haulOutDate: string;
+    seaTrialsDate: string;
+    departureDate: string;
+  };
+};
 
 /**
  * Update a project's name, type, code and yard period.
@@ -26,8 +44,35 @@ export async function updateProjectAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
 
+  // Preserved verbatim (not re-derived from the parsed/validated values) so
+  // a rejected submission re-renders exactly what was typed, per
+  // ACTION_PLAN.md G3.6 — not the closest legal value.
+  const rawValues: ProjectFormFlash["values"] = {
+    name: String(formData.get("name") ?? ""),
+    type: String(formData.get("type") ?? ""),
+    code: String(formData.get("code") ?? ""),
+    yardName: String(formData.get("yardName") ?? ""),
+    currency: String(formData.get("currency") ?? "EUR"),
+    arrivalDate: String(formData.get("arrivalDate") ?? ""),
+    haulOutDate: String(formData.get("haulOutDate") ?? ""),
+    seaTrialsDate: String(formData.get("seaTrialsDate") ?? ""),
+    departureDate: String(formData.get("departureDate") ?? ""),
+  };
+  const back = (error: string): never => {
+    setFormFlash(`project-${id}`, { error, values: rawValues } satisfies ProjectFormFlash);
+    redirect(`/admin/projects?id=${id}`);
+  };
+
   const existing = await prisma.project.findUnique({ where: { id } });
-  if (!existing) redirect("/admin/projects?err=missing");
+  // A stale link (the project was archived or removed elsewhere) — not
+  // something retyping the form fixes, so this is the ActionError boundary,
+  // not a flash (AUDIT_REPORT.md T3 / ACTION_PLAN.md G3.6).
+  if (!existing) throw notFound("That project");
+
+  // PROJ_EDIT is a role permission, not proof this project is one the
+  // caller's role scope reaches — a project-scoped PM otherwise edits any
+  // project in the database by id.
+  await requireProjectAccess(user.id, id);
 
   const dates = {
     arrivalDate: parseDateField(formData.get("arrivalDate")),
@@ -37,30 +82,22 @@ export async function updateProjectAction(formData: FormData) {
   };
 
   const problems = validateYardPeriod(dates);
-  if (problems.length) {
-    redirect(`/admin/projects?id=${id}&err=${encodeURIComponent(problems[0].message)}`);
-  }
+  if (problems.length) back(problems[0].message);
 
   const code = normaliseProjectCode(String(formData.get("code") ?? ""));
 
   // The code is unique, so a clash must be reported rather than thrown.
   if (code && code !== existing.code) {
     const clash = await prisma.project.findUnique({ where: { code } });
-    if (clash) {
-      redirect(
-        `/admin/projects?id=${id}&err=${encodeURIComponent(`Code ${code} is already used by another project.`)}`
-      );
-    }
+    if (clash) back(`Code ${code} is already used by another project.`);
   }
 
   // Name and type are optional in the submission so older forms keep working.
   const nameInput = formData.get("name");
   const name = nameInput == null ? existing.name : String(nameInput).trim();
-  if (!name) redirect(`/admin/projects?id=${id}&err=${encodeURIComponent("A project needs a name.")}`);
+  if (!name) back("A project needs a name.");
   const type = String(formData.get("type") ?? existing.type);
-  if (!(PROJECT_TYPES as readonly string[]).includes(type)) {
-    redirect(`/admin/projects?id=${id}&err=${encodeURIComponent("Choose a project type from the list.")}`);
-  }
+  if (!(PROJECT_TYPES as readonly string[]).includes(type)) back("Choose a project type from the list.");
 
   const yardName = String(formData.get("yardName") ?? "").trim() || null;
   const currency = String(formData.get("currency") ?? "EUR").trim().toUpperCase() || "EUR";

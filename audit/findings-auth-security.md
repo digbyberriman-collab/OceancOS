@@ -569,3 +569,15 @@ server-side guard regardless — hiding a link is not a control.
    a quote fingerprint. Its weaknesses are all external: it can be skipped entirely via
    `transitionJob`, code requests are unlimited and each invalidates the last, and the hash is an
    unsalted SHA-256 over a potentially default secret.
+
+---
+
+## Phase 5 note (G2.1, orchestrator)
+
+This finding's location list names `contractors, suppliers` alongside the other unscoped list
+pages. Fixed everywhere else in this list, those two structurally cannot be: `Contractor` and
+`Supplier` declare no `projectId` column in `prisma/schema.prisma` at all — they are company
+directories, not records tied to one refit project, and nothing else in the schema relates them to
+one either. Scoping them would need a schema migration (and a design decision about what "which
+project can see this supplier" even means for a shared directory), which is out of scope for a
+mechanical scoping pass. Left unscoped, deliberately, not missed.

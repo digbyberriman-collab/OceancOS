@@ -7,6 +7,7 @@
 
 import { PERMISSIONS, type PermissionKey } from "@/lib/rbac";
 import type { ChangeOrderStatus, CoApprovalStage } from "@/lib/enums";
+import { conflict } from "@/lib/errors";
 
 /** Permission required to decide each approval stage. */
 export const CO_STAGE_PERMISSION: Record<CoApprovalStage, PermissionKey> = {
@@ -21,14 +22,28 @@ export const CO_STAGE_PERMISSION: Record<CoApprovalStage, PermissionKey> = {
 
 /**
  * Every transition the server will accept, keyed by current status.
- * Enforced in `transitionChangeOrder`; nothing may move a change order
- * along an edge that is not listed here.
+ * Enforced in `transitionChangeOrder` and, since G2.2, in
+ * `decideChangeOrderApproval` too — every write to `status` goes through
+ * `assertTransitionChangeOrder`, with no exception for the approval path.
+ *
+ * SUBMITTED and MORE_INFO both reach APPROVED and REJECTED directly, not
+ * only via UNDER_REVIEW: a decision that completes or rejects the chain can
+ * land while the change order is in any of the three "awaiting a decision"
+ * statuses a pending approval row is valid in (the same three
+ * `decideChangeOrderApproval` checks against, and the approvals queue
+ * filters to). Requiring a detour through UNDER_REVIEW first would need a
+ * self-transition to represent "a decision was recorded but the chain isn't
+ * settled yet", which the second test below deliberately forbids.
  */
 export const CO_LEGAL_TRANSITIONS: Record<ChangeOrderStatus, ChangeOrderStatus[]> = {
   DRAFT: ["SUBMITTED", "CANCELLED"],
-  SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "CANCELLED"],
+  SUBMITTED: ["UNDER_REVIEW", "MORE_INFO", "APPROVED", "REJECTED", "CANCELLED"],
   UNDER_REVIEW: ["MORE_INFO", "APPROVED", "REJECTED"],
-  MORE_INFO: ["UNDER_REVIEW", "CANCELLED"],
+  // MORE_INFO → DRAFT ("Revise", ACTION_PLAN.md G3.9): an approver asking a
+  // question used to have no route back to an editable state at all — only
+  // REJECTED did. Paired with `updateChangeOrder`, this is the edit loop the
+  // MORE_INFO edge was always meant to support.
+  MORE_INFO: ["UNDER_REVIEW", "APPROVED", "REJECTED", "CANCELLED", "DRAFT"],
   APPROVED: ["IN_PROGRESS", "CANCELLED"],
   IN_PROGRESS: ["COMPLETED", "CANCELLED"],
   COMPLETED: ["CLOSED"],
@@ -44,9 +59,18 @@ export function canTransitionChangeOrder(from: ChangeOrderStatus, to: ChangeOrde
   return CO_LEGAL_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * `ActionError`, not a bare `Error` (ACTION_PLAN.md G3.6, AUDIT_REPORT.md
+ * T3's "two incompatible failure conventions"). Reached only when the
+ * change order moved between render and click — someone else acted first,
+ * or a double-submit landed after the first one already succeeded.
+ */
 export function assertTransitionChangeOrder(from: ChangeOrderStatus, to: ChangeOrderStatus) {
   if (!canTransitionChangeOrder(from, to)) {
-    throw new Error(`Illegal transition ${from} → ${to}`);
+    const label = (s: ChangeOrderStatus) => s.replace(/_/g, " ").toLowerCase();
+    throw conflict(
+      `This change order is now ${label(from)}, so it can no longer move to ${label(to)}. Reload to see its current state.`
+    );
   }
 }
 
@@ -98,4 +122,130 @@ export function changeOrderActions(from: ChangeOrderStatus): ChangeOrderAction[]
       permission: permissionForTransition(to),
       tone: to === "CANCELLED" ? ("danger" as const) : ("primary" as const),
     }));
+}
+
+// ---------------------------------------------------------------------------
+// The approval-decision path.
+//
+// Pure decision logic for decideChangeOrderApproval, split out for the same
+// reason resolveProjectWhere is: no Prisma, no side effects, directly
+// unit-tested. This is the part of G2.2's rewrite that fixes AUDIT_REPORT.md
+// C7 (a rejected change order could become APPROVED) and the sibling
+// "approval chain's order is stored but never enforced" finding.
+// ---------------------------------------------------------------------------
+
+export type ApprovalRow = {
+  id: string;
+  stage: string;
+  decision: string;
+  required: boolean;
+  order: number;
+};
+
+/**
+ * Whether `approval` may be decided right now, given its siblings on the
+ * same chain.
+ *
+ * Refuses a row that has already been decided — no re-deciding a settled
+ * approval, which is what let one approver reverse a rejection. Refuses a
+ * row with a required sibling earlier in `order` that is still open — the
+ * chain is meant to be sequential ("CAPTAIN → TECH_MANAGER → YARD → …"),
+ * and before this nothing enforced that; finance could approve the cost
+ * before the captain had looked at it.
+ *
+ * "Still open" is `PENDING` or `MORE_INFO`. A stage that asked a question
+ * has not approved, so the stages after it wait for the answer rather than
+ * deciding around it.
+ */
+export function canDecideApproval(approval: ApprovalRow, siblings: ApprovalRow[]): boolean {
+  if (approval.decision !== "PENDING") return false;
+  return !siblings.some(
+    (s) => s.id !== approval.id && s.required && s.order < approval.order && isOpenDecision(s.decision)
+  );
+}
+
+/** A required row in either of these states still stands between the chain and APPROVED. */
+function isOpenDecision(decision: string): boolean {
+  return decision === "PENDING" || decision === "MORE_INFO";
+}
+
+/**
+ * The change order's status after `decision` is recorded on one approval,
+ * given every row on the chain post-write (the decided row included, with
+ * its new `decision` already reflected).
+ *
+ * `REJECTED` and `MORE_INFO` are unconditional — the chain does not keep
+ * going once one required stage has said either, which is the fix for C7:
+ * the old code decided completeness by counting rows still `PENDING`, and a
+ * `REJECTED` row is not `PENDING`, so it silently stopped blocking instead
+ * of stopping the chain.
+ *
+ * `APPROVED` completes the change order only once every required row reads
+ * `APPROVED`. Short of that, the return is `null` — not `"UNDER_REVIEW"` —
+ * when the change order is already `UNDER_REVIEW`: `CO_LEGAL_TRANSITIONS`
+ * deliberately has no status-to-itself edge, and `null` is the caller's
+ * signal to update the approval row without writing a status transition at
+ * all. Only a decision landing while the change order is still `SUBMITTED`
+ * or `MORE_INFO` genuinely moves it, to `UNDER_REVIEW`.
+ */
+export function nextChangeOrderStatus(
+  currentStatus: ChangeOrderStatus,
+  decision: "APPROVED" | "REJECTED" | "MORE_INFO",
+  approvalsAfterThisDecision: ApprovalRow[]
+): ChangeOrderStatus | null {
+  if (decision === "REJECTED") return "REJECTED";
+  if (decision === "MORE_INFO") return "MORE_INFO";
+
+  // Open, not just PENDING: a required stage parked at MORE_INFO has not
+  // approved, so the rest of the chain approving must not complete it.
+  const stillOpen = approvalsAfterThisDecision.some((s) => s.required && isOpenDecision(s.decision));
+  if (!stillOpen) return "APPROVED";
+  return currentStatus === "UNDER_REVIEW" ? null : "UNDER_REVIEW";
+}
+
+/** The change-order statuses a `PENDING` approval row is valid to be decided in. */
+export const CO_STATUSES_AWAITING_DECISION: ChangeOrderStatus[] = ["SUBMITTED", "UNDER_REVIEW", "MORE_INFO"];
+
+/**
+ * Approval rows still due, in the order they're due — the stage(s) to
+ * notify next after a decision that didn't complete or reject the chain.
+ * More than one row can share the lowest order, so more than one stage can
+ * be "next" at once.
+ */
+export function nextDueApprovals(approvals: ApprovalRow[]): ApprovalRow[] {
+  const pending = approvals.filter((s) => s.required && s.decision === "PENDING");
+  if (!pending.length) return [];
+  const minOrder = Math.min(...pending.map((s) => s.order));
+  return pending.filter((s) => s.order === minOrder);
+}
+
+/** The stages a change order can add or drop after creation; the base chain is fixed. */
+const OPTIONAL_STAGES: readonly CoApprovalStage[] = ["CLASS", "FLAG"];
+
+/**
+ * How the approval rows must change when a change order's review flags are
+ * edited, given the rows it has and the stages it now wants.
+ *
+ * Wanted stages with no row are created, ordered after the highest existing
+ * row so a new stage never jumps ahead of the base chain. Unwanted optional
+ * stages (CLASS, FLAG) are removed while still PENDING. One already decided
+ * is reported in `decided` instead: dropping a decision someone has made is
+ * a revision, not an edit, and the caller refuses it.
+ */
+export function approvalStageChanges(
+  existing: { id: string; stage: string; decision: string; order: number }[],
+  wanted: CoApprovalStage[]
+): { create: { stage: CoApprovalStage; order: number }[]; removeIds: string[]; decided: CoApprovalStage[] } {
+  const have = new Set(existing.map((r) => r.stage));
+  let nextOrder = existing.reduce((max, r) => Math.max(max, r.order), -1) + 1;
+  const create = wanted.filter((stage) => !have.has(stage)).map((stage) => ({ stage, order: nextOrder++ }));
+
+  const unwanted = existing.filter(
+    (r) => OPTIONAL_STAGES.includes(r.stage as CoApprovalStage) && !wanted.includes(r.stage as CoApprovalStage)
+  );
+  return {
+    create,
+    removeIds: unwanted.filter((r) => r.decision === "PENDING").map((r) => r.id),
+    decided: unwanted.filter((r) => r.decision !== "PENDING").map((r) => r.stage as CoApprovalStage),
+  };
 }

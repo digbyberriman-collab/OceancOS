@@ -1,7 +1,9 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
+import { projectScope } from "@/lib/project";
 import { PageHeader, EmptyState } from "@/components/ui/EmptyState";
+import { ComingSoon } from "@/components/ui/ComingSoon";
 import { StatusBadge } from "@/components/ui/Badge";
 import { fmtDateTime, fmtMoney } from "@/lib/utils";
 import {
@@ -62,6 +64,7 @@ export default async function LogisticsPage() {
   if (!hasPermission(user, PERMISSIONS.LOG_VIEW)) {
     return (
       <EmptyState
+        headingLevel={1}
         icon={<ShieldAlert className="h-5 w-5" />}
         title="Forbidden"
         hint="Logistics is restricted."
@@ -69,6 +72,8 @@ export default async function LogisticsPage() {
     );
   }
   const items = await prisma.logisticsItem.findMany({
+    where: await projectScope(user.id),
+    include: { project: { select: { currency: true } } },
     orderBy: [{ whenAt: "asc" }],
     take: 200,
   });
@@ -83,11 +88,7 @@ export default async function LogisticsPage() {
 
       {items.length === 0 ? (
         <div className="animate-fade-up">
-          <EmptyState
-            icon={<PackageOpen className="h-5 w-5" />}
-            title="No logistics items yet"
-            hint="Create one to schedule access, transport or deliveries."
-          />
+          <ComingSoon icon={<PackageOpen className="h-5 w-5" />} title="No logistics items yet" />
         </div>
       ) : (
         <div
@@ -148,7 +149,7 @@ export default async function LogisticsPage() {
 
                     {/* Cost — right-aligned tabular */}
                     <td className="text-right tnum text-white/80">
-                      {l.cost > 0 ? fmtMoney(l.cost) : <span className="text-faint">—</span>}
+                      {l.cost.greaterThan(0) ? fmtMoney(l.cost, l.project.currency) : <span className="text-faint">—</span>}
                     </td>
 
                     {/* Notes */}
