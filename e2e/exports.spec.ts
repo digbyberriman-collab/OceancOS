@@ -46,7 +46,9 @@ test.describe("spreadsheet export", () => {
     });
     expect(withMoney).toContain("Estimated cost");
 
+    await page.getByLabel(/account menu/i).click();
     await page.getByRole("button", { name: /sign out/i }).click();
+    await page.waitForURL("**/login");
     await signIn(page, CREW);
     const withoutMoney = await page.evaluate(async () => {
       const res = await fetch("/api/export/change-orders?format=csv");

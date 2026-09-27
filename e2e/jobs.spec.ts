@@ -18,6 +18,7 @@ async function signIn(page: Page, user: { email: string; password: string }) {
 }
 
 async function signOut(page: Page) {
+  await page.getByLabel(/account menu/i).click();
   await page.getByRole("button", { name: /sign out/i }).click();
   await page.waitForURL("**/login");
 }
@@ -237,6 +238,13 @@ test.describe("the commercial loop", () => {
     await page.goto(`${jobUrl}/accept`);
 
     await expect(page.getByText(/authorises the yard/i)).toBeVisible();
+
+    // The quote carries an exclusion, so no code is sent until it is acknowledged.
+    const acknowledge = page.getByLabel(/i have read the 1 exclusion/i);
+    await expect(acknowledge).toBeVisible();
+    await page.getByRole("button", { name: /^accept quote$/i }).click();
+    await expect(page.getByText(/six-digit code has been sent/i)).toHaveCount(0);
+    await acknowledge.check();
     await page.getByRole("button", { name: /^accept quote$/i }).click();
 
     await expect(page.getByText(/six-digit code has been sent/i)).toBeVisible();

@@ -49,6 +49,8 @@ test.describe("crew request permission coverage", () => {
 });
 
 async function signOut(page: Page) {
+  // Sign out lives in the profile menu.
+  await page.getByLabel(/account menu/i).click();
   await page.getByRole("button", { name: /sign out/i }).click();
   await page.waitForURL("**/login");
 }

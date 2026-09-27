@@ -4,6 +4,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import type { ProjectSummary } from "@/lib/project";
+import type { Theme } from "@/lib/theme";
 
 /**
  * Holds the mobile nav drawer's open/closed state, shared between TopBar
@@ -17,19 +18,22 @@ export function AppShell({
   user,
   projects,
   activeProjectId,
+  theme,
   children,
 }: {
   unread: number;
   user: { name: string; email: string; roleKeys: string[] };
   projects: ProjectSummary[];
   activeProjectId: string | null;
+  theme: Theme;
   children: ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const navTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="min-h-screen flex">
+    // The theme is read from this element's data-app-theme (tailwind.config.ts).
+    <div id="app-shell" data-app-theme={theme} className="min-h-screen flex text-body">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-ink-800 focus:px-4 focus:py-2 focus:text-sm focus:text-white"
@@ -51,6 +55,7 @@ export function AppShell({
           activeProjectId={activeProjectId}
           onOpenNav={() => setNavOpen(true)}
           navTriggerRef={navTriggerRef}
+          theme={theme}
         />
         <main id="main" className="flex-1 p-6 max-w-[1400px] w-full mx-auto">
           {children}

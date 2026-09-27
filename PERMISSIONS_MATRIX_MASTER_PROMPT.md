@@ -151,8 +151,9 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
   like `PENDING` does, and "Resume review" resets it; `updateChangeOrder` restages CLASS/FLAG rows
   through `approvalStageChanges` (`src/lib/workflow/changeOrder.ts`) when the review flags change.
 - **Shell:** `src/app/(app)/layout.tsx` renders `src/components/layout/AppShell.tsx`, which has the
-  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:52`. The `NAV` array is in
-  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:66` shows `roleKeys[0]`.
+  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:57`. The `NAV` array is in
+  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:65` passes `roleKeys[0]` to the
+  profile menu, which shows it at `UserMenu.tsx:73`.
 - **UI kit** (`src/components/ui/`): `Badge`, `ComingSoon` (the "Not yet built" state from G3.11),
   `EmptyState`, `FileDrop`, `FlashCleanup`, `Form`, `PdfButton`, `Skeleton`, `SubmitButton`
   (`useFormStatus`). **There is no Dialog component.**
@@ -177,17 +178,17 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 | D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. Reachability is scoped; permissions are not. | `src/lib/auth.ts:75-77` |
 | D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:53-54` |
 | D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:210`; `jobs/new/page.tsx:39`; `jobs/actions.ts:126-133` |
-| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:224`→`:227`, `setJobProgress` `:566`→`:569`, `addJobComment` `:630`→`:643`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:52`→`:55`, `confirmAcceptance` `:132`→`:138`, `rejectQuote` `:269`→`:273`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:125`→`:133`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
-| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:311` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
+| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:236`→`:239`, `setJobProgress` `:585`→`:588`, `addJobComment` `:649`→`:662`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:52`→`:55`, `confirmAcceptance` `:132`→`:138`, `rejectQuote` `:269`→`:273`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:144`→`:152`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
+| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:320` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
 | D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:111`), the CO print view (`print/change-orders/[id]/page.tsx:39`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:127`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
 | D7 | **Money gating is too strict in exports.** They hide prices without `financial.view`, which YARD_PM lacks, so the yard's own quote export has no prices. The job PDF (via `print/jobs/[id]`) shows money the jobs spreadsheet hides. | `src/app/api/export/jobs/route.ts:46`, `api/export/change-orders/route.ts` |
 | D8 | **Exports check the view permission; there is no export permission** (`export` was removed in G6.7 because nothing checked it). The two PDF routes load by id before any project check, which is the residue of data-api's `[EXPOSURE]` PDF finding. | `api/export/jobs/[id]/route.ts:16-20`, `api/export/change-orders/[id]/route.ts:24-28` |
 | D9 | **`/suppliers` has no permission check** (ACTION_PLAN G3.12, still open). | `suppliers/page.tsx:15-16` |
 | D10 | **The dashboard's "Recent activity" shows the global audit log to every user**, described as a deliberate exception in the page's own comment. | `dashboard/page.tsx:78` (query), `:393` (panel) |
-| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:431`, `crew-requests/actions.ts:161` |
+| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:440`, `crew-requests/actions.ts:180` |
 | D12 | **Reservation is implicit.** G6.7 deleted 13 keys for modules that have no guards yet; this work re-adds them as explicit `enforced: false` reserved keys (§5). | `audit/findings-dead-code.md:131-134` |
 | D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:32-54,131` |
-| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:66` |
+| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:65`, `UserMenu.tsx:73` |
 | D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:20,27-51` |
 
 D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are **not yet logged**.
@@ -1039,7 +1040,7 @@ export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey,
 
 **Holder lookups (D3).** Reimplement `usersWithPermissionOnProject(project, key)` on
 `holdersOf`, keeping its name and signature so its five callers do not change
-(`change-orders/actions.ts:264,410`, `jobs/actions.ts:181,527`, `jobs/[id]/accept/actions.ts:251`).
+(`change-orders/actions.ts:273,419`, `jobs/actions.ts:193,546`, `jobs/[id]/accept/actions.ts:289`).
 **This is a semantic change** from "any covering assignment grants it" (union) to "the winning
 assignments grant it, after overrides" (D-5). Call it out in the commit message. Then:
 
@@ -1441,7 +1442,7 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 10. **Approvals page (D5).**
     - Add a page gate: `approvals.view` or any CO stage key.
     - Import `CO_STAGE_PERMISSION`, delete the local `STAGE_PERM` (`approvals/page.tsx:16`), and
-      remove both `as any` (`:30` and `change-orders/actions.ts:311`).
+      remove both `as any` (`:30` and `change-orders/actions.ts:320`).
     - Scope to the active project, and show the full queue only with `approvals.view`.
 11. **Crew requests.** G2.4 already made `CR_TRANSITION_PERMISSION`
     (`src/lib/workflow/crewRequest.ts:72`) exhaustive. Its own comment defers a progress permission
