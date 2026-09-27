@@ -143,6 +143,54 @@ async function main() {
     `no real record uses a demo area (${realCoOnDemoArea} change orders, ${realCrOnDemoArea} crew requests)`
   );
 
+  // 11. yard history: every register period is a completed project with its record
+  const periods = await prisma.project.findMany({
+    where: { yardPeriod: { origin: "IMPORT" } },
+    select: {
+      code: true,
+      status: true,
+      isDemo: true,
+      vesselId: true,
+      arrivalDate: true,
+      haulOutDate: true,
+      seaTrialsDate: true,
+      departureDate: true,
+      startDate: true,
+      targetEndDate: true,
+      yardPeriod: { select: { sortEnd: true, importKey: true } },
+      _count: { select: { budgets: true, changeOrders: true, crewRequests: true, jobs: true, milestones: true } },
+    },
+  });
+  assert(periods.length >= 44, `yard periods loaded from the register (${periods.length})`);
+  const notCompleted = periods.filter((p) => p.status !== "COMPLETED" || p.isDemo).map((p) => p.code);
+  assert(!notCompleted.length, `every register yard period is completed and real (${notCompleted.join(", ") || "all"})`);
+  const falsePrecision = periods
+    .filter((p) => p.arrivalDate || p.haulOutDate || p.seaTrialsDate || p.departureDate || p.startDate || p.targetEndDate)
+    .map((p) => p.code);
+  assert(!falsePrecision.length, `no yard period carries an exact date the register never gave (${falsePrecision.join(", ") || "none"})`);
+  const withWork = periods
+    .filter((p) => p._count.budgets + p._count.changeOrders + p._count.crewRequests + p._count.jobs + p._count.milestones > 0)
+    .map((p) => p.code);
+  assert(!withWork.length, `no budget, change order, request, quote or milestone hangs off a yard period (${withWork.join(", ") || "none"})`);
+  const vesselsWithHistory = new Set(periods.map((p) => p.vesselId)).size;
+  assert(vesselsWithHistory === 17, `vessels with a yard history (${vesselsWithHistory})`);
+  const noHistoryGaps = await prisma.vesselDataGap.count({
+    where: { scope: "Yard history", issue: { startsWith: "No confirmed post-delivery" } },
+  });
+  assert(noHistoryGaps === 5, `vessels with no located yard period carry a gap saying so (${noHistoryGaps})`);
+  const [scopeLines, evidenceUnresolved] = await Promise.all([
+    prisma.projectScopeItem.count({ where: { origin: "IMPORT" } }),
+    prisma.yardPeriodEvidence.count({ where: { sourceUrl: { not: null }, sourceId: null } }),
+  ]);
+  assert(scopeLines >= 66, `yard-period scope lines loaded (${scopeLines})`);
+  assert(evidenceUnresolved === 0, `every yard-period source resolves (${evidenceUnresolved} unresolved)`);
+  const rebuild = periods.find((p) => p.code === "Y709-2023");
+  const demoArrivals = await prisma.project.findMany({ where: { isDemo: true }, select: { code: true, arrivalDate: true } });
+  const overlapping = demoArrivals
+    .filter((d) => !d.arrivalDate || !rebuild?.yardPeriod?.sortEnd || d.arrivalDate <= rebuild.yardPeriod.sortEnd)
+    .map((d) => d.code);
+  assert(!overlapping.length, `the demo workspace starts after Draak's real rebuild (${overlapping.join(", ") || "it does"})`);
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 }

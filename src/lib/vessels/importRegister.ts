@@ -208,8 +208,8 @@ export function gapFingerprint(g: { scope: string; issue: string }, yardNumber: 
   return fingerprint(["gap", g.scope, g.issue, yardNumber ?? "FLEET"]);
 }
 
-/** A project code not yet in use, starting from the yard number. */
-async function freeProjectCode(tx: Prisma.TransactionClient, base: string): Promise<string> {
+/** A project code not yet in use, starting from `base` and numbering on a clash. */
+export async function freeProjectCode(tx: Prisma.TransactionClient, base: string): Promise<string> {
   for (let n = 1; ; n++) {
     const code = n === 1 ? base : `${base}-${n}`;
     const clash = await tx.project.findUnique({ where: { code }, select: { id: true } });
@@ -285,9 +285,10 @@ export async function importVesselRegister(
         vesselIds.set(record.yardNumber, vesselId);
         vesselIdsByImo.set(record.imo, vesselId);
 
-        // Every vessel belongs to at least one project.
+        // Every vessel has a project to work in. Its yard history (completed
+        // projects) and a demo workspace parked on it do not count.
         const hasProject = await tx.project.findFirst({
-          where: { vesselId, archivedAt: null },
+          where: { vesselId, archivedAt: null, isDemo: false, status: { not: "COMPLETED" } },
           select: { id: true },
         });
         if (!hasProject) {

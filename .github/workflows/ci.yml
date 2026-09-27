@@ -59,6 +59,13 @@ jobs:
       - name: Database QA checks
         run: npm run qa
 
+      # A second run of each loader must change nothing: re-running an import
+      # against a live database is how a new register edition goes in.
+      - name: Imports are idempotent
+        run: |
+          npm run yardperiods:import -- --check
+          npm run demo:consolidate -- --check
+
   e2e:
     runs-on: ubuntu-latest
     env:

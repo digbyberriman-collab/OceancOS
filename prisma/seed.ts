@@ -8,6 +8,8 @@ import { DEFAULT_REGISTER_PATH, readVesselRegister } from "../src/lib/vessels/wo
 import { importVesselRegister } from "../src/lib/vessels/importRegister";
 import { consolidateDemo } from "../src/lib/demo/consolidate";
 import { DEMO_PRIMARY, DEMO_SECONDARY } from "../src/lib/demo/data";
+import { DEFAULT_YARD_REGISTER_PATH, readYardPeriodRegister } from "../src/lib/yardPeriods/workbook";
+import { importYardPeriods } from "../src/lib/yardPeriods/importRegister";
 
 const prisma = new PrismaClient();
 
@@ -386,6 +388,18 @@ async function main() {
   }
 
   await seedJobs(prisma, project.id, DEMO_PRIMARY.arrivalDate);
+
+  // The yard-period register: each vessel's historical refits, rebuilds,
+  // repairs and surveys, as completed projects with their scope and
+  // evidence. The same loader runs in production through
+  // `npm run yardperiods:import`.
+  const yardRegister = await readYardPeriodRegister(DEFAULT_YARD_REGISTER_PATH);
+  const yardImport = await importYardPeriods(prisma, yardRegister);
+  console.log(
+    `  yard-period register: ${yardImport.summary.projectsCreated} yard periods, ` +
+      `${yardImport.summary.scopeLinesAdded} scope lines, ${yardImport.summary.gapsAdded} data gaps`
+  );
+  for (const w of yardImport.warnings) console.warn(`    warning: ${w}`);
 
   // src/lib/sequence.ts allocates CO-/REQ- numbers from these counters, not
   // from a row count — sync them to what this seed actually created so the
