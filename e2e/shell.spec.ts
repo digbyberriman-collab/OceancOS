@@ -68,8 +68,8 @@ test.describe("project switcher", () => {
 
     const options = await switcher.locator("option").allTextContents();
     expect(options.length).toBeGreaterThanOrEqual(2);
-    expect(options.join(" ")).toContain("R-00721");
-    expect(options.join(" ")).toContain("R-00806");
+    expect(options.join(" ")).toContain("DEMO-01");
+    expect(options.join(" ")).toContain("DEMO-02");
 
     // Switch to the second project. The select's onChange fires a form
     // submit to a server action (setActiveProjectAction) that persists the

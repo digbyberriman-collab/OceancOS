@@ -16,6 +16,7 @@ import {
   assertTransitionCrewRequest,
 } from "@/lib/workflow/crewRequest";
 import type { CrewRequestStatus } from "@/lib/enums";
+import { assertAreaForProject } from "@/lib/vesselAreas";
 
 export async function createCrewRequest(formData: FormData) {
   const user = await requireUser();
@@ -29,6 +30,7 @@ export async function createCrewRequest(formData: FormData) {
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
+  await assertAreaForProject(data.vesselAreaId, project);
   const number = await nextSequence("REQ");
   const cr = await prisma.crewRequest.create({
     data: {

@@ -9,6 +9,7 @@ import { SubmitButton } from "@/components/ui/SubmitButton";
 import { CREW_REQUEST_CATEGORIES, DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createCrewRequest } from "../actions";
 import { ArrowLeft } from "lucide-react";
+import { areaWhereForProject } from "@/lib/vesselAreas";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function NewCrewRequest() {
     select: { id: true, name: true, email: true },
     orderBy: { name: "asc" },
   });
-  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
+  const areas = await prisma.vesselArea.findMany({ where: areaWhereForProject(project) });
   const cos = await prisma.changeOrder.findMany({
     where: { projectId: project.id, status: { notIn: ["CLOSED", "CANCELLED"] } },
     orderBy: { createdAt: "desc" },

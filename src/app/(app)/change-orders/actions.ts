@@ -24,6 +24,7 @@ import {
   permissionForTransition,
   type ApprovalRow,
 } from "@/lib/workflow/changeOrder";
+import { assertAreaForProject } from "@/lib/vesselAreas";
 
 function defaultApprovalStages(opts: { needsClass: boolean; needsFlag: boolean }): CoApprovalStage[] {
   const stages: CoApprovalStage[] = ["CAPTAIN", "TECH_MANAGER", "YARD", "OWNERS_REP", "FINANCE"];
@@ -46,6 +47,7 @@ export async function createChangeOrder(formData: FormData) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
+  await assertAreaForProject(data.vesselAreaId, project);
   const number = await nextSequence("CO");
   const stages = defaultApprovalStages({ needsClass: data.needsClassReview, needsFlag: data.needsFlagReview });
 
@@ -91,7 +93,10 @@ export async function updateChangeOrder(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const co = await prisma.changeOrder.findUnique({
     where: { id },
-    include: { approvals: { select: { id: true, stage: true, decision: true, order: true } } },
+    include: {
+      approvals: { select: { id: true, stage: true, decision: true, order: true } },
+      project: { select: { vesselId: true, isDemo: true } },
+    },
   });
   if (!co) throw notFound("That change order");
 
@@ -108,8 +113,9 @@ export async function updateChangeOrder(formData: FormData) {
     throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   }
   const data = parsed.data;
+  await assertAreaForProject(data.vesselAreaId, co.project);
 
-  const { approvals, ...stored } = co;
+  const { approvals, project: _project, ...stored } = co;
   const normalise = (v: unknown): unknown => (v instanceof Prisma.Decimal ? v.toNumber() : v ?? null);
   const changed = (Object.keys(data) as (keyof typeof data)[]).filter(
     (key) => normalise(data[key]) !== normalise((stored as unknown as Record<string, unknown>)[key])

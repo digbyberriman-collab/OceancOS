@@ -3,6 +3,7 @@
 // Run with: npm run qa
 import { PrismaClient } from "@prisma/client";
 import { isValidImo } from "../src/lib/vessels/fields";
+import { DEMO_PRIMARY, DEMO_VESSEL_YARD_NUMBER, FICTIONAL_VESSELS } from "../src/lib/demo/data";
 
 const prisma = new PrismaClient();
 
@@ -50,9 +51,20 @@ async function main() {
   const assignedCr = await prisma.crewRequest.findFirst({ where: { assignedToId: { not: null } } });
   assert(assignedCr != null, "an assigned crew request exists");
 
-  // 6. milestones in future
-  const upcoming = await prisma.milestone.count({ where: { date: { gte: new Date() } } });
-  assert(upcoming >= 1, `upcoming milestones (${upcoming})`);
+  // 6. milestones fall within the primary project's own yard period — checked
+  // against the project rather than today, so the check does not start
+  // failing the day the seeded period ends.
+  const primaryPeriod = await prisma.project.findUnique({
+    where: { id: DEMO_PRIMARY.id },
+    select: { arrivalDate: true, departureDate: true, milestones: { select: { name: true, date: true } } },
+  });
+  const milestones = primaryPeriod?.milestones ?? [];
+  assert(milestones.length >= 1, `primary project has milestones (${milestones.length})`);
+  const outside = milestones
+    .filter((m) => !primaryPeriod?.arrivalDate || !primaryPeriod.departureDate ||
+      m.date < primaryPeriod.arrivalDate || m.date > primaryPeriod.departureDate)
+    .map((m) => m.name);
+  assert(!outside.length, `primary project's milestones fall within its yard period (${outside.join(", ") || "all within"})`);
 
   // 7. risks rating computed
   const risk = await prisma.risk.findFirst();
@@ -68,7 +80,7 @@ async function main() {
   const codes = projects.map((p) => p.code);
   assert(new Set(codes).size === codes.length, "project codes are unique");
 
-  const primary = await prisma.project.findUnique({ where: { id: "p1" } });
+  const primary = await prisma.project.findUnique({ where: { id: DEMO_PRIMARY.id } });
   assert(!!primary?.arrivalDate && !!primary?.departureDate, "primary project has a yard period");
   assert(
     !primary?.arrivalDate || !primary?.departureDate || primary.arrivalDate < primary.departureDate,
@@ -102,6 +114,34 @@ async function main() {
   assert(orphaned === 0, `every observation's source resolves (${orphaned} unresolved)`);
   const gaps = await prisma.vesselDataGap.count();
   assert(gaps >= 149, `data gaps loaded (${gaps})`);
+
+  // 10. demo workspace: fictional, marked, and only on Draak
+  const demoProjects = await prisma.project.findMany({
+    where: { isDemo: true },
+    select: { code: true, vessel: { select: { yardNumber: true } } },
+  });
+  assert(demoProjects.length >= 2, `demo projects marked as demo (${demoProjects.length})`);
+  const strayDemo = demoProjects.filter((p) => p.vessel.yardNumber !== DEMO_VESSEL_YARD_NUMBER).map((p) => p.code);
+  assert(!strayDemo.length, `every demo project is on ${DEMO_VESSEL_YARD_NUMBER} (${strayDemo.join(", ") || "all on it"})`);
+  const primaryIsDemo = await prisma.project.findUnique({ where: { id: DEMO_PRIMARY.id }, select: { isDemo: true } });
+  assert(primaryIsDemo?.isDemo === true, "the seeded walkthrough project is marked as demo");
+  const invented = await prisma.vessel.findMany({
+    where: { id: { in: FICTIONAL_VESSELS.map((v) => v.id) } },
+    select: { name: true },
+  });
+  assert(!invented.length, `the invented demo vessels are gone (${invented.map((v) => v.name).join(", ") || "none left"})`);
+  const strayAreas = await prisma.vesselArea.count({
+    where: { isDemo: true, vessel: { yardNumber: { not: DEMO_VESSEL_YARD_NUMBER } } },
+  });
+  assert(strayAreas === 0, `demo areas sit only on ${DEMO_VESSEL_YARD_NUMBER} (${strayAreas} elsewhere)`);
+  const [realCoOnDemoArea, realCrOnDemoArea] = await Promise.all([
+    prisma.changeOrder.count({ where: { project: { isDemo: false }, vesselArea: { isDemo: true } } }),
+    prisma.crewRequest.count({ where: { project: { isDemo: false }, vesselArea: { isDemo: true } } }),
+  ]);
+  assert(
+    realCoOnDemoArea + realCrOnDemoArea === 0,
+    `no real record uses a demo area (${realCoOnDemoArea} change orders, ${realCrOnDemoArea} crew requests)`
+  );
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

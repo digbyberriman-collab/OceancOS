@@ -146,7 +146,7 @@ export default async function AdminProjectsPage({
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Project code" hint="Shown in the header switcher">
-                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721" />
+                <Input name="code" defaultValue={flash?.values.code ?? selected.code ?? ""} placeholder="R-00721 or Y709" />
               </Field>
               <Field label="Yard">
                 <Input

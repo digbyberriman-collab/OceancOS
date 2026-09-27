@@ -22,9 +22,9 @@ test.describe("project administration", () => {
     await signIn(page, PM);
     await page.goto("/admin/projects");
 
-    await expect(page.getByLabel("Project code")).toHaveValue("R-00721");
-    await expect(page.getByLabel("Arrival")).toHaveValue("2026-03-01");
-    await expect(page.getByLabel("Departure")).toHaveValue("2026-09-30");
+    await expect(page.getByLabel("Project code")).toHaveValue("DEMO-01");
+    await expect(page.getByLabel("Arrival")).toHaveValue("2026-07-06");
+    await expect(page.getByLabel("Departure")).toHaveValue("2027-02-26");
     await expect(page.getByText("Onsite for")).toBeVisible();
     await expect(page.getByText("Time elapsed")).toBeVisible();
   });
@@ -46,7 +46,7 @@ test.describe("project administration", () => {
 
     // A later, unrelated visit reads the database, not a stale flash.
     await page.goto("/admin/projects");
-    await expect(page.getByLabel("Departure")).toHaveValue("2026-09-30");
+    await expect(page.getByLabel("Departure")).toHaveValue("2027-02-26");
     await expect(page.getByLabel("Yard")).not.toHaveValue("A yard name typed alongside the bad date");
   });
 
@@ -54,7 +54,7 @@ test.describe("project administration", () => {
     await signIn(page, PM);
     await page.goto("/admin/projects");
 
-    await page.getByLabel("Project code").fill("R-00806");
+    await page.getByLabel("Project code").fill("DEMO-02");
     await page.getByRole("button", { name: /save project/i }).click();
     await expect(page.getByText(/already used by another project/i)).toBeVisible();
   });

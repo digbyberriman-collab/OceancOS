@@ -9,6 +9,7 @@ import { SubmitButton } from "@/components/ui/SubmitButton";
 import { DEPARTMENTS, PRIORITIES } from "@/lib/enums";
 import { createChangeOrder } from "../actions";
 import { ArrowLeft } from "lucide-react";
+import { areaWhereForProject } from "@/lib/vesselAreas";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export default async function NewChangeOrderPage() {
   if (!project)
     return <EmptyState headingLevel={1} title="No project" hint="You have no project assigned." />;
 
-  const areas = await prisma.vesselArea.findMany({ where: { vesselId: project.vesselId } });
+  const areas = await prisma.vesselArea.findMany({ where: areaWhereForProject(project) });
 
   return (
     <div className="animate-fade-up">

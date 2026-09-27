@@ -5,8 +5,8 @@ import { test, expect, type Page } from "@playwright/test";
 //
 // Every one of the app's other seeded accounts holds an unscoped role
 // assignment and can reach every project — none of them can exercise this.
-// SCOPED reaches only p1 ("2026 Refit"). CO-P2-0001 and REQ-P2-0001 live on
-// p2 ("Winter Maintenance Period") only; SCOPED must never see them.
+// SCOPED reaches only p1 (DEMO-01). CO-P2-0001 and REQ-P2-0001 live on p2
+// (DEMO-02) only; SCOPED must never see them. Both are demo projects on Draak.
 
 const SCOPED = { email: "scoped@oceancos.dev", password: "password" };
 
@@ -23,7 +23,7 @@ test.describe("project scoping", () => {
     await signIn(page, SCOPED);
     await page.goto("/change-orders");
     await expect(page.getByText(/CO-P2-0001/)).toHaveCount(0);
-    await expect(page.getByText(/Northern Light galley refrigeration/)).toHaveCount(0);
+    await expect(page.getByText(/Crew galley refrigeration/)).toHaveCount(0);
   });
 
   test("the crew-request list omits another project's record", async ({ page }) => {
@@ -36,7 +36,7 @@ test.describe("project scoping", () => {
   test("another project's change-order detail page 404s rather than showing it", async ({ page }) => {
     await signIn(page, SCOPED);
     // Find the id via search, the way a real cross-project link would arrive.
-    await page.goto("/search?q=Northern+Light+galley");
+    await page.goto("/search?q=Crew+galley+refrigeration");
     await expect(page.getByText(/no results/i)).toBeVisible();
   });
 
@@ -59,7 +59,7 @@ test.describe("project scoping", () => {
     // Scoped to the banner landmark since G2.7: the single-project static
     // label also renders in Sidebar's mobile drawer, hidden at this (desktop)
     // viewport, so an unscoped match can resolve to the hidden copy.
-    await expect(page.getByRole("banner").getByText("R-00721", { exact: true })).toBeVisible();
+    await expect(page.getByRole("banner").getByText("DEMO-01", { exact: true })).toBeVisible();
 
     const title = `Tenancy regression ${Date.now()}`;
     await page.getByLabel("Title").fill(title);
@@ -68,7 +68,7 @@ test.describe("project scoping", () => {
     await page.getByRole("button", { name: /create draft/i }).click();
 
     await page.waitForURL((url) => /^\/change-orders\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith("/new"));
-    await expect(page.getByRole("banner").getByText("M/Y Solstice", { exact: false })).toBeVisible();
+    await expect(page.getByRole("banner").getByText("Draak", { exact: false })).toBeVisible();
   });
 
   test("the project admin list omits another project", async ({ page }) => {
@@ -77,8 +77,8 @@ test.describe("project scoping", () => {
     await signIn(page, SCOPED);
     await page.goto("/admin/projects");
     // Its own project is listed; the page-wide checks below are the real assertion.
-    await expect(page.getByRole("main").getByRole("link", { name: /R-00721/ })).toBeVisible();
-    await expect(page.getByText(/R-00806/)).toHaveCount(0);
-    await expect(page.getByText(/Winter Maintenance Period/)).toHaveCount(0);
+    await expect(page.getByRole("main").getByRole("link", { name: /DEMO-01/ })).toBeVisible();
+    await expect(page.getByText(/DEMO-02/)).toHaveCount(0);
+    await expect(page.getByText(/2027 maintenance period/)).toHaveCount(0);
   });
 });
