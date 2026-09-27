@@ -11,7 +11,6 @@ import {
   parseDateField,
   validateYardPeriod,
 } from "@/lib/projectDates";
-import { requireProjectAccess } from "@/lib/project";
 import { notFound } from "@/lib/errors";
 import { setFormFlash } from "@/lib/formFlash";
 import { PROJECT_TYPES } from "@/lib/enums";
@@ -74,10 +73,6 @@ export async function updateProjectAction(formData: FormData) {
   // caller's role scope reaches — a project-scoped PM otherwise edits any
   // project in the database by id.
   await requireProjectAccess(user.id, id);
-
-  // PROJ_EDIT alone does not imply this project — the plain permission check
-  // above says nothing about which project the caller may reach.
-  await requireProjectAccess(user, id);
 
   const dates = {
     arrivalDate: parseDateField(formData.get("arrivalDate")),
