@@ -11,7 +11,13 @@ import { Field, Input } from "@/components/ui/Form";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { fmtDate, fmtMoney, toNumber } from "@/lib/utils";
 import { isExpired } from "@/lib/jobs/workflow";
-import { CHALLENGE_TTL_MINUTES, challengeProblem } from "@/lib/jobs/acceptance";
+import {
+  CHALLENGE_TTL_MINUTES,
+  challengeProblem,
+  exclusionNotes,
+  exclusionsFingerprint,
+  quoteFingerprint,
+} from "@/lib/jobs/acceptance";
 import { confirmAcceptance, rejectQuote, requestAcceptanceCode } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +49,7 @@ export default async function AcceptQuote({
     include: {
       project: { include: { vessel: true } },
       lines: { orderBy: { sort: "asc" } },
-      notes: { orderBy: [{ kind: "asc" }, { sort: "asc" }] },
+      notes: { orderBy: [{ kind: "asc" }, { sort: "asc" }, { id: "asc" }] },
       variation: true,
       changeOrder: { select: { id: true, number: true, title: true, status: true } },
     },
@@ -69,18 +75,32 @@ export default async function AcceptQuote({
   }
 
   const currency = job.currency || job.project.currency;
-  const exclusions = job.notes.filter((n) => n.kind === "EXCLUSION");
+  const exclusions = exclusionNotes(job.notes);
+  const exclusionsHash = exclusionsFingerprint(exclusions.map((n) => n.text));
   const expired = isExpired(job);
 
   // Step three once a code has been issued, step one and two before that.
   const challenge = searchParams.challenge
     ? await prisma.acceptanceChallenge.findUnique({ where: { id: searchParams.challenge } })
     : null;
+  // The stored code is bound to the exact quote — exclusions included — that
+  // was on screen when it was sent (challenge.quoteHash). If any of that has
+  // changed since, the code would be refused at confirm anyway, and the resend
+  // form below would otherwise re-post the *current* exclusions hash from a
+  // hidden field, acknowledging a changed list without a fresh tick (Bugbot:
+  // "Resend skips new exclusion acknowledgement"). Treat such a challenge as
+  // not usable so the page falls back to the acknowledge-and-request step.
+  const currentQuoteHash = quoteFingerprint({
+    ...job,
+    exclusions: exclusions.map((n) => n.text),
+  });
   const usableChallenge =
-    challenge && challenge.jobId === job.id && challenge.userId === user.id
-      ? challengeProblem(challenge) === null
-        ? challenge
-        : null
+    challenge &&
+    challenge.jobId === job.id &&
+    challenge.userId === user.id &&
+    challengeProblem(challenge) === null &&
+    challenge.quoteHash === currentQuoteHash
+      ? challenge
       : null;
 
   const coBlocking =
@@ -246,6 +266,9 @@ export default async function AcceptQuote({
               </form>
               <form action={requestAcceptanceCode} className="mt-3">
                 <input type="hidden" name="jobId" value={job.id} />
+                {exclusionsHash && (
+                  <input type="hidden" name="acknowledgeExclusions" value={exclusionsHash} />
+                )}
                 <SubmitButton className="btn-ghost w-full justify-center text-xs" pendingText="Sending…">
                   Send a new code
                 </SubmitButton>
@@ -259,8 +282,26 @@ export default async function AcceptQuote({
                 <strong className="text-white">{fmtMoney(job.total, currency)}</strong>. We will email
                 you a code to confirm it is you.
               </p>
-              <form action={requestAcceptanceCode}>
+              <form action={requestAcceptanceCode} className="space-y-4">
                 <input type="hidden" name="jobId" value={job.id} />
+                {exclusionsHash && (
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      name="acknowledgeExclusions"
+                      value={exclusionsHash}
+                      required
+                      disabled={Boolean(coBlocking)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+                    />
+                    <span>
+                      I have read the {exclusions.length}{" "}
+                      {exclusions.length === 1 ? "exclusion" : "exclusions"} under{" "}
+                      <strong className="text-white">Excluded from this price</strong>. They are
+                      not covered by this price.
+                    </span>
+                  </label>
+                )}
                 <SubmitButton
                   className="btn-primary btn-lg w-full justify-center"
                   disabled={Boolean(coBlocking)}

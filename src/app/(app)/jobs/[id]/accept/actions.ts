@@ -21,6 +21,9 @@ import {
   challengeExpiry,
   challengeProblem,
   challengeProblemMessage,
+  exclusionTexts,
+  exclusionsAcknowledgementProblem,
+  exclusionsFingerprint,
   generateAcceptanceCode,
   hashAcceptanceCode,
   quoteFingerprint,
@@ -30,7 +33,11 @@ import {
 async function loadJobForAccept(userId: string, jobId: string) {
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    include: { project: true, lines: { orderBy: { sort: "asc" } } },
+    include: {
+      project: true,
+      lines: { orderBy: { sort: "asc" } },
+      notes: { where: { kind: "EXCLUSION" }, orderBy: [{ sort: "asc" }, { id: "asc" }] },
+    },
   });
   if (!job) throw notFound("That job");
 
@@ -77,6 +84,21 @@ export async function requestAcceptanceCode(formData: FormData) {
     }
   }
 
+  // The signer confirms the exclusions they were shown, identified by the
+  // fingerprint of that exact list, before any code is sent.
+  const exclusions = exclusionTexts(job.notes);
+  const exclusionsHash = exclusionsFingerprint(exclusions);
+  const acknowledgement = exclusionsAcknowledgementProblem(
+    exclusionsHash,
+    formData.get("acknowledgeExclusions")
+  );
+  if (acknowledgement === "missing") {
+    back("Confirm you have read the exclusions before requesting your code.");
+  }
+  if (acknowledgement === "stale") {
+    back("The exclusions changed while you were reading. Review them and confirm again.");
+  }
+
   // Supersede any code still outstanding, so only the newest one works.
   await prisma.acceptanceChallenge.updateMany({
     where: { jobId, userId: user.id, consumedAt: null },
@@ -97,7 +119,7 @@ export async function requestAcceptanceCode(formData: FormData) {
       jobId,
       userId: user.id,
       codeHash: hashAcceptanceCode(challengeId, code),
-      quoteHash: quoteFingerprint(job),
+      quoteHash: quoteFingerprint({ ...job, exclusions }),
       expiresAt: challengeExpiry(),
     },
   });
@@ -120,7 +142,13 @@ export async function requestAcceptanceCode(formData: FormData) {
     action: "UPDATE",
     resource: "Job",
     resourceId: jobId,
-    details: { event: "ACCEPTANCE_CODE_SENT", challengeId: challenge.id, channel: "EMAIL" },
+    details: {
+      event: "ACCEPTANCE_CODE_SENT",
+      challengeId: challenge.id,
+      channel: "EMAIL",
+      exclusionsAcknowledged: exclusions.length,
+      exclusionsHash,
+    },
   });
 
   redirect(`/jobs/${jobId}/accept?challenge=${challenge.id}`);
@@ -173,8 +201,10 @@ export async function confirmAcceptance(formData: FormData) {
     );
   }
 
-  // The quote must not have changed since the code was sent.
-  if (quoteFingerprint(job) !== challenge!.quoteHash) {
+  // The quote, exclusions included, must not have changed since the code was sent.
+  const exclusions = exclusionTexts(job.notes);
+  const exclusionsHash = exclusionsFingerprint(exclusions);
+  if (quoteFingerprint({ ...job, exclusions }) !== challenge!.quoteHash) {
     await prisma.acceptanceChallenge.update({
       where: { id: challengeId },
       data: { consumedAt: new Date() },
@@ -209,7 +239,13 @@ export async function confirmAcceptance(formData: FormData) {
         event: "CLIENT_ACCEPTED",
         fromStatus: job.status,
         toStatus: "CLIENT_ACCEPTED",
-        details: { quoteHash: challenge!.quoteHash, total: toNumber(job.total), channel: challenge!.channel },
+        details: {
+          quoteHash: challenge!.quoteHash,
+          total: toNumber(job.total),
+          channel: challenge!.channel,
+          exclusionsAcknowledged: exclusions.length,
+          exclusionsHash,
+        },
       },
     }),
     prisma.comment.create({
@@ -244,6 +280,8 @@ export async function confirmAcceptance(formData: FormData) {
       // G3.9), so `job.status === "EXPIRED"` recorded false on every single
       // acceptance, including ones signed months after the quote lapsed.
       wasExpired: isExpired(job),
+      exclusionsAcknowledged: exclusions.length,
+      exclusionsHash,
     },
   });
 

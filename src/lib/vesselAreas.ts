@@ -25,5 +25,5 @@ export async function assertAreaForProject(
     where: { id: areaId, ...areaWhereForProject(project) },
     select: { id: true },
   });
-  if (!area) throw invalid("Choose an area of this project's vessel.");
+  if (!area) throw invalid("That area is not on this project's vessel.");
 }

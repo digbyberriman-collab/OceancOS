@@ -140,7 +140,16 @@ export async function updateChangeOrder(formData: FormData) {
   const stagesAdded = stages.create.map((c) => c.stage);
 
   await prisma.$transaction(async (tx) => {
-    await tx.changeOrder.update({ where: { id }, data: { ...data, updatedById: user.id } });
+    // Keyed on the status checked above, not just the id: a submit that
+    // commits in between would otherwise take this edit and the restaging
+    // below. Throwing rolls both back.
+    const { count } = await tx.changeOrder.updateMany({
+      where: { id, status: co.status },
+      data: { ...data, updatedById: user.id },
+    });
+    if (count === 0) {
+      throw conflict("This change order changed status while you were editing it, so the edit was not saved.");
+    }
     if (stages.create.length) {
       await tx.changeOrderApproval.createMany({
         data: stages.create.map((c) => ({ changeOrderId: id, stage: c.stage, order: c.order, required: true })),

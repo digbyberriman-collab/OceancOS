@@ -58,7 +58,8 @@ The screen is only the visible part. The real work underneath:
    `assertPermission(user, key)` keep their names and signatures, and so do the scoping helpers in
    `src/lib/project.ts`. Unit tests exercise the pure modules; server-only modules memoise through
    `requestCache`, which falls back to the plain function under Vitest.
-5. **Design tokens.** Dark-first, using the tokens in `tailwind.config.ts`:
+5. **Design tokens.** Dark-first, using the tokens in `tailwind.config.ts` (theme variables since
+   PR #11 added Dark, Light and System, so a colour literal breaks the light theme):
    - surfaces: `ink-950…500`
    - borders: `line`, `line-soft`, `line-strong`
    - brand: `accent`, `accent-bright`, `marine`
@@ -85,36 +86,37 @@ The screen is only the visible part. The real work underneath:
 | D-5 | **The most specific assignment wins.** On a given project, project-scoped assignments replace vessel-scoped ones, which replace unscoped (fleet-wide) ones. Per-person overrides then layer on top. |
 | D-6 | **There is no "Approve" access level.** Approval stages, signatures and yard-side/client-side decisions are explicit *authority* permissions that no level ever sets. A single "Approve" rung would hand one person several change-order stages, which breaks separation of duties. |
 | D-7 | **Sensitivity in OceancOS means** money, signatures and approvals, confidential documents, audit, and administration. The reference product's medical/employment columns have no equivalent here. |
+| D-8 | **Certificate verification is its own permission, `vessel.verify`, held by default by the Captain and the Technical Manager only.** Marking a vessel's particulars certificate-verified attests them against the vessel's certificates, which those two roles hold. Owner's Rep and Project Manager keep `vessel.edit` but no longer set the verification status by default; admins can grant it per person. |
 
 ---
 
 ## 3. Verify the current state first
 
-This prompt is baselined on the tree after ACTION_PLAN Gates 0–7 (branch
-`claude/charming-bell-36iht1`, PR #7; Gate 7's results are in
-`audit/findings-phase6-regression.md`). Before writing code, confirm each fact below against the
-tree; line numbers drift. If one is no longer true, note it in your first commit message and adapt.
+This prompt is baselined on `claude/yacht-shipyard-management-WMUvA` after ACTION_PLAN Gates 0–7
+(PR #7; Gate 7's results are in `audit/findings-phase6-regression.md`), the vessel register
+(PR #5) and PR #10's review fixes. Before writing code, confirm each fact below against the tree;
+line numbers drift. If one is no longer true, note it in your first commit message and adapt.
 
 ### 3.1 What exists
 
 - **Stack:** Next.js 14.2 App Router, TypeScript, Prisma 5 on PostgreSQL, Tailwind, zod, Vitest
-  (`tests/`, 21 files), Playwright (`e2e/`, 12 specs, `workers: 1`). Server components plus server
+  (`tests/`, 25 files), Playwright (`e2e/`, 14 specs, `workers: 1`). Server components plus server
   actions. Single-tenant, with no Organization model. There is no Supabase and no RLS:
   authorization is app-level only.
 - **Permissions:** `src/lib/rbac.ts`.
-  - `PERMISSIONS` (**42 keys** after G6.7 removed the 14 unenforced ones) at `:6-63`;
-    `PermissionKey` at `:65`.
+  - `PERMISSIONS` (**43 keys**: the 42 left after G6.7 removed the 14 unenforced ones, plus
+    `vessel.edit` from the vessel register) at `:6-65`; `PermissionKey` at `:67`.
   - `ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]>` at `:68-184`, "the seed". Since G6.9,
     `admin.users` is held by OWNER, OWNERS_REP and PROJECT_MANAGER; `/admin` checks it separately
     from `audit.view` (`admin/page.tsx:20-21`).
-  - `hasPermission` at `:186`, `hasAnyRole` at `:190` (unused outside tests), `assertPermission`
-    at `:202`.
+  - `hasPermission` at `:190`, `hasAnyRole` at `:194` (unused outside tests), `assertPermission`
+    at `:206`.
 - **Roles and departments:** `src/lib/enums.ts`. `ROLE_KEYS` (19) at `:3-23`, `DEPARTMENTS` (12)
   at `:165`, `CO_APPROVAL_STAGES` at `:43`. There is no separate rank model; roles double as ranks.
 - **Schema:** `prisma/schema.prisma`. `User` (`:14`), `Role` (`:76`), `Permission` (`:85`),
   `RolePermission` (`:92`), `UserRole` (`:101`: `userId, roleId, vesselId?, projectId?,
   departmentId?`, already indexed on every column, no unique constraint on the tuple),
-  `Department` (`:183`: `name, code`, no sort order), `AuditLog` (`:723`: **no `projectId`**).
+  `Department` (`:315`: `name, code`, no sort order), `AuditLog` (`:855`: **no `projectId`**).
   `UserRole.departmentId` is still never read.
 - **Loading the user:** `getCurrentUser` at `src/lib/auth.ts:59`, wrapped in `requestCache`. It
   builds `permissions` at `:75-77` from **every** `UserRole` row, ignoring scope (D1).
@@ -122,14 +124,14 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
 
   | Export | Line | What it does |
   |---|---|---|
-  | `resolveProjectWhere` | `:40` | pure; an unscoped assignment reaches every project |
-  | `listProjectsForUser` | `:69` | `requestCache`d; the reachable projects, `take: 200` |
-  | `accessibleProjectIds` | `:95` | the ids of the above |
-  | `projectScope` | `:114` | a Prisma `where` that never matches when nothing is reachable |
-  | `requireProjectAccess` | `:124` | throws `forbidden(...)` for an unreachable project |
-  | `getActiveProject` / `storeActiveProject` | `:147` / `:167` | the header project switcher |
-  | `resolveUserRoleWhereForProject` | `:189` | pure; the assignments that cover a project |
-  | `usersWithPermissionOnProject` | `:208` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
+  | `resolveProjectWhere` | `:41` | pure; an unscoped assignment reaches every project |
+  | `listProjectsForUser` | `:70` | `requestCache`d; the reachable projects, `take: 200` |
+  | `accessibleProjectIds` | `:97` | the ids of the above |
+  | `projectScope` | `:116` | a Prisma `where` that never matches when nothing is reachable |
+  | `requireProjectAccess` | `:126` | throws `forbidden(...)` for an unreachable project |
+  | `getActiveProject` / `storeActiveProject` | `:149` / `:169` | the header project switcher |
+  | `resolveUserRoleWhereForProject` | `:191` | pure; the assignments that cover a project |
+  | `usersWithPermissionOnProject` | `:210` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
 
 - **Workflow:** `applyTransition` at `src/lib/workflow/transition.ts:41` is **write-only**: a
   status write conditional on the status read. Callers check legality, permission and project
@@ -137,9 +139,23 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
   `permissionForTransition` (`:78`), `JOB_TRANSITION_PERMISSION` (`src/lib/jobs/workflow.ts:48`) and
   `CR_TRANSITION_PERMISSION` (`src/lib/workflow/crewRequest.ts:72`).
 - **Seed** (`prisma/seed.ts`): 19 accounts, one per role, all unscoped (the seven added in G6.9 at
-  `:153`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:185`), used by
-  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806). Passwords come from
-  `SEED_PASSWORD` and are required in production.
+  `:155`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:187`), used by
+  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806), plus the Oceanco
+  Y700 register: 22 vessels, each with a project coded by its yard number (Y701–Y726). Passwords
+  come from `SEED_PASSWORD` and are required in production.
+- **Vessel register** (PR #5):
+  - Routes: `/vessel` (the active project's vessel), `/vessels` (the fleet register),
+    `/vessels/[id]` and `/vessels/[id]/edit`. Sidebar entries at `Sidebar.tsx:38` and `:43`; the
+    dashboard's `VesselStrip` at `dashboard/page.tsx:192`.
+  - Visibility has no key: `src/lib/vessels/access.ts` derives a user's vessels from
+    `listProjectsForUser`, so every project member, externals included, sees the particulars.
+  - One key, `vessel.edit` (OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER), guards both
+    actions in `vessels/actions.ts`: `updateVesselAction` edits particulars **and** sets the
+    verification status (`UNVERIFIED` / `PUBLIC_SOURCE` / `CERTIFICATE_VERIFIED`), writing a
+    `MANUAL` observation per changed field; `updateDataGapAction` moves data gaps, including
+    fleet-level gaps (`vesselId` null).
+  - `npm run vessels:import` loads the register workbook from the command line; it has no
+    in-app entry point.
 - **Admin UI:**
   - `src/app/(app)/admin/page.tsx` is read-only. It shows the user directory to `admin.users`
     holders and the audit log to `audit.view` holders. Its user, vessel and project queries are
@@ -151,8 +167,9 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
   like `PENDING` does, and "Resume review" resets it; `updateChangeOrder` restages CLASS/FLAG rows
   through `approvalStageChanges` (`src/lib/workflow/changeOrder.ts`) when the review flags change.
 - **Shell:** `src/app/(app)/layout.tsx` renders `src/components/layout/AppShell.tsx`, which has the
-  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:52`. The `NAV` array is in
-  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:66` shows `roleKeys[0]`.
+  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:57`. The `NAV` array is in
+  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:65` passes `roleKeys[0]` to the
+  profile menu, which shows it at `UserMenu.tsx:73`.
 - **UI kit** (`src/components/ui/`): `Badge`, `ComingSoon` (the "Not yet built" state from G3.11),
   `EmptyState`, `FileDrop`, `FlashCleanup`, `Form`, `PdfButton`, `Skeleton`, `SubmitButton`
   (`useFormStatus`). **There is no Dialog component.**
@@ -177,21 +194,23 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 | D1 | **Permissions are unioned across scoped assignments.** A user who is CAPTAIN on project A and CREW on project B has Captain rights on B. Reachability is scoped; permissions are not. | `src/lib/auth.ts:75-77` |
 | D2 | **The seed wipes and rebuilds `RolePermission`.** Any admin edit to a template would be lost on the next seed. | `prisma/seed.ts:53-54` |
 | D3 | **Holder lookups disagree with permission checks.** `usersWithPermissionOnProject` is a scope-aware union; `hasPermission` is global; neither is most-specific. The quote authoriser is still chosen and validated platform-wide: the dropdown lists every `job.accept` holder, and the action accepts anyone holding it on any project. | `src/lib/project.ts:210`; `jobs/new/page.tsx:39`; `jobs/actions.ts:126-133` |
-| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:224`→`:227`, `setJobProgress` `:566`→`:569`, `addJobComment` `:630`→`:643`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:52`→`:55`, `confirmAcceptance` `:132`→`:138`, `rejectQuote` `:269`→`:273`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:125`→`:133`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
-| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:311` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
+| D4 | **The permission is checked before the record is loaded**, so it cannot be evaluated on the record's project. | `jobs/actions.ts`: `issueQuote` `:236`→`:239`, `setJobProgress` `:585`→`:588`, `addJobComment` `:649`→`:662`; `jobs/[id]/accept/actions.ts`: `requestAcceptanceCode` `:59`→`:62`, `confirmAcceptance` `:160`→`:166`, `rejectQuote` `:307`→`:311`; `change-orders/actions.ts` `updateChangeOrder` `:89`→`:98`; `crew-requests/actions.ts` `assignCrewRequest` `:144`→`:152`; `admin/projects/actions.ts` `updateProjectAction` `:42`→`:75` |
+| D5 | **Duplicate approval-stage map with `as any`, and no page gate on Approvals.** | `approvals/page.tsx:16,30`; `change-orders/actions.ts:320` (`permKey as any`, redundant because `CO_STAGE_PERMISSION` is typed) |
 | D6 | **Money gating is too loose.** Only the dashboard budget panels (`dashboard/page.tsx:111`), the CO print view (`print/change-orders/[id]/page.tsx:39`) and `/financials` gate money. Job list, detail and print, CO list and detail, the approvals page and dashboard panel, crew-request detail (`crew-requests/[id]/page.tsx:127`), and the contractor, inventory, logistics and risk pages render it to anyone who opens them. | `fmtMoney` call sites in those pages |
 | D7 | **Money gating is too strict in exports.** They hide prices without `financial.view`, which YARD_PM lacks, so the yard's own quote export has no prices. The job PDF (via `print/jobs/[id]`) shows money the jobs spreadsheet hides. | `src/app/api/export/jobs/route.ts:46`, `api/export/change-orders/route.ts` |
 | D8 | **Exports check the view permission; there is no export permission** (`export` was removed in G6.7 because nothing checked it). The two PDF routes load by id before any project check, which is the residue of data-api's `[EXPOSURE]` PDF finding. | `api/export/jobs/[id]/route.ts:16-20`, `api/export/change-orders/[id]/route.ts:24-28` |
 | D9 | **`/suppliers` has no permission check** (ACTION_PLAN G3.12, still open). | `suppliers/page.tsx:15-16` |
 | D10 | **The dashboard's "Recent activity" shows the global audit log to every user**, described as a deliberate exception in the page's own comment. | `dashboard/page.tsx:78` (query), `:393` (panel) |
-| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:431`, `crew-requests/actions.ts:161` |
+| D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:440`, `crew-requests/actions.ts:180` |
 | D12 | **Reservation is implicit.** G6.7 deleted 13 keys for modules that have no guards yet; this work re-adds them as explicit `enforced: false` reserved keys (§5). | `audit/findings-dead-code.md:131-134` |
 | D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:32-54,131` |
-| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:66` |
+| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:65`, `UserMenu.tsx:73` |
 | D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:20,27-51` |
+| D16 | **The vessel module runs on one global key.** `vessel.edit` covers editing particulars, attesting them certificate-verified, and moving data gaps, and both vessel actions check it before loading the record. A fleet-level data gap is reachable from any register vessel, so a PM scoped to one refit can close a gap that concerns the whole register, and `/vessels` shows every viewer the fleet-level gaps and the unmapped yard numbers across the whole register. Seeing particulars needs no key, so contractors, suppliers and guests on a project see them too. | `vessels/actions.ts:30`→`:33` and `:116`→`:125`, `:45-46` (verification), `:129-131` (fleet-level gaps); `vessels/page.tsx:46,50` |
 
-D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are **not yet logged**.
-Item P.0 (§15) logs them.
+D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are logged at the end of
+`audit/findings-phase5.md` (item P.0, §15, done). D16 was found when the vessel register landed and
+is logged with the vessel module (§5.5 module 2).
 
 ### 3.3 Where this sits in ACTION_PLAN
 
@@ -237,7 +256,7 @@ Prisma, no `next/*`, no `requestCache`. Those two files start with `import "serv
 
 | File | Contents |
 |---|---|
-| `src/lib/permissions/keys.ts` | `PERMISSIONS` (the 42 keys moved verbatim from `rbac.ts`, plus the 70 new ones), `PermissionKey`, `ALL_KEYS` |
+| `src/lib/permissions/keys.ts` | `PERMISSIONS` (the 43 keys moved verbatim from `rbac.ts`, plus the 75 new ones), `PermissionKey`, `ALL_KEYS` |
 | `src/lib/permissions/catalog.ts` | `PERMISSION_META`, `MODULES`, `LEVELS`, `PROJECT_SCOPE_KEYS`, `ACCOUNT_SCOPE_KEYS`, lookups. Its header comment carries the §16 definition of done. |
 | `src/lib/permissions/defaults.ts` | `SYSTEM_ACCESS_SETS`, `DEFAULTS_VERSION`, `DEFAULTS_MIGRATIONS` |
 | `src/lib/permissions/sod.ts` | `SOD_RULES`, `CATEGORY_CEILINGS` |
@@ -248,7 +267,7 @@ Prisma, no `next/*`, no `requestCache`. Those two files start with `import "serv
 | `src/lib/permissions/money.ts` | `canSeeMoney(perms, moduleId)` |
 | `src/lib/permissions/matrixState.ts` | the reducer for staged changes (§12.7) |
 | `src/lib/permissions/resolver.ts` | `"server-only"`: `getEffectiveAccess`, `holdersOf`, `loadProjectMatrix` |
-| `src/lib/permissions/guards.ts` | `"server-only"`: `forProject`, `canOn`, `assertPermissionOn` |
+| `src/lib/permissions/guards.ts` | `"server-only"`: `forProject`, `canOn`, `assertPermissionOn`, and for vessels (which span projects) `canOnVessel`, `assertPermissionOnVessel` (§13.12) |
 | `src/lib/rbac.ts` | **Façade.** Re-exports `PERMISSIONS`/`PermissionKey`; keeps `hasPermission` and `assertPermission`; keeps `ROLE_PERMISSIONS` as a `@deprecated` value derived from `SYSTEM_ACCESS_SETS` so `tests/rbac.test.ts` keeps passing. It exposes each set's **explicit** grants, not the closure, so the "SUPPLIER ≤ 3" assertion still holds (SUPPLIER's explicit V1 set is exactly 3). |
 
 ### 5.2 Types
@@ -315,6 +334,8 @@ one group of exactly one module.
 | `minutes.publish` | `minutes.record` |
 | `contact.manage` | `contact.view` |
 | `forms.manage` | `forms.view` |
+| `vessel.verify` | `vessel.edit` (a verifier corrects particulars against the certificates) |
+| `vessel.register.manage` | `vessel.register.view` |
 
 **Cross-module allowlist.** These are the only permitted edges between modules, and a test
 enforces the list:
@@ -343,7 +364,7 @@ levelOf(M, eff) = the highest L with levelKeys(M, L) == eff ∩ ladderKeys(M); "
   beside the level select.
 - Changing a level stages exactly the ladder keys that differ.
 
-### 5.5 Full taxonomy: 24 modules, 112 keys
+### 5.5 Full taxonomy: 25 modules, 118 keys
 
 **Legend**
 
@@ -360,7 +381,7 @@ levelOf(M, eff) = the highest L with levelKeys(M, L) == eff ∩ ladderKeys(M); "
 Set `enforced` in `catalog.ts` to what is true *at each commit*:
 - In 9.1, only keys a guard checks *today* are `true`.
 - Each Gate 10 item flips the keys it starts guarding.
-- 10.9 finalises the flags to the E/R column below.
+- 10.10 finalises the flags to the E/R column below.
 
 #### 1. Project — `project` · live · nav `/admin/projects` (navKeys `project.edit`) · viewKey `project.access`
 
@@ -372,7 +393,25 @@ Set `enforced` in `catalog.ts` to what is true *at each commit*:
 | Portfolio | `PROJ_CREATE` NEW | `project.create` | Create projects | A | s | a | acct | R |
 | Portfolio | `PROJ_ARCHIVE` NEW | `project.archive` | Archive projects | A | s | a | acct | R |
 
-#### 2. Home & reports — `home` · planned (Bridge Ph. 4, 12) · viewKey `null`
+#### 2. Vessel — `vessel` · live · nav `/vessel`, and the fleet register at `/vessels` · viewKey `vessel.view`
+
+| Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
+|---|---|---|---|---|---|---|---|---|
+| Particulars | `VESSEL_VIEW` NEW | `vessel.view` | See vessel | V | | r | | E |
+| Particulars | `VESSEL_EDIT` | `vessel.edit` | Edit particulars | M | | w | | E |
+| Particulars | `VESSEL_VERIFY` NEW | `vessel.verify` | Verify vs certs | A | s | d | | E |
+| Evidence | `VESSEL_GAPS` NEW | `vessel.gaps.manage` | Data gaps | C | | w | | E |
+| Fleet register | `VESSEL_REGISTER_VIEW` NEW | `vessel.register.view` | Fleet overview | A | | r | acct | E |
+| Fleet register | `VESSEL_REGISTER_MANAGE` NEW | `vessel.register.manage` | Fleet gaps | A | | w | acct | E |
+
+A vessel has projects but no single project, so its project-scope keys hold on a vessel when they
+hold on **any** reachable project of that vessel (`canOnVessel`, §13.12). `/vessel` shows the
+active project's vessel and checks the active project directly. The two register keys cover what
+belongs to no vessel: the fleet-level data gaps and the summary of yard numbers missing from the
+register. Both sidebar entries, Vessel and Fleet register, carry this module's id. The importer
+(`npm run vessels:import`) is a command-line tool and takes no key.
+
+#### 3. Home & reports — `home` · planned (Bridge Ph. 4, 12) · viewKey `null`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -383,7 +422,7 @@ Set `enforced` in `catalog.ts` to what is true *at each commit*:
 The existing `/dashboard` gets no key of its own. It stays the landing page, and each panel is
 gated by its own module's key.
 
-#### 3. Quotes & jobs — `job` · live · nav `/jobs` · viewKey `job.view`
+#### 4. Quotes & jobs — `job` · live · nav `/jobs` · viewKey `job.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -402,7 +441,7 @@ gated by its own module's key.
 | Client decisions | `JOB_WORKS_ACCEPT` | `job.works_accept` | Accept works | A | s | d | E |
 | Client decisions | `JOB_DEFICIENCY` | `job.deficiency` | Report defect | A | | d | E |
 
-#### 4. Change orders — `change_order` · live · nav `/change-orders` · viewKey `change_order.view`
+#### 5. Change orders — `change_order` · live · nav `/change-orders` · viewKey `change_order.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -423,7 +462,7 @@ gated by its own module's key.
 | Approval stages | `CO_APPROVE_FLAG` | `change_order.approve.flag` | Flag stage | A | s | d | E |
 | Approval stages | `CO_APPROVAL_DELEGATE` NEW | `change_order.approval.delegate` | Delegate stage | A | s | a | R |
 
-#### 5. Crew requests — `crew_request` · live · nav `/crew-requests` · viewKey `crew_request.view`
+#### 6. Crew requests — `crew_request` · live · nav `/crew-requests` · viewKey `crew_request.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -438,7 +477,7 @@ gated by its own module's key.
 | Handling | `CR_COMPLETE` | `crew_request.complete` | Complete / close | M | | d | E |
 | Escalation | `CR_PROMOTE` NEW | `crew_request.promote_to_job` | Promote to job | F | | w | R |
 
-#### 6. Approvals centre — `approvals` · live · nav `/approvals` (navKeys `approvals.view` + the 7 CO stage keys) · viewKey `approvals.view`
+#### 7. Approvals centre — `approvals` · live · nav `/approvals` (navKeys `approvals.view` + the 7 CO stage keys) · viewKey `approvals.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -449,7 +488,7 @@ holder of `approvals.view` **or of any CO stage key** (its `navKeys`). Without `
 only "Waiting on me". This is deliberately **not** an implication: denying the queue must not
 strip anyone's signing authority.
 
-#### 7. Minutes — `minutes` · planned (Bridge Ph. 7; `minutes.record` is live) · viewKey `minutes.view`
+#### 8. Minutes — `minutes` · planned (Bridge Ph. 7; `minutes.record` is live) · viewKey `minutes.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -457,7 +496,7 @@ strip anyone's signing authority.
 | Minutes | `MINUTES_RECORD` | `minutes.record` | Record minute | C | | w | E |
 | Minutes | `MINUTES_PUBLISH` NEW | `minutes.publish` | Publish | M | | w | R |
 
-#### 8. After sales / warranty — `after_sales` · planned (Ph. 5) · viewKey `after_sales.view`
+#### 9. After sales / warranty — `after_sales` · planned (Ph. 5) · viewKey `after_sales.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -465,7 +504,7 @@ strip anyone's signing authority.
 | Warranty | `AS_CREATE` NEW | `after_sales.create` | Raise claim | C | | w | R |
 | Warranty | `AS_MANAGE` NEW | `after_sales.manage` | Handle (yard) | A | | d | R |
 
-#### 9. Yard invoices & payments — `yard_billing` · planned (Ph. 6) · viewKey `yard_invoice.view`
+#### 10. Yard invoices & payments — `yard_billing` · planned (Ph. 6) · viewKey `yard_invoice.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -474,7 +513,7 @@ strip anyone's signing authority.
 | Invoices | `YINV_MANAGE` NEW | `yard_invoice.manage` | Issue invoices | A | s | w | R |
 | Payments | `PAYMENT_RECORD` NEW | `payment.record` | Record payment | A | s | d | R |
 
-#### 10. Schedule & planning — `schedule` · scaffold (+ planned Ph. 9) · nav `/schedule` · viewKey `schedule.view`
+#### 11. Schedule & planning — `schedule` · scaffold (+ planned Ph. 9) · nav `/schedule` · viewKey `schedule.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -485,7 +524,7 @@ strip anyone's signing authority.
 | Planning | `PLAN_EDIT` NEW | `plan.edit` | Edit Gantt | M | | w | R |
 | Planning | `PLAN_MANAGE` NEW | `plan.manage` | Baselines | F | | w | R |
 
-#### 11. Budget & procurement — `financial` · scaffold · nav `/financials` · viewKey `financial.view`
+#### 12. Budget & procurement — `financial` · scaffold · nav `/financials` · viewKey `financial.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|
@@ -499,7 +538,7 @@ strip anyone's signing authority.
 | Procurement | `SINV_VIEW` NEW | `supplier_invoice.view` | See invoices | V | s | r | R |
 | Procurement | `SINV_APPROVE` NEW | `supplier_invoice.approve` | Approve invoices | A | s | d | R |
 
-#### 12–19. Scaffold modules (list-only today)
+#### 13–20. Scaffold modules (list-only today)
 
 | Module (id · nav) | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -526,7 +565,7 @@ strip anyone's signing authority.
 | Suppliers (`supplier` · `/suppliers`) | Directory | `SUP_VIEW` NEW | `supplier.view` | See | V | | r | E |
 | | | `SUP_EDIT` NEW | `supplier.edit` | Edit | M | | w | R |
 
-#### 20–22. Planned modules
+#### 21–23. Planned modules
 
 | Module (id · phase) | Group | Const | Key | Column | Lv | Tier | Kind | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -539,7 +578,7 @@ strip anyone's signing authority.
 | | | `FORMS_MANAGE` NEW | `forms.manage` | Edit forms | M | | w | R |
 | Notifications (`notifications` · Ph. 11) | Preferences | `NOTIF_PREFS` NEW | `notification.prefs` | Own settings | V | | self | R |
 
-#### 23. Access — `access` · live · nav `/admin/access` (navKeys `admin.access.view`, `admin.roles`, `admin.access.appoint`) · viewKey `admin.access.view`
+#### 24. Access — `access` · live · nav `/admin/access` (navKeys `admin.access.view`, `admin.roles`, `admin.access.appoint`) · viewKey `admin.access.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -550,7 +589,7 @@ strip anyone's signing authority.
 | Account | `ADM_ROLES` NEW (re-added) | `admin.roles` | Edit access sets | A | c | a | acct | E |
 | Account | `ADM_SETTINGS` NEW (re-added) | `admin.settings` | Settings | A | c | a | acct | R |
 
-#### 24. Audit — `audit` · live · nav `/admin` (navKeys `audit.view`, `audit.view.all`, `admin.users`) · viewKey `audit.view`
+#### 25. Audit — `audit` · live · nav `/admin` (navKeys `audit.view`, `audit.view.all`, `admin.users`) · viewKey `audit.view`
 
 | Group | Const | Key | Column | Lv | Tier | Kind | Scope | E/R |
 |---|---|---|---|---|---|---|---|---|
@@ -566,12 +605,13 @@ profile.
 
 ### 5.6 Count check (assert in `permissionCatalog.test.ts`)
 
-- **Existing keys:** the **42** in `rbac.ts` today, all retained under their current const names.
-- **New keys:** **70**. That's 57 genuinely new keys plus the 13 re-added reserved keys. By module:
+- **Existing keys:** the **43** in `rbac.ts` today, all retained under their current const names.
+- **New keys:** **75**. That's 62 genuinely new keys plus the 13 re-added reserved keys. By module:
 
   | Module | New | of which re-added |
   |---|---|---|
   | project | 4 | |
+  | vessel | 5 | |
   | home | 3 | |
   | job | 3 | |
   | change_order | 4 | |
@@ -596,37 +636,11 @@ profile.
   | access | 5 | 2 |
   | audit | 1 | |
 
-- **Total:** **112** keys across **24** modules. `export` stays retired.
-- **Account-scope keys (8):** `project.create`, `project.archive`, `report.portfolio.view`,
-  `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all`.
+- **Total:** **118** keys across **25** modules. `export` stays retired.
+- **Account-scope keys (10):** `project.create`, `project.archive`, `vessel.register.view`,
+  `vessel.register.manage`, `report.portfolio.view`, `admin.access.appoint`, `admin.users`,
+  `admin.roles`, `admin.settings`, `audit.view.all`.
   `admin.users` becomes account-scope, so it takes effect only from an unscoped assignment (§17).
-
----|---|
-  | project | 4 |
-  | home | 3 |
-  | job | 3 |
-  | change_order | 4 |
-  | crew_request | 5 |
-  | approvals | 1 |
-  | minutes | 2 |
-  | after_sales | 3 |
-  | yard_billing | 4 |
-  | schedule | 4 |
-  | financial | 6 |
-  | logistics | 1 |
-  | inventory | 1 |
-  | document | 1 |
-  | risk | 1 |
-  | supplier | 2 |
-  | location | 3 |
-  | contacts_forms | 4 |
-  | notifications | 1 |
-  | access | 3 |
-  | audit | 1 |
-
-- **Total:** **112** keys across **24** modules.
-- **Account-scope keys (8):** `project.create`, `project.archive`, `report.portfolio.view`,
-  `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all`.
 
 ---
 
@@ -671,8 +685,11 @@ Add `"ACCOUNT_ADMIN"` to `ROLE_KEYS`, and add `ROLE_CATEGORIES` and `DEPARTMENT_
 **V1 = V0 + the table below**, where V0 is today's `ROLE_PERMISSIONS` (`rbac.ts:70-188`, after
 G6.9 granted `admin.users` to OWNER, OWNERS_REP and PROJECT_MANAGER). Freeze V0 in
 `tests/fixtures/matrixV0.ts` and assert the exact diff. **No existing grant is removed.** The
-**visible** behaviour change comes from D-4: job prices, CO cost and crew-request cost were
-previously ungated, and are now gated by the new keys.
+**visible** behaviour changes come from new keys gating what used to ride on an older one:
+- D-4: job prices, CO cost and crew-request cost were previously ungated, and are now gated.
+- D-8: setting a vessel's verification status needed only `vessel.edit`, and now needs
+  `vessel.verify`.
+- The vessel pages were open to every project member, and now need `vessel.view` (§6.2 notes).
 
 The 13 re-added keys get back the holders they had before G6.7 deleted them. Nothing enforces
 them until their modules gain edit flows, so the grants are latent; they are listed so the
@@ -683,6 +700,11 @@ matrix is right the day a guard lands.
 | `project.access` | — | every set with any project key (R1) |
 | `project.sections.manage` | PROJECT_MANAGER, YARD_PM | |
 | `project.create`, `project.archive` | ACCOUNT_ADMIN | |
+| `vessel.view` | every set except CONTRACTOR, SUPPLIER, GUEST and ACCOUNT_ADMIN | every holder of a project-scope `vessel.*` key (R2) |
+| `vessel.verify` | CAPTAIN, TECH_MANAGER (D-8) | |
+| `vessel.gaps.manage` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER | |
+| `vessel.register.view` | every set holding `vessel.view`, plus ACCOUNT_ADMIN | every `vessel.register.manage` holder (R3) |
+| `vessel.register.manage` | OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER, ACCOUNT_ADMIN | |
 | `yard_home.view` | YARD_PM, YARD_TRADE_LEAD | |
 | `report.analytics.view` | OWNER, OWNERS_REP, PROJECT_MANAGER, FINANCE, AUDITOR | |
 | `report.portfolio.view` | OWNER, ACCOUNT_ADMIN | |
@@ -755,6 +777,14 @@ Notes:
   progress log when Phase 6 lands.
 - **OWNER keeps its read-only posture** in operational modules: no comment keys and no workflow
   keys. OWNER's administrative power comes from ACCOUNT_ADMIN, which the seed gives `owner@`.
+- **Vessel defaults.** Everyone who can move a data gap today (the V0 `vessel.edit` holders:
+  OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER) keeps it through `vessel.gaps.manage`.
+  Setting the verification status narrows to CAPTAIN and TECH_MANAGER (D-8): OWNERS_REP and
+  PROJECT_MANAGER keep `vessel.edit` and every particular, but see the status read-only. Fleet-level
+  gaps move to the account-scope `vessel.register.manage`, so the four editors keep them on an
+  unscoped assignment and lose them on a project-scoped one (D16). CONTRACTOR, SUPPLIER and GUEST
+  stop seeing vessel particulars by default. SUPPLIER could not take `vessel.view` anyway without
+  breaking its three-grant limit (§6.3).
 
 ### 6.3 Defaults must pass the rules
 
@@ -1039,7 +1069,7 @@ export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey,
 
 **Holder lookups (D3).** Reimplement `usersWithPermissionOnProject(project, key)` on
 `holdersOf`, keeping its name and signature so its five callers do not change
-(`change-orders/actions.ts:264,410`, `jobs/actions.ts:181,527`, `jobs/[id]/accept/actions.ts:251`).
+(`change-orders/actions.ts:273,419`, `jobs/actions.ts:193,546`, `jobs/[id]/accept/actions.ts:289`).
 **This is a semantic change** from "any covering assignment grants it" (union) to "the winning
 assignments grant it, after overrides" (D-5). Call it out in the commit message. Then:
 
@@ -1113,6 +1143,11 @@ Each rule is evaluated on every affected person's **resulting** effective set, a
 | `po.raise_vs_approve` | `purchase_order.manage` **and** `purchase_order.approve` | **block** |
 | `billing.invoice_vs_payment` | `yard_invoice.manage` **and** `payment.record` | **block** |
 | `drawing.upload_vs_approve` | `drawing.upload` **and** `drawing.approve` (runtime: nobody approves their own upload) | warn |
+
+Reviewed for the vessel module (§16 item 4): no rule. `vessel.verify` implies `vessel.edit` by
+design, because the person holding the certificates is the one who corrects particulars against
+them. Every change is still an observation with its basis and author, so the record shows who
+attested what.
 
 ### 11.4 Category ceilings
 
@@ -1207,7 +1242,7 @@ press Review & save. Module access levels are shown in List view."*
   - **Short capability labels**; the full label is in a tooltip and the `aria-label`.
 - **Modules are collapsed by default.** A collapsed module shows one summary cell per row: the
   level letter (or **C** for custom) and a count such as `9/16`. Clicking the band expands it,
-  and expanded modules persist in `?open=`. This is required, not optional: 112 columns do not fit
+  and expanded modules persist in `?open=`. This is required, not optional: 118 columns do not fit
   on screen, whereas the reference had 17.
 - **Planned modules** are hidden unless `planned=1`. When shown, their columns are hatched and
   labelled *Not yet built* (the same wording as G3.11's `ComingSoon`), and pre-granting is allowed.
@@ -1297,7 +1332,7 @@ quotes*", or "Granted by Pat Manager, 25 Sep — *Covering Ch/Off*". It includes
 - **Colour is never the only signal:** each state also has an icon or pattern. Keep text contrast
   at the WCAG AA level G5.1 established.
 
-### 12.12 Performance (target: 100 people × 112 keys)
+### 12.12 Performance (target: 100 people × 118 keys)
 
 - **Compact payload.** The server sends per row the template key indices, the overrides with
   their metadata, and an **editable bitstring**, about 12 KB in total. The client recomputes
@@ -1385,8 +1420,9 @@ Paths are under `src/app/(app)/` unless shown otherwise.
      membership key every project member holds. Users & access shows for project admins and for
      account admins (`admin.roles`, `admin.access.appoint`), matching §11.1. `/admin` shows for
      `audit.view`, `audit.view.all` or `admin.users`, and Approvals for `approvals.view` or any
-     stage key.
-   - `TopBar.tsx:66` shows the active project's presets.
+     stage key. Vessel and Fleet register show for `vessel.view` (§13.12).
+   - The profile menu (`TopBar.tsx:65`, shown at `UserMenu.tsx:73`) shows the active project's
+     presets.
 2. **List pages.** Check the module's `navKeys` (any of; `[viewKey]` unless set) on the active project. Lists stay scoped and capped
    per `CLAUDE.md` (`projectScope()` plus `take`).
 3. **Detail pages.** Load the record, then `forProject(user, record.projectId)`, then
@@ -1441,7 +1477,7 @@ Paths are under `src/app/(app)/` unless shown otherwise.
 10. **Approvals page (D5).**
     - Add a page gate: `approvals.view` or any CO stage key.
     - Import `CO_STAGE_PERMISSION`, delete the local `STAGE_PERM` (`approvals/page.tsx:16`), and
-      remove both `as any` (`:30` and `change-orders/actions.ts:311`).
+      remove both `as any` (`:30` and `change-orders/actions.ts:320`).
     - Scope to the active project, and show the full queue only with `approvals.view`.
 11. **Crew requests.** G2.4 already made `CR_TRANSITION_PERMISSION`
     (`src/lib/workflow/crewRequest.ts:72`) exhaustive. Its own comment defers a progress permission
@@ -1449,6 +1485,21 @@ Paths are under `src/app/(app)/` unless shown otherwise.
     - Transitions into IN_PROGRESS, BLOCKED and AWAITING_APPROVAL use `crew_request.progress`.
     - The assignee may progress their own request.
     - NEW, TRIAGED, ASSIGNED and REJECTED keep `crew_request.triage`.
+12. **Vessels (D16).** A vessel spans projects, so `guards.ts` adds `canOnVessel(user, key,
+    vesselId)`: true when the key holds on at least one project of that vessel the user can reach.
+    `assertPermissionOnVessel` throws `forbidden(...)`, or `notFound` when the vessel is unreachable.
+    - `src/lib/vessels/access.ts` lists the vessels on which `vessel.view` holds, not every vessel
+      behind a reachable project. `/vessels`, `/vessels/[id]` and `/vessels/[id]/edit` go through
+      it; `/vessel` and the dashboard's `VesselStrip` check `vessel.view` on the active project.
+    - `updateVesselAction` loads the vessel, then asserts `vessel.edit` on it. A change to the
+      verification status also needs `vessel.verify`; without it the select is read-only and a
+      posted change is refused.
+    - `updateDataGapAction` loads the gap first. A vessel's gap needs `vessel.gaps.manage` on that
+      vessel. A fleet-level gap (`vesselId` null) needs the account key `vessel.register.manage`
+      and no longer follows from reaching any register vessel.
+    - The register's fleet-level gaps and its missing-yard-number summary show only with
+      `vessel.register.view`.
+    - `/admin`'s vessel list links to `/vessels/[id]`; the scoping in item 9 covers it.
 
 ---
 
@@ -1477,7 +1528,8 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
   `assertPermission`, `assertPermissionOn` or `canOn`.
 - **(d)** Every `page.tsx` under `src/app/(app)/` contains a guard call. Allowlist: `dashboard`,
   `notifications`, `search`. Every exported async function in a `"use server"` file contains a
-  guard. Allowlist: `logout`, `setActiveProjectAction`.
+  guard. Allowlist: `logoutAction`, `setActiveProjectAction`, `setThemeAction` (a personal
+  preference).
 - **(e)** No holder lookup outside `src/lib/permissions/`: neither the Prisma form
   `permissions: { some: { permission:` nor the in-memory form `role.permissions.some(` (the
   shape of the authoriser check at `jobs/actions.ts:126-133`). This locks in D3.
@@ -1498,6 +1550,9 @@ This test scans `src/` as text. Keep the scan simple: regex over file contents.
 7. **D1 regression.** The CAPTAIN-on-p1 / CREW-on-p2 user sees approval controls on p1 and not on
    p2.
 8. **Money.** An HOD sees "—" for job totals; the Yard PM's export contains prices.
+9. **Vessel.** The PM (`vessel.edit` but, by D-8, no `vessel.verify`) cannot mark a vessel
+   certificate-verified, and the Captain can; `scoped@` cannot move a fleet-level data gap; a
+   supplier gets 404 on `/vessel`.
 
 Each test restores what it changed in `afterEach`, using a Prisma helper in `e2e/helpers/db.ts`.
 This avoids the re-run failures logged in `audit/findings-phase5.md`.
@@ -1517,6 +1572,8 @@ six checks in §1 (1).
   (auth-security and data-api).
 - [x] Append Gates 9–11 to `ACTION_PLAN.md`, add the decision record, and strike **G3.12** (folded
   into 10.3) with the reason.
+- [x] Add the vessel module after the register (PR #5) landed: module 2 in §5.5, its defaults in
+  §6.2, item 10.9, and D16 logged in `audit/findings-phase5.md`.
 
 ### Gate 9 — Access foundations
 
@@ -1524,7 +1581,7 @@ six checks in §1 (1).
 
 | Item | Scope | Done when |
 |---|---|---|
-| **9.1** | `keys.ts`, `catalog.ts`, `rbac.ts` façade; 42 existing + 70 new keys; `enforced` reflects today | typecheck passes with **zero** call-site edits; catalog tests green |
+| **9.1** | `keys.ts`, `catalog.ts`, `rbac.ts` façade; 43 existing + 75 new keys; `enforced` reflects today | typecheck passes with **zero** call-site edits; catalog tests green |
 | **9.2** | `defaults.ts` (20 sets incl. ACCOUNT_ADMIN), `sod.ts`, `ROLE_PERMISSIONS` derived (explicit grants); `ROLE_KEYS` + `ROLE_CATEGORIES` + `DEPARTMENT_LABELS` | defaults tests green; V0 diff test green; existing `rbac.test.ts` green |
 | **9.3** | Migration `access_matrix` (§7); count and log any `UserRole` rows with both `projectId` and `vesselId` set (§8.1) | `prisma migrate deploy` is clean on a fresh **and** a seeded database |
 | **9.4** | `sync.ts`; the seed uses it; fixtures (§9) | seeding twice gives 0 `RolePermission` writes on the second run; sync tests green; `npm run qa` checks that a customised set survives the seed |
@@ -1544,7 +1601,8 @@ six checks in §1 (1).
 | **10.6** | Money redaction on every page in §13.7 (D6) | an HOD sees "—" on job totals |
 | **10.7** | `recordAudit` gains `projectId`; `/admin` split and scoped; dashboard activity filtered; `/admin/projects` narrowed to projects the user can edit (§13.9, D10, D15) | a crew dashboard shows no rows they cannot view; a scoped PM does not see the fleet directory |
 | **10.8** | Approvals page gate and fix (§13.10, D5); crew-request progress key (§13.11) | no `as any`; scoped to the active project; an assignee can progress their own request |
-| **10.9** | Static coverage test (§14.2); `enforced` flags final | deleting any guard makes it fail |
+| **10.9** | Vessel module: `vessel.view` on every vessel page and the dashboard strip; checks after load, per vessel, in both vessel actions; `vessel.verify`, `vessel.gaps.manage` and the register keys (§13.12, D16) | a scoped PM cannot move a fleet-level gap; an editor without `vessel.verify` cannot mark a vessel certificate-verified; a supplier gets 404 on `/vessel` |
+| **10.10** | Static coverage test (§14.2); `enforced` flags final | deleting any guard makes it fail |
 
 ### Gate 11 — The Users & Access feature
 
@@ -1595,6 +1653,14 @@ role → permission matrix.
 
 - **Global directories.** Contractor and Supplier have no `projectId`, so their keys are
   evaluated on the active project. Document this until those models gain a project link.
+- **Vessels span projects.** A vessel key holds when it holds on any reachable project of that
+  vessel (§13.12), so `vessel.edit` held on one of a vessel's projects lets that person edit the
+  vessel whichever of its projects is active. That is intended: particulars belong to the vessel,
+  not to one yard period.
+- **Behaviour change from the vessel defaults:** contractors, suppliers and guests lose the vessel
+  pages; the Owner's Rep and the PM stop setting the verification status (D-8); and fleet-level
+  data gaps need an unscoped assignment. Admins can grant `vessel.view` and `vessel.verify` back
+  per person.
 - **Drift across projects.** Per-project overrides will diverge on the same vessel. A
   "differs from other projects on this vessel" row indicator is a follow-up after 11.11.
 - **Template edits are fleet-wide,** hence the mandatory impact preview (§12.9).
@@ -1622,7 +1688,7 @@ role → permission matrix.
 
 ## 18. Final acceptance checklist
 
-- [ ] Every one of the 112 keys is in the catalog, in exactly one module group, with complete metadata.
+- [ ] Every one of the 118 keys is in the catalog, in exactly one module group, with complete metadata.
 - [ ] The seed never clobbers an admin edit; a second seed makes zero writes.
 - [ ] Effective permissions honour assignment scope; the D1 regression is covered by unit and e2e tests.
 - [ ] No permission-holder lookup bypasses `holdersOf`.
