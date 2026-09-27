@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, type RefObject } from "react";
 import {
   LayoutDashboard,
   FileDiff,
@@ -63,20 +64,67 @@ const NAV: { label: string; href: string; section?: string; icon: LucideIcon }[]
  * AppShell's `open` state); at `md` and up it reverts to the original
  * always-visible column via the `md:` overrides.
  */
+/** Elements a Tab loop should stop at, in DOM order, inside the drawer. */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Sidebar({
   unread = 0,
   open,
   onClose,
   projects,
   activeProjectId,
+  triggerRef,
 }: {
   unread?: number;
   open: boolean;
   onClose: () => void;
   projects: ProjectSummary[];
   activeProjectId: string | null;
+  /** The hamburger button that opens this drawer, so focus returns to it on close. */
+  triggerRef?: RefObject<HTMLElement>;
 }) {
   const pathname = usePathname();
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // The drawer used to be portaled onto the page with no focus management at
+  // all: opening it left focus on the now-hidden hamburger button, so Tab
+  // walked the page behind the backdrop before ever reaching a nav link, and
+  // Escape did nothing (auth-security/accessibility's "Drawer skips keyboard
+  // focus management"). Below `md` this runs as an actual modal: focus
+  // moves in on open, Tab is trapped inside it, Escape closes it, and focus
+  // returns to the button that opened it.
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus();
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      triggerRef?.current?.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   return (
     <>
       {/* Backdrop — mobile only, and only while the drawer is open. */}
@@ -89,9 +137,15 @@ export function Sidebar({
       )}
       {/* A plain div, not <aside> — the primary nav below should be the
           `navigation` landmark, not nested inside a `complementary` one
-          (ACTION_PLAN.md G5.5). */}
+          (ACTION_PLAN.md G5.5). role/aria-modal apply only while the drawer
+          is acting as an off-canvas overlay (`open`); at `md` and up it is a
+          persistent, non-modal sidebar regardless of `open`. */}
       <div
+        ref={drawerRef}
         data-testid="mobile-nav-drawer"
+        role={open ? "dialog" : undefined}
+        aria-modal={open ? true : undefined}
+        aria-label={open ? "Main navigation" : undefined}
         className={cn(
           "fixed inset-y-0 left-0 z-40 w-60 shrink-0 bg-ink-950 border-r border-line overflow-y-auto",
           "transition-transform duration-200 ease-out",
@@ -110,6 +164,7 @@ export function Sidebar({
             </div>
           </Link>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             aria-label="Close menu"

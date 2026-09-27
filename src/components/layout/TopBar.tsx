@@ -6,17 +6,21 @@ import { logoutAction } from "@/app/(app)/_actions";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import type { ProjectSummary } from "@/lib/project";
+import type { RefObject } from "react";
 
 export function TopBar({
   user,
   projects,
   activeProjectId,
   onOpenNav,
+  navTriggerRef,
 }: {
   user: { name: string; email: string; roleKeys: string[] };
   projects: ProjectSummary[];
   activeProjectId: string | null;
   onOpenNav: () => void;
+  /** So the drawer can return focus here when it closes. */
+  navTriggerRef?: RefObject<HTMLButtonElement>;
 }) {
   const initials = user.name
     .split(" ")
@@ -28,6 +32,7 @@ export function TopBar({
   return (
     <header className="h-14 border-b border-line bg-ink-950/70 backdrop-blur-md sticky top-0 z-10 flex items-center px-4 gap-4">
       <button
+        ref={navTriggerRef}
         type="button"
         onClick={onOpenNav}
         aria-label="Open menu"

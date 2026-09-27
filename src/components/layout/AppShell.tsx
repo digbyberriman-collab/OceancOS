@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import type { ProjectSummary } from "@/lib/project";
@@ -26,6 +26,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
+  const navTriggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="min-h-screen flex">
@@ -41,6 +42,7 @@ export function AppShell({
         onClose={() => setNavOpen(false)}
         projects={projects}
         activeProjectId={activeProjectId}
+        triggerRef={navTriggerRef}
       />
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar
@@ -48,6 +50,7 @@ export function AppShell({
           projects={projects}
           activeProjectId={activeProjectId}
           onOpenNav={() => setNavOpen(true)}
+          navTriggerRef={navTriggerRef}
         />
         <main id="main" className="flex-1 p-6 max-w-[1400px] w-full mx-auto">
           {children}
