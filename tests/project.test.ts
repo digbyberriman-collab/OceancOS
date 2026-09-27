@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { resolveProjectWhere, resolveUserRoleWhereForProject, sortProjectSummaries } from "@/lib/project";
+import {
+  resolveProjectWhere,
+  resolveUserRoleWhereForProject,
+  sortProjectSummaries,
+  workspaceProjectIds,
+} from "@/lib/project";
 
 describe("resolveProjectWhere", () => {
   it("admits everything for an unscoped role", () => {
@@ -25,11 +30,11 @@ describe("resolveProjectWhere", () => {
     });
   });
 
-  it("scopes to named vessels", () => {
+  it("scopes to named vessels, leaving out any demo project parked on them", () => {
     const scopes = [{ projectId: null, vesselId: "v1" }];
     expect(resolveProjectWhere(scopes)).toEqual({
       archivedAt: null,
-      OR: [{ vesselId: { in: ["v1"] } }],
+      OR: [{ vesselId: { in: ["v1"] }, isDemo: false }],
     });
   });
 
@@ -40,7 +45,7 @@ describe("resolveProjectWhere", () => {
     ];
     expect(resolveProjectWhere(scopes)).toEqual({
       archivedAt: null,
-      OR: [{ id: { in: ["p1"] } }, { vesselId: { in: ["v1"] } }],
+      OR: [{ id: { in: ["p1"] } }, { vesselId: { in: ["v1"] }, isDemo: false }],
     });
   });
 
@@ -53,7 +58,7 @@ describe("resolveProjectWhere", () => {
 });
 
 describe("resolveUserRoleWhereForProject", () => {
-  const project = { id: "p1", vesselId: "v1" };
+  const project = { id: "p1", vesselId: "v1", isDemo: false };
 
   it("admits an unscoped role", () => {
     const where = resolveUserRoleWhereForProject(project);
@@ -74,6 +79,34 @@ describe("resolveUserRoleWhereForProject", () => {
     const where = resolveUserRoleWhereForProject(project);
     expect(where.OR).not.toContainEqual({ projectId: "other" });
     expect(where.OR).not.toContainEqual({ vesselId: "other-vessel" });
+  });
+
+  it("does not admit a role scoped to the vessel of a demo project", () => {
+    const where = resolveUserRoleWhereForProject({ ...project, isDemo: true });
+    expect(where.OR).not.toContainEqual({ vesselId: "v1" });
+    expect(where.OR).toContainEqual({ projectId: "p1" });
+    expect(where.OR).toContainEqual({ projectId: null, vesselId: null });
+  });
+});
+
+describe("workspaceProjectIds", () => {
+  const projects = [
+    { id: "demo-1", isDemo: true },
+    { id: "real-1", isDemo: false },
+    { id: "demo-2", isDemo: true },
+    { id: "real-2", isDemo: false },
+  ];
+
+  it("covers only real projects while working in a real one", () => {
+    expect(workspaceProjectIds(projects, false)).toEqual(["real-1", "real-2"]);
+  });
+
+  it("covers only demo projects while working in a demo one", () => {
+    expect(workspaceProjectIds(projects, true)).toEqual(["demo-1", "demo-2"]);
+  });
+
+  it("covers nothing for a user who can reach nothing", () => {
+    expect(workspaceProjectIds([], false)).toEqual([]);
   });
 });
 
