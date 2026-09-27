@@ -29,6 +29,25 @@ export async function createCrewRequest(formData: FormData) {
   const parsed = CrewRequestCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) throw invalid(parsed.error.errors.map((e) => e.message).join(", "));
   const data = parsed.data;
+
+  // The form only offers this project's change orders and its vessel's areas,
+  // but the ids arrive from the client: a foreign key proves the row exists,
+  // not that it belongs to this project.
+  if (data.linkedChangeOrderId) {
+    const linked = await prisma.changeOrder.findFirst({
+      where: { id: data.linkedChangeOrderId, projectId: project.id },
+      select: { id: true },
+    });
+    if (!linked) throw invalid("That change order is not on this project.");
+  }
+  if (data.vesselAreaId) {
+    const area = await prisma.vesselArea.findFirst({
+      where: { id: data.vesselAreaId, vesselId: project.vesselId },
+      select: { id: true },
+    });
+    if (!area) throw invalid("That area is not on this project's vessel.");
+  }
+
   const number = await nextSequence("REQ");
   const cr = await prisma.crewRequest.create({
     data: {

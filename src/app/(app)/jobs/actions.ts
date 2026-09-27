@@ -132,11 +132,23 @@ export async function createJobRequest(formData: FormData) {
   );
   if (!authoriser || !canAccept) back("That person cannot authorise quotes.");
 
+  // The form only offers this project's sections and change orders, but the
+  // ids arrive from the client: a foreign key proves the row exists, not that
+  // it belongs to this project.
+  if (data.linkedChangeOrderId) {
+    const linked = await prisma.changeOrder.findFirst({
+      where: { id: data.linkedChangeOrderId, projectId: project.id },
+      select: { id: true },
+    });
+    if (!linked) back("That change order is not on this project.");
+  }
+
   // A request has no yard code yet, so it takes a placeholder in the section's
   // request group, which the yard replaces when it issues the quote.
   const section = data.sectionId
-    ? await prisma.jobSection.findUnique({ where: { id: data.sectionId } })
+    ? await prisma.jobSection.findFirst({ where: { id: data.sectionId, projectId: project.id } })
     : null;
+  if (data.sectionId && !section) back("That section is not on this project.");
   const letter = section?.letter ?? "R";
   const groupCode = `${letter}.0000`;
   const siblings = await prisma.job.findMany({
