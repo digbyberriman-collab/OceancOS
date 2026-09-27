@@ -323,7 +323,7 @@ module view key.
 
 ### [UI] — The TopBar shows the user's first role, not their role on the active project
 Severity: Low
-Location: `src/components/layout/TopBar.tsx:66`
+Location: `src/components/layout/TopBar.tsx:65` (shown by `src/components/layout/UserMenu.tsx:73`)
 Found by: permission-matrix planning, after Gate 7
 
 Description:

@@ -101,7 +101,7 @@ export function Sidebar({
       >
         <div className="px-4 py-4 border-b border-line flex items-center justify-between gap-2">
           <Link href="/dashboard" className="group flex items-center gap-2.5" onClick={onClose}>
-            <div className="relative w-8 h-8 rounded-lg bg-brand-gradient grid place-items-center text-white font-bold shadow-glow transition-transform duration-200 group-hover:scale-105">
+            <div className="relative w-8 h-8 rounded-lg bg-brand-gradient grid place-items-center text-on-accent font-bold shadow-glow transition-transform duration-200 group-hover:scale-105">
               O
             </div>
             <div className="leading-tight">

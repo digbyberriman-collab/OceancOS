@@ -165,8 +165,9 @@ line numbers drift. If one is no longer true, note it in your first commit messa
   like `PENDING` does, and "Resume review" resets it; `updateChangeOrder` restages CLASS/FLAG rows
   through `approvalStageChanges` (`src/lib/workflow/changeOrder.ts`) when the review flags change.
 - **Shell:** `src/app/(app)/layout.tsx` renders `src/components/layout/AppShell.tsx`, which has the
-  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:52`. The `NAV` array is in
-  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:66` shows `roleKeys[0]`.
+  skip link and `<main id="main" className="… max-w-[1400px] …">` at `:57`. The `NAV` array is in
+  `Sidebar.tsx:32-54`, rendered unfiltered at `:131`. `TopBar.tsx:65` passes `roleKeys[0]` to the
+  profile menu, which shows it at `UserMenu.tsx:73`.
 - **UI kit** (`src/components/ui/`): `Badge`, `ComingSoon` (the "Not yet built" state from G3.11),
   `EmptyState`, `FileDrop`, `FlashCleanup`, `Form`, `PdfButton`, `Skeleton`, `SubmitButton`
   (`useFormStatus`). **There is no Dialog component.**
@@ -201,7 +202,7 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 | D11 | **Comments are gated on the view key.** Fixed in Gate 2 (permission, parent existence and project checks); this work gives them their own `*.comment` keys. | `change-orders/actions.ts:440`, `crew-requests/actions.ts:180` |
 | D12 | **Reservation is implicit.** G6.7 deleted 13 keys for modules that have no guards yet; this work re-adds them as explicit `enforced: false` reserved keys (§5). | `audit/findings-dead-code.md:131-134` |
 | D13 | **The sidebar shows every module to every user.** Already logged (auth-security `[RBAC]`, Low). | `Sidebar.tsx:32-54,131` |
-| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:66` |
+| D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:65`, `UserMenu.tsx:73` |
 | D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:20,27-51` |
 | D16 | **The vessel module runs on one global key.** `vessel.edit` covers editing particulars, attesting them certificate-verified, and moving data gaps, and both vessel actions check it before loading the record. A fleet-level data gap is reachable from any register vessel, so a PM scoped to one refit can close a gap that concerns the whole register, and `/vessels` shows every viewer the fleet-level gaps and the unmapped yard numbers across the whole register. Seeing particulars needs no key, so contractors, suppliers and guests on a project see them too. | `vessels/actions.ts:30`→`:33` and `:116`→`:125`, `:45-46` (verification), `:129-131` (fleet-level gaps); `vessels/page.tsx:46,50` |
 
@@ -1062,7 +1063,7 @@ export async function assertPermissionOn(user: CurrentUserT, key: PermissionKey,
 
 **Holder lookups (D3).** Reimplement `usersWithPermissionOnProject(project, key)` on
 `holdersOf`, keeping its name and signature so its five callers do not change
-(`change-orders/actions.ts:273,419`, `jobs/actions.ts:193,546`, `jobs/[id]/accept/actions.ts:251`).
+(`change-orders/actions.ts:273,419`, `jobs/actions.ts:193,546`, `jobs/[id]/accept/actions.ts:289`).
 **This is a semantic change** from "any covering assignment grants it" (union) to "the winning
 assignments grant it, after overrides" (D-5). Call it out in the commit message. Then:
 
