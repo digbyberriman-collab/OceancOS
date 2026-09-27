@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, ExternalLink, History, Info } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  CheckCircle2,
+  ExternalLink,
+  History,
+  Info,
+  Pencil,
+} from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getActiveProject } from "@/lib/project";
 import { hasPermission, PERMISSIONS } from "@/lib/rbac";
@@ -41,7 +49,13 @@ function Missing({ children }: { children: ReactNode }) {
   return <span className="text-faint">{children}</span>;
 }
 
-export default async function ProjectOverviewPage({ params }: { params: { id: string } }) {
+export default async function ProjectOverviewPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { saved?: string };
+}) {
   const user = await requireUser();
   const project = await loadProjectOverview(user.id, params.id);
   if (!project) return notFound();
@@ -50,6 +64,7 @@ export default async function ProjectOverviewPage({ params }: { params: { id: st
   const record = project.yardPeriod;
   const canSeeMoney = hasPermission(user, PERMISSIONS.FIN_VIEW);
   const canEditGaps = hasPermission(user, PERMISSIONS.VESSEL_EDIT);
+  const canEditRecord = hasPermission(user, PERMISSIONS.PROJ_EDIT) && !!project.yardPeriod;
   const returnTo = `/projects/${project.id}`;
 
   const heading = record
@@ -80,6 +95,12 @@ export default async function ProjectOverviewPage({ params }: { params: { id: st
               {project.isDemo && <DemoBadge />}
               <StatusBadge value={project.status} />
               {record && <ConfidenceBadge value={record.confidence} />}
+              {canEditRecord && (
+                <Link href={`/projects/${project.id}/edit`} className="btn">
+                  <Pencil size={14} />
+                  Edit period
+                </Link>
+              )}
               {active?.id !== project.id && (
                 <form action={openProjectAction}>
                   <input type="hidden" name="projectId" value={project.id} />
@@ -92,6 +113,16 @@ export default async function ProjectOverviewPage({ params }: { params: { id: st
           }
         />
       </div>
+
+      {searchParams.saved === "record" && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-lg border border-ok/30 bg-ok/10 px-3.5 py-3 text-sm text-ok"
+        >
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>Yard period saved.</span>
+        </div>
+      )}
 
       {record ? (
         <YardPeriodSections project={project} canSeeMoney={canSeeMoney} />

@@ -14,12 +14,14 @@ import { requireProjectAccess } from "@/lib/project";
 import { notFound } from "@/lib/errors";
 import { setFormFlash } from "@/lib/formFlash";
 import { PROJECT_TYPES } from "@/lib/enums";
+import { ProjectStatusSchema } from "@/lib/validators";
 
 export type ProjectFormFlash = {
   error: string;
   values: {
     name: string;
     type: string;
+    status: string;
     code: string;
     yardName: string;
     currency: string;
@@ -50,6 +52,7 @@ export async function updateProjectAction(formData: FormData) {
   const rawValues: ProjectFormFlash["values"] = {
     name: String(formData.get("name") ?? ""),
     type: String(formData.get("type") ?? ""),
+    status: String(formData.get("status") ?? ""),
     code: String(formData.get("code") ?? ""),
     yardName: String(formData.get("yardName") ?? ""),
     currency: String(formData.get("currency") ?? "EUR"),
@@ -63,7 +66,10 @@ export async function updateProjectAction(formData: FormData) {
     redirect(`/admin/projects?id=${id}`);
   };
 
-  const existing = await prisma.project.findUnique({ where: { id } });
+  const existing = await prisma.project.findUnique({
+    where: { id },
+    include: { yardPeriod: { select: { id: true } } },
+  });
   // A stale link (the project was archived or removed elsewhere) — not
   // something retyping the form fixes, so this is the ActionError boundary,
   // not a flash (AUDIT_REPORT.md T3 / ACTION_PLAN.md G3.6).
@@ -74,12 +80,21 @@ export async function updateProjectAction(formData: FormData) {
   // project in the database by id.
   await requireProjectAccess(user.id, id);
 
-  const dates = {
-    arrivalDate: parseDateField(formData.get("arrivalDate")),
-    haulOutDate: parseDateField(formData.get("haulOutDate")),
-    seaTrialsDate: parseDateField(formData.get("seaTrialsDate")),
-    departureDate: parseDateField(formData.get("departureDate")),
-  };
+  // A historical yard period keeps its dates as published, on its record;
+  // it has no exact dates to set here, and the form offers none.
+  const dates = existing.yardPeriod
+    ? {
+        arrivalDate: existing.arrivalDate,
+        haulOutDate: existing.haulOutDate,
+        seaTrialsDate: existing.seaTrialsDate,
+        departureDate: existing.departureDate,
+      }
+    : {
+        arrivalDate: parseDateField(formData.get("arrivalDate")),
+        haulOutDate: parseDateField(formData.get("haulOutDate")),
+        seaTrialsDate: parseDateField(formData.get("seaTrialsDate")),
+        departureDate: parseDateField(formData.get("departureDate")),
+      };
 
   const problems = validateYardPeriod(dates);
   if (problems.length) back(problems[0].message);
@@ -98,13 +113,16 @@ export async function updateProjectAction(formData: FormData) {
   if (!name) back("A project needs a name.");
   const type = String(formData.get("type") ?? existing.type);
   if (!(PROJECT_TYPES as readonly string[]).includes(type)) back("Choose a project type from the list.");
+  const statusInput = formData.get("status");
+  const status = ProjectStatusSchema.safeParse(statusInput == null ? existing.status : String(statusInput));
+  if (!status.success) back("Choose a status from the list.");
 
   const yardName = String(formData.get("yardName") ?? "").trim() || null;
   const currency = String(formData.get("currency") ?? "EUR").trim().toUpperCase() || "EUR";
 
   await prisma.project.update({
     where: { id },
-    data: { ...dates, name, type, code, yardName, currency },
+    data: { ...dates, name, type, status: status.data, code, yardName, currency },
   });
 
   await recordAudit({
@@ -115,6 +133,7 @@ export async function updateProjectAction(formData: FormData) {
     details: {
       name,
       type,
+      status: status.data,
       code,
       yardName,
       currency,
