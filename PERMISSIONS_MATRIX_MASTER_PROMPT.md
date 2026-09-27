@@ -90,31 +90,31 @@ The screen is only the visible part. The real work underneath:
 
 ## 3. Verify the current state first
 
-This prompt is baselined on the tree after ACTION_PLAN Gates 0–7 (branch
-`claude/charming-bell-36iht1`, PR #7; Gate 7's results are in
-`audit/findings-phase6-regression.md`). Before writing code, confirm each fact below against the
-tree; line numbers drift. If one is no longer true, note it in your first commit message and adapt.
+This prompt is baselined on `claude/yacht-shipyard-management-WMUvA` after ACTION_PLAN Gates 0–7
+(PR #7; Gate 7's results are in `audit/findings-phase6-regression.md`), the vessel register
+(PR #5) and PR #10's review fixes. Before writing code, confirm each fact below against the tree;
+line numbers drift. If one is no longer true, note it in your first commit message and adapt.
 
 ### 3.1 What exists
 
 - **Stack:** Next.js 14.2 App Router, TypeScript, Prisma 5 on PostgreSQL, Tailwind, zod, Vitest
-  (`tests/`, 21 files), Playwright (`e2e/`, 12 specs, `workers: 1`). Server components plus server
+  (`tests/`, 24 files), Playwright (`e2e/`, 14 specs, `workers: 1`). Server components plus server
   actions. Single-tenant, with no Organization model. There is no Supabase and no RLS:
   authorization is app-level only.
 - **Permissions:** `src/lib/rbac.ts`.
-  - `PERMISSIONS` (**42 keys** after G6.7 removed the 14 unenforced ones) at `:6-63`;
-    `PermissionKey` at `:65`.
+  - `PERMISSIONS` (**43 keys**: the 42 left after G6.7 removed the 14 unenforced ones, plus
+    `vessel.edit` from the vessel register) at `:6-65`; `PermissionKey` at `:67`.
   - `ROLE_PERMISSIONS: Record<RoleKey, PermissionKey[]>` at `:68-184`, "the seed". Since G6.9,
     `admin.users` is held by OWNER, OWNERS_REP and PROJECT_MANAGER; `/admin` checks it separately
     from `audit.view` (`admin/page.tsx:20-21`).
-  - `hasPermission` at `:186`, `hasAnyRole` at `:190` (unused outside tests), `assertPermission`
-    at `:202`.
+  - `hasPermission` at `:190`, `hasAnyRole` at `:194` (unused outside tests), `assertPermission`
+    at `:206`.
 - **Roles and departments:** `src/lib/enums.ts`. `ROLE_KEYS` (19) at `:3-23`, `DEPARTMENTS` (12)
   at `:165`, `CO_APPROVAL_STAGES` at `:43`. There is no separate rank model; roles double as ranks.
 - **Schema:** `prisma/schema.prisma`. `User` (`:14`), `Role` (`:76`), `Permission` (`:85`),
   `RolePermission` (`:92`), `UserRole` (`:101`: `userId, roleId, vesselId?, projectId?,
   departmentId?`, already indexed on every column, no unique constraint on the tuple),
-  `Department` (`:183`: `name, code`, no sort order), `AuditLog` (`:723`: **no `projectId`**).
+  `Department` (`:315`: `name, code`, no sort order), `AuditLog` (`:855`: **no `projectId`**).
   `UserRole.departmentId` is still never read.
 - **Loading the user:** `getCurrentUser` at `src/lib/auth.ts:59`, wrapped in `requestCache`. It
   builds `permissions` at `:75-77` from **every** `UserRole` row, ignoring scope (D1).
@@ -122,14 +122,14 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
 
   | Export | Line | What it does |
   |---|---|---|
-  | `resolveProjectWhere` | `:40` | pure; an unscoped assignment reaches every project |
-  | `listProjectsForUser` | `:69` | `requestCache`d; the reachable projects, `take: 200` |
-  | `accessibleProjectIds` | `:95` | the ids of the above |
-  | `projectScope` | `:114` | a Prisma `where` that never matches when nothing is reachable |
-  | `requireProjectAccess` | `:124` | throws `forbidden(...)` for an unreachable project |
-  | `getActiveProject` / `storeActiveProject` | `:147` / `:167` | the header project switcher |
-  | `resolveUserRoleWhereForProject` | `:189` | pure; the assignments that cover a project |
-  | `usersWithPermissionOnProject` | `:208` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
+  | `resolveProjectWhere` | `:41` | pure; an unscoped assignment reaches every project |
+  | `listProjectsForUser` | `:70` | `requestCache`d; the reachable projects, `take: 200` |
+  | `accessibleProjectIds` | `:97` | the ids of the above |
+  | `projectScope` | `:116` | a Prisma `where` that never matches when nothing is reachable |
+  | `requireProjectAccess` | `:126` | throws `forbidden(...)` for an unreachable project |
+  | `getActiveProject` / `storeActiveProject` | `:149` / `:169` | the header project switcher |
+  | `resolveUserRoleWhereForProject` | `:191` | pure; the assignments that cover a project |
+  | `usersWithPermissionOnProject` | `:210` | holders of a key on a project: scope-aware, but a **union** of covering assignments |
 
 - **Workflow:** `applyTransition` at `src/lib/workflow/transition.ts:41` is **write-only**: a
   status write conditional on the status read. Callers check legality, permission and project
@@ -137,9 +137,23 @@ tree; line numbers drift. If one is no longer true, note it in your first commit
   `permissionForTransition` (`:78`), `JOB_TRANSITION_PERMISSION` (`src/lib/jobs/workflow.ts:48`) and
   `CR_TRANSITION_PERMISSION` (`src/lib/workflow/crewRequest.ts:72`).
 - **Seed** (`prisma/seed.ts`): 19 accounts, one per role, all unscoped (the seven added in G6.9 at
-  `:153`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:185`), used by
-  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806). Passwords come from
-  `SEED_PASSWORD` and are required in production.
+  `:155`), plus `scoped@oceancos.dev`, a PROJECT_MANAGER scoped to p1 only (`:187`), used by
+  `e2e/tenancy.spec.ts`. Two vessels and two projects (p1 R-00721, p2 R-00806), plus the Oceanco
+  Y700 register: 22 vessels, each with a project coded by its yard number (Y701–Y726). Passwords
+  come from `SEED_PASSWORD` and are required in production.
+- **Vessel register** (PR #5):
+  - Routes: `/vessel` (the active project's vessel), `/vessels` (the fleet register),
+    `/vessels/[id]` and `/vessels/[id]/edit`. Sidebar entries at `Sidebar.tsx:38` and `:43`; the
+    dashboard's `VesselStrip` at `dashboard/page.tsx:192`.
+  - Visibility has no key: `src/lib/vessels/access.ts` derives a user's vessels from
+    `listProjectsForUser`, so every project member, externals included, sees the particulars.
+  - One key, `vessel.edit` (OWNERS_REP, PROJECT_MANAGER, CAPTAIN, TECH_MANAGER), guards both
+    actions in `vessels/actions.ts`: `updateVesselAction` edits particulars **and** sets the
+    verification status (`UNVERIFIED` / `PUBLIC_SOURCE` / `CERTIFICATE_VERIFIED`), writing a
+    `MANUAL` observation per changed field; `updateDataGapAction` moves data gaps, including
+    fleet-level gaps (`vesselId` null).
+  - `npm run vessels:import` loads the register workbook from the command line; it has no
+    in-app entry point.
 - **Admin UI:**
   - `src/app/(app)/admin/page.tsx` is read-only. It shows the user directory to `admin.users`
     holders and the audit log to `audit.view` holders. Its user, vessel and project queries are
@@ -190,8 +204,8 @@ All paths are under `src/app/(app)/` unless shown otherwise.
 | D14 | **The TopBar shows the first global role,** which is meaningless once roles are per project. | `TopBar.tsx:66` |
 | D15 | **`/admin` shows the platform-wide user, vessel and project directory to every `admin.users` holder**, which since G6.9 includes every project manager, scoped or not. | `admin/page.tsx:20,27-51` |
 
-D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are **not yet logged**.
-Item P.0 (§15) logs them.
+D1, D2, D3, D4, D5, D6/D7 (as one money-model finding), D10, D14 and D15 are logged at the end of
+`audit/findings-phase5.md` (item P.0, §15, done).
 
 ### 3.3 Where this sits in ACTION_PLAN
 
@@ -600,33 +614,6 @@ profile.
 - **Account-scope keys (8):** `project.create`, `project.archive`, `report.portfolio.view`,
   `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all`.
   `admin.users` becomes account-scope, so it takes effect only from an unscoped assignment (§17).
-
----|---|
-  | project | 4 |
-  | home | 3 |
-  | job | 3 |
-  | change_order | 4 |
-  | crew_request | 5 |
-  | approvals | 1 |
-  | minutes | 2 |
-  | after_sales | 3 |
-  | yard_billing | 4 |
-  | schedule | 4 |
-  | financial | 6 |
-  | logistics | 1 |
-  | inventory | 1 |
-  | document | 1 |
-  | risk | 1 |
-  | supplier | 2 |
-  | location | 3 |
-  | contacts_forms | 4 |
-  | notifications | 1 |
-  | access | 3 |
-  | audit | 1 |
-
-- **Total:** **112** keys across **24** modules.
-- **Account-scope keys (8):** `project.create`, `project.archive`, `report.portfolio.view`,
-  `admin.access.appoint`, `admin.users`, `admin.roles`, `admin.settings`, `audit.view.all`.
 
 ---
 
