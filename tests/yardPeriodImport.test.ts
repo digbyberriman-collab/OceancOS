@@ -39,7 +39,9 @@ describe("planYardPeriods", () => {
       description:
         "Proyacht records 1,420 hours of outfit and construction work on Y709 since 2023",
     });
-    expect(rebuild.evidence.filter((e) => e.kind === "SOURCE")).toHaveLength(2);
+    const sources = rebuild.evidence.filter((e) => e.kind === "SOURCE");
+    expect(sources).toHaveLength(2);
+    expect(sources[1].qualification).toMatch(/^The register lists Proyacht's 1,420 hours on Y709 as a row of its own/);
     expect(rebuild.record.contractorsText?.split("; ")).toContain("Proyacht");
   });
 

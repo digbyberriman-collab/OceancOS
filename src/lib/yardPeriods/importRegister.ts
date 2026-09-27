@@ -248,7 +248,7 @@ export function planYardPeriods(register: YardPeriodRegister): YardPeriodPlan {
       sourceQuality: row.sourceQuality,
       confidence: row.confidence,
       issue: null,
-      qualification: `${row.scope ?? row.periodType} ${merge.reason}`,
+      qualification: merge.reason,
     });
     const contractors = splitList(into.record.contractorsText);
     for (const c of splitList(row.contractors)) if (!contractors.includes(c)) contractors.push(c);
